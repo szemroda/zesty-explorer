@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Zesty Explorer — Verification Plan</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="./index.html">Zesty Explorer plan</a>
+        <nav aria-label="Plan sections">
+          <a href="./index.html">Overview</a>
+          <a href="./01-foundation.html">Foundation</a>
+          <a href="./02-explorer.html">Explorer</a>
+          <a href="./03-verification.html" aria-current="page">Verification</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <p class="eyebrow">Phases 11–14</p>
+      <h1>Prove safety, usability, and performance.</h1>
+      <p class="lede">
+        The last phases exercise the complete application against offline fixtures, measure the
+        agreed budgets, and leave a clean local workflow for the team. They do not introduce CI.
+      </p>
+
+      <ol class="toc">
+        <li><a href="#phase-11">Harden failures, limits, and security</a></li>
+        <li><a href="#phase-12">Automate browser and accessibility checks</a></li>
+        <li><a href="#phase-13">Measure and tune performance</a></li>
+        <li><a href="#phase-14">Complete documentation and handoff</a></li>
+      </ol>
+
+      <section class="phase" id="phase-11">
+        <span class="phase-number">11</span>
+        <h2>Harden failures, limits, and security</h2>
+        <div class="phase-meta"><span>Depends on: phases 5–10</span><span>Milestone: M4 begins</span></div>
+        <ul class="tasks">
+          <li>Review every typed error and confirm it reaches a specific, actionable English UI message.</li>
+          <li>Verify a root failure blocks only the table area and offers retry.</li>
+          <li>Verify a descendant failure leaves the rest of the view usable and exposes retry at that node.</li>
+          <li>Keep incomplete-data warnings persistent anywhere a partial snapshot may affect filtering or results.</li>
+          <li>Do not present a descendant-dependent view filter as final while required snapshots are pending.</li>
+          <li>Confirm <code>401</code> clears only the session token and does not destroy URL state.</li>
+          <li>Confirm unknown hosts and cross-instance or cross-deployment nodes fail before authenticated networking.</li>
+          <li>Audit logs, errors, React Query dev state, test output, clipboard actions, and browser storage for token exposure.</li>
+          <li>Verify the application issues only GET and preflight requests and makes no analytics, CDN, font, or error-reporting calls.</li>
+          <li>Verify content HTML cannot execute in tables, popovers, details, errors, or copied formatted views.</li>
+          <li>Confirm all destructive view operations explain impact and require confirmation.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> explicit failure recovery and a documented security audit checklist with results.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> every security invariant and failure state has a passing automated check or a recorded, repeatable manual check.</p></div>
+
+      <section class="phase" id="phase-12">
+        <span class="phase-number">12</span>
+        <h2>Automate browser and accessibility checks</h2>
+        <div class="phase-meta"><span>Depends on: phase 11</span><span>Milestone: M4</span></div>
+        <ul class="tasks">
+          <li>Run browser tests in Chromium against deterministic intercepted responses or an in-process fake transport.</li>
+          <li>Cover first use, token help, collection parsing, root loading, content-state switch, refresh, and <code>401</code> recovery.</li>
+          <li>Cover native and custom relationship creation, ambiguous relation selection, subtree removal, and enforced limits.</li>
+          <li>Cover global search, view filters, table filters, descendant predicates, sorting, facets, and pagination.</li>
+          <li>Cover nested expansion, repeated collection roles, details Sheet, raw JSON, copy value, popover, and Manager links.</li>
+          <li>Cover URL restoration, Copy view link, long-link warning, corrupt payload recovery, Reset view, and root replacement.</li>
+          <li>Cover partial collections, nested failures, stale field paths, empty collections, and request cancellation.</li>
+          <li>Verify keyboard access, focus order, focus restoration, visible focus, accessible names, table semantics, and dialog behavior.</li>
+          <li>Verify the compact layout at representative laptop and desktop viewport widths; mobile behavior is not a target.</li>
+          <li>Keep tests behavior-focused and remove redundant smoke assertions.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> a focused offline browser suite invoked by <code>pnpm test:e2e</code>.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> the complete critical-path browser suite passes repeatedly without a real Zesty instance, session token, or external network dependency.</p></div>
+
+      <section class="phase" id="phase-13">
+        <span class="phase-number">13</span>
+        <h2>Measure and tune performance</h2>
+        <div class="phase-meta"><span>Depends on: phases 7–12</span><span>Milestone: M4 completes</span></div>
+        <ul class="tasks">
+          <li>Benchmark normalization, native and custom index construction, joins, nested predicates, free text, facets, sorting, and page selection with 1,000, 10,000, and 50,000 generated items.</li>
+          <li>Measure browser p50 and p95 for loaded-data filtering, sorting, row expansion, nested page changes, and debounced typing.</li>
+          <li>Observe long tasks, React commit duration, mounted row count, memory growth, and redundant recomputation.</li>
+          <li>Verify 10,000-item filtering or sorting completes within 250 ms and loaded row expansion within 100 ms.</li>
+          <li>Verify a 50,000-item view remains usable and expensive computations complete within one second.</li>
+          <li>Store local baselines with the dataset seed, Node/browser versions, machine context, and variance notes.</li>
+          <li>Make a result over twice the stored local baseline fail for investigation while still reporting absolute product targets.</li>
+          <li>First repair algorithms, cache identity, repeated decoding, unstable React props, excess DOM, and eager facets.</li>
+          <li>Introduce one module Web Worker only if representative runs still produce roughly 50 ms long tasks, blocked typing, or a p95 target miss after those repairs.</li>
+          <li>If a Worker is added, keep <code>ExplorerCore</code> contracts unchanged, transfer minimal serializable snapshots, cancel stale work, and repeat the same correctness suite on both execution paths.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> reproducible local performance reports and a measured main-thread-versus-Worker decision.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> <code>pnpm test:performance</code> reports all agreed budgets; any miss has a documented cause and an accepted follow-up before release.</p></div>
+
+      <section class="phase" id="phase-14">
+        <span class="phase-number">14</span>
+        <h2>Complete documentation and local handoff</h2>
+        <div class="phase-meta"><span>Depends on: phases 11–13</span><span>Milestone: M5</span></div>
+        <ul class="tasks">
+          <li>Write an English README with prerequisites, clone/install/run commands, supported browsers, and the fixed localhost address.</li>
+          <li>Explain how to find the correct Zesty Manager cookie for production, stage, and development without ever pasting an example real token.</li>
+          <li>Explain collection URL sources, Content and Blocks support, Published behavior, relationship rules, limits, shared links, and reset behavior.</li>
+          <li>Document every local verification command and state that tests never use live Zesty or a real session token.</li>
+          <li>Document known limitations and first-version non-goals without presenting them as defects.</li>
+          <li>Update the product specification, domain language, ADRs, and this plan when implementation reveals an accepted contract change.</li>
+          <li>Run the full verification sequence from a clean install.</li>
+          <li>Ask a teammate unfamiliar with the implementation to clone, start, authenticate, open a collection, create one relation, filter it, and copy a view link using only the README.</li>
+          <li>Fix instructions or product affordances that required oral explanation.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> a reproducible local application and a self-sufficient team handoff.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> a clean-clone rehearsal succeeds and the repository has no undocumented setup dependency.</p></div>
+
+      <h2 id="command-gate">Final command gate</h2>
+      <pre><code>pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm test:e2e
+pnpm test:performance
+pnpm build</code></pre>
+      <p>
+        There is deliberately no CI workflow. These commands form the repeatable local release
+        check and must remain practical for contributors to run.
+      </p>
+
+      <h2 id="manual-checks">Final manual checks</h2>
+      <ul class="tasks">
+        <li>Run the built application locally in current Chrome and Edge.</li>
+        <li>Use a permitted Zesty session only for a final human read-only sanity check, never for automated tests.</li>
+        <li>Inspect browser networking and confirm requests go only to the validated Zesty API host.</li>
+        <li>Copy a view URL and confirm it contains no token or ephemeral table state.</li>
+        <li>Clear the token and confirm the view remains recoverable.</li>
+      </ul>
+
+      <div class="next">
+        <a href="./02-explorer.html">← Explorer</a>
+        <a href="./index.html">Back to overview ↑</a>
+      </div>
+    </main>
+
+    <footer>Local documentation only. Verification phases 11–14.</footer>
+  </body>
+</html>

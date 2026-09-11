@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Official-source research for a React TypeScript/Vite app using shadcn/ui with Base UI and TanStack Table.">
+    <title>shadcn/ui + Base UI — React/Vite scaffolding research</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --panel: #12161c;
+        --panel-2: #171d25;
+        --line: #2a333e;
+        --text: #edf2f7;
+        --muted: #a4afbc;
+        --accent: #8bd5ca;
+        --accent-2: #f4c27a;
+        --danger: #ff9b9b;
+        --code: #0e1319;
+        --shadow: 0 12px 40px rgb(0 0 0 / 24%);
+      }
+
+      * { box-sizing: border-box; }
+      html { background: var(--bg); }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      a { color: var(--accent); text-underline-offset: 3px; }
+      a:hover { color: #b8eee5; }
+      code, pre, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+      code { color: #d7e4f0; }
+      pre {
+        overflow-x: auto;
+        margin: 14px 0;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--code);
+        color: #dbe8f3;
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      kbd {
+        padding: 2px 6px;
+        border: 1px solid #45515f;
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        background: #1b222b;
+        color: var(--text);
+        font-size: 12px;
+      }
+      .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+      header { padding: 46px 0 26px; border-bottom: 1px solid var(--line); }
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+      h1, h2, h3 { margin: 0; color: #f7fafc; line-height: 1.2; }
+      h1 { max-width: 860px; font-size: clamp(28px, 5vw, 46px); letter-spacing: -.03em; }
+      h2 { margin-top: 42px; font-size: 24px; letter-spacing: -.015em; }
+      h3 { margin-top: 26px; font-size: 17px; }
+      p { max-width: 82ch; margin: 12px 0; }
+      .lede { max-width: 76ch; margin-top: 16px; color: var(--muted); font-size: 17px; }
+      .meta { margin-top: 18px; color: var(--muted); font-size: 13px; }
+      main { padding: 6px 0 64px; }
+      section { scroll-margin-top: 20px; }
+      .decision {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 24px;
+      }
+      .card, .callout {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+      .card { padding: 16px; }
+      .card strong { display: block; margin-bottom: 5px; color: var(--accent-2); }
+      .card p { margin: 0; color: var(--muted); font-size: 14px; }
+      .callout { margin: 18px 0; padding: 15px 17px; border-left: 3px solid var(--accent); }
+      .callout.warning { border-left-color: var(--accent-2); }
+      .callout.danger { border-left-color: var(--danger); }
+      .callout p:first-child { margin-top: 0; }
+      .callout p:last-child { margin-bottom: 0; }
+      .tag {
+        display: inline-block;
+        margin: 0 5px 5px 0;
+        padding: 3px 8px;
+        border: 1px solid #3b4856;
+        border-radius: 999px;
+        color: #cfe2ed;
+        font-size: 12px;
+      }
+      .table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 9px; }
+      table { width: 100%; min-width: 680px; border-collapse: collapse; }
+      th, td { padding: 11px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      th { background: var(--panel-2); color: #dbe9f3; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+      tr:last-child td { border-bottom: 0; }
+      td { color: var(--muted); }
+      td:first-child { color: var(--text); }
+      ul, ol { max-width: 88ch; padding-left: 23px; }
+      li { margin: 7px 0; }
+      .cite { margin-left: 3px; font-size: 11px; font-weight: 700; text-decoration: none; vertical-align: super; }
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 8px;
+        margin: 18px 0;
+      }
+      .flow > div {
+        flex: 1 1 155px;
+        min-width: 145px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .flow b { display: block; color: var(--accent); font-size: 13px; }
+      .flow span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+      details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+      summary { cursor: pointer; padding: 12px 14px; color: #dce8f0; font-weight: 650; }
+      details > div { padding: 0 14px 14px; }
+      .small { color: var(--muted); font-size: 13px; }
+      .sources { margin-top: 42px; }
+      .sources ol { color: var(--muted); font-size: 13px; }
+      .sources li { margin: 7px 0; }
+      footer { padding: 22px 0 44px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+      @media (max-width: 760px) {
+        .wrap { width: min(100% - 24px, 1120px); }
+        header { padding-top: 30px; }
+        .decision { grid-template-columns: 1fr; }
+        h2 { margin-top: 32px; }
+        pre { font-size: 12px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <p class="eyebrow">Official-source research · 11 September 2026</p>
+        <h1>shadcn/ui with Base UI for a local React + TypeScript explorer</h1>
+        <p class="lede">A practical recommendation for scaffolding the app with npm, understanding the Base UI runtime, keeping the product dark-only, and implementing root and nested data tables with accessible previews and detail panels.</p>
+        <p class="meta">Scope: official shadcn/ui, Base UI, React, Vite, and TanStack documentation/source only. This is a design and implementation brief; it does not change the application.</p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="decision">
+        <h2>Decision in one minute</h2>
+        <div class="decision">
+          <div class="card">
+            <strong>Build tool</strong>
+            <p>Vite with the official <code>react-ts</code> template. React’s from-scratch guidance recommends Vite when a full framework is not needed, and Vite supports a React TypeScript template.<a class="cite" href="https://react.dev/learn/build-a-react-app-from-scratch" target="_blank" rel="noopener noreferrer">[S1]</a><a class="cite" href="https://vite.dev/guide/" target="_blank" rel="noopener noreferrer">[S2]</a></p>
+          </div>
+          <div class="card">
+            <strong>Component base</strong>
+            <p>Use shadcn/ui’s Base UI base. As of July 2026, Base UI is the default for new shadcn projects; Radix remains supported, but the two APIs must not be mixed casually.<a class="cite" href="https://ui.shadcn.com/docs/changelog/2026-07-base-ui-default" target="_blank" rel="noopener noreferrer">[S3]</a><a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/rules/base-vs-radix.md" target="_blank" rel="noopener noreferrer">[S4]</a></p>
+          </div>
+          <div class="card">
+            <strong>Table engine</strong>
+            <p>Use shadcn’s source <code>Table</code> primitives plus <code>@tanstack/react-table</code>. TanStack supplies headless state and logic; the app owns markup, styling, and interaction policy.<a class="cite" href="https://ui.shadcn.com/docs/components/base/data-table" target="_blank" rel="noopener noreferrer">[S5]</a><a class="cite" href="https://tanstack.com/table/latest/docs/framework/react/quick-start" target="_blank" rel="noopener noreferrer">[S6]</a></p>
+          </div>
+        </div>
+        <div class="callout">
+          <p><strong>Recommended product shape:</strong> one typed table component per collection node (<code>Articles</code>, <code>Authors</code>, <code>Offices</code>), each with its own filter/sort/expansion state keyed by relationship path. Root view filters decide which root rows survive; a nested table filter decides which rows that table renders. This state model is an app-level recommendation, not behavior supplied automatically by shadcn or TanStack.</p>
+        </div>
+      </section>
+
+      <section id="meaning">
+        <h2>What “shadcn Base UI” actually means</h2>
+        <p>shadcn/ui is a code-distribution system, not a conventional component package: the CLI adds component source to the project, and the team owns the top layer of that code.<a class="cite" href="https://ui.shadcn.com/docs" target="_blank" rel="noopener noreferrer">[S7]</a></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Concept</th><th>Meaning</th><th>What it controls</th><th>What it does not mean</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>base: "base"</code></td>
+                <td>Choose Base UI as the primitive/component behavior source. The current CLI exposes <code>base</code>, <code>radix</code>, and <code>aria</code> choices for initialization.<a class="cite" href="https://ui.shadcn.com/docs/cli" target="_blank" rel="noopener noreferrer">[S8]</a></td>
+                <td>Component APIs, generated imports, behavior, interaction state, and available props.</td>
+                <td>It is not a color theme and it is not the same thing as Tailwind.</td>
+              </tr>
+              <tr>
+                <td><code>style</code> / <code>base-nova</code></td>
+                <td>The visual treatment is separate from the primitive base. In the v4 registry, compound names such as <code>base-nova</code> are generated from a Base UI base plus a visual style; verify the normalized result with <code>npx shadcn@latest info --json</code>.<a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/SKILL.md" target="_blank" rel="noopener noreferrer">[S9]</a><a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/apps/v4/scripts/build-registry.mts" target="_blank" rel="noopener noreferrer">[S10]</a></td>
+                <td>Class names, token values, density, radius, and the overall visual language.</td>
+                <td>It is not a runtime package and does not decide whether a component imports Radix or Base UI by itself.</td>
+              </tr>
+              <tr>
+                <td><code>@base-ui/react</code></td>
+                <td>Base UI’s React runtime. It is headless and unstyled: it ships behavior and accessibility primitives, not a CSS theme. It supports Tailwind, CSS Modules, plain CSS, CSS-in-JS, and Vite.<a class="cite" href="https://base-ui.com/react/overview/about" target="_blank" rel="noopener noreferrer">[S11]</a><a class="cite" href="https://base-ui.com/react/handbook/styling" target="_blank" rel="noopener noreferrer">[S12]</a></td>
+                <td>ARIA/role behavior, keyboard and pointer interactions, focus management, portals, positioning, and state attributes.</td>
+                <td>It is not shadcn’s visual layer and it does not replace the copied files in <code>src/components/ui</code>.</td>
+              </tr>
+              <tr>
+                <td>Generated shadcn files</td>
+                <td>Styled wrappers and composition conventions that import Base UI primitives. The official Base UI button source imports <code>Button</code> from <code>@base-ui/react/button</code> and adds the project’s classes/variants.<a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/bases/base/ui/button.tsx" target="_blank" rel="noopener noreferrer">[S13]</a></td>
+                <td>Design tokens, variants, spacing, visual states, and the local import surface.</td>
+                <td>They are not an opaque dependency that prevents customization.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          <p><strong>Base/Radix API boundary:</strong> Base UI uses <code>render</code> for custom composition where Radix uses <code>asChild</code>. For a Base UI trigger, use the Base UI form of the generated component and do not paste a Radix example into it. The official shadcn guidance also calls out Base UI’s <code>nativeButton={false}</code> requirement when rendering a button-like component as a non-button element.<a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/rules/base-vs-radix.md" target="_blank" rel="noopener noreferrer">[S4]</a></p>
+        </div>
+      </section>
+
+      <section id="scaffold">
+        <h2>Recommended npm scaffold</h2>
+        <p>Use the explicit Vite <code>react-ts</code> template first, then initialize shadcn in that existing project. This removes ambiguity about framework and TypeScript mode while keeping the shadcn configuration deterministic.</p>
+        <pre><code>npm create vite@latest zesty-explorer -- --template react-ts
+cd zesty-explorer
+npm install
+
+# Tailwind v4 + Vite integration, per the shadcn Vite guide
+npm install tailwindcss @tailwindcss/vite
+npm install -D @types/node
+
+# Base UI primitives + the selected shadcn visual preset
+npx shadcn@latest init --base base --preset base-nova --no-monorepo --yes
+
+# TanStack’s headless React table adapter
+npm install @tanstack/react-table
+
+# Add only the source components this UI needs initially
+npx shadcn@latest add table popover sheet tooltip
+
+npm run dev</code></pre>
+        <p class="small">The first command is the official React/Vite recommendation adapted to npm. The shadcn CLI’s documented flags are <code>--template</code>, <code>--base</code>, <code>--preset</code>, <code>--name</code>, and <code>--no-monorepo</code>; <code>init</code> installs dependencies, the <code>cn</code> helper, and CSS-variable configuration.<a class="cite" href="https://react.dev/learn/build-a-react-app-from-scratch" target="_blank" rel="noopener noreferrer">[S1]</a><a class="cite" href="https://ui.shadcn.com/docs/installation/vite" target="_blank" rel="noopener noreferrer">[S14]</a><a class="cite" href="https://ui.shadcn.com/docs/cli" target="_blank" rel="noopener noreferrer">[S8]</a></p>
+
+        <h3>Required Vite alias wiring</h3>
+        <p>For an existing Vite project, the official shadcn guide asks for the <code>@/*</code> path in both Vite’s TypeScript config and the app config, plus the matching Vite resolve alias. Keep the generated paths and aliases aligned.</p>
+        <pre><code>// tsconfig.json and tsconfig.app.json (inside compilerOptions)
+"baseUrl": ".",
+"paths": { "@/*": ["./src/*"] }
+
+// vite.config.ts
+import path from "path"
+import tailwindcss from "@tailwindcss/vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "./src") },
+  },
+})</code></pre>
+        <p class="small">The official Vite guide also uses <code>@import "tailwindcss"</code> as the starting CSS import. Let shadcn’s initialization add its own <code>shadcn/tailwind.css</code> import and token block; do not delete the generated tokens when adding the dark-only policy.<a class="cite" href="https://ui.shadcn.com/docs/installation/vite" target="_blank" rel="noopener noreferrer">[S14]</a><a class="cite" href="https://ui.shadcn.com/docs/cli" target="_blank" rel="noopener noreferrer">[S8]</a></p>
+
+        <h3>Direct shadcn scaffold (alternative)</h3>
+        <p>The CLI can also create a new Vite project when <code>--name</code> is supplied. Use this only if accepting the CLI’s template defaults; inspect the result and confirm TypeScript is enabled before proceeding.</p>
+        <pre><code>npx shadcn@latest init --name zesty-explorer --template vite --base base --preset base-nova --no-monorepo --yes</code></pre>
+        <p class="small">The explicit Vite <code>react-ts</code> path above remains the preferred recommendation because the React and Vite documentation make the React/TypeScript choice visible in the command itself.<a class="cite" href="https://ui.shadcn.com/docs/cli" target="_blank" rel="noopener noreferrer">[S8]</a><a class="cite" href="https://vite.dev/guide/" target="_blank" rel="noopener noreferrer">[S2]</a></p>
+
+        <h3>Version gate</h3>
+        <p>Check Node before scaffolding: the current Vite guide requires Node.js <code>20.19+</code> or <code>22.12+</code>; some templates may require a higher version.<a class="cite" href="https://vite.dev/guide/" target="_blank" rel="noopener noreferrer">[S2]</a></p>
+        <pre><code>node --version
+npm --version</code></pre>
+      </section>
+
+      <section id="dark">
+        <h2>Dark-only theming</h2>
+        <p>Keep shadcn’s CSS-variable mode enabled. The documented model is semantic tokens such as <code>background</code>, <code>foreground</code>, <code>primary</code>, <code>popover</code>, <code>border</code>, and <code>ring</code>, with dark values under a <code>.dark</code> selector. The recommendation here is to force that selector permanently and remove the mode toggle from the product UI.<a class="cite" href="https://ui.shadcn.com/docs/theming" target="_blank" rel="noopener noreferrer">[S15]</a></p>
+        <pre><code>&lt;!-- index.html: set before the Vite bundle runs, avoiding a light flash --&gt;
+&lt;html lang="en" class="dark"&gt;
+
+/* src/index.css: retain shadcn’s generated imports and tokens */
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@custom-variant dark (&amp;:is(.dark *));
+
+/* Keep the generated semantic token values in the .dark block. */
+.dark {
+  color-scheme: dark;
+  /* background, foreground, card, popover, primary, ... */
+}</code></pre>
+        <p class="small">This is an implementation recommendation derived from shadcn’s documented <code>.dark</code> token model and Vite dark-mode example. There is no need for a light/system theme provider or a theme toggle if the product intentionally supports dark only; keeping the class static is also preferable to client-side theme negotiation for this requirement.<a class="cite" href="https://ui.shadcn.com/docs/dark-mode/vite" target="_blank" rel="noopener noreferrer">[S16]</a><a class="cite" href="https://ui.shadcn.com/docs/theming" target="_blank" rel="noopener noreferrer">[S15]</a></p>
+        <ul>
+          <li>Use semantic utilities (<code>bg-background</code>, <code>text-foreground</code>, <code>border-border</code>, <code>ring-ring</code>) rather than hard-coded light/dark color pairs.<a class="cite" href="https://ui.shadcn.com/docs/theming" target="_blank" rel="noopener noreferrer">[S15]</a></li>
+          <li>Keep visible <code>:focus-visible</code> styling. Base UI manages focus movement but explicitly leaves visible focus indication to the application.<a class="cite" href="https://base-ui.com/react/overview/accessibility" target="_blank" rel="noopener noreferrer">[S17]</a></li>
+          <li>Review contrast for muted text, borders, focus rings, hover previews, and selected rows. Base UI provides behavior; it does not choose your colors.<a class="cite" href="https://base-ui.com/react/overview/accessibility" target="_blank" rel="noopener noreferrer">[S17]</a></li>
+        </ul>
+      </section>
+
+      <section id="tables">
+        <h2>Table and nested-table model</h2>
+        <p>shadcn deliberately documents a data-table recipe rather than a universal data-table component because table requirements and data sources differ. The recipe starts with the source <code>&lt;Table /&gt;</code> component and adds TanStack Table for state and logic.<a class="cite" href="https://ui.shadcn.com/docs/components/base/data-table" target="_blank" rel="noopener noreferrer">[S5]</a></p>
+        <div class="flow" aria-label="Recommended table hierarchy">
+          <div><b>Articles</b><span>root table; view filters; one row per root item</span></div>
+          <div><b>Authors</b><span>child table; local filter/sort; complete relation rows</span></div>
+          <div><b>Offices</b><span>next child table; local filter/sort; own expansion state</span></div>
+        </div>
+        <h3>Dependencies and feature selection</h3>
+        <ul>
+          <li><code>npm install @tanstack/react-table</code> is the official React adapter install. The current TanStack docs identify the React adapter as working with React 18 or newer, so the Vite React template satisfies the minimum.<a class="cite" href="https://tanstack.com/table/latest/docs/installation" target="_blank" rel="noopener noreferrer">[S18]</a></li>
+          <li>The current shadcn data-table guide uses TanStack Table v9’s feature-based API: opt into sorting, filtering, pagination, visibility, selection, and expansion explicitly. Unregistered features can be tree-shaken; filter and sort functions used by the columns must be registered on the features object.<a class="cite" href="https://ui.shadcn.com/docs/components/base/data-table" target="_blank" rel="noopener noreferrer">[S5]</a></li>
+          <li>Do not copy older v8 examples that rely on <code>get*RowModel</code> table options into a v9 feature-based implementation. The current guide says optional row models are created and registered on the feature configuration.<a class="cite" href="https://ui.shadcn.com/docs/components/base/data-table" target="_blank" rel="noopener noreferrer">[S5]</a></li>
+        </ul>
+        <h3>What to do with nested tables</h3>
+        <p>TanStack supports nested sub-row data and expanded row models, but intentionally does not invent the row-toggle UI. The app must add a button in the row and decide how the expanded content is rendered.<a class="cite" href="https://tanstack.com/table/latest/docs/framework/react/guide/expanding" target="_blank" rel="noopener noreferrer">[S19]</a></p>
+        <ol>
+          <li>Use a separate table instance/component for each collection node when each relationship level has its own filters, sort order, columns, or pagination. Key the state by a stable relationship path such as <code>articles.authors</code> and <code>articles.authors.offices</code>.</li>
+          <li>For simple hierarchical rows, use TanStack’s expanding feature with <code>subRows</code> and <code>getSubRows</code>. Render the child collection in the expanded parent row, preferably in a single cell spanning the parent table’s columns. This placement is an app-level markup recommendation that preserves a clear parent/child boundary; TanStack leaves the markup to the application.<a class="cite" href="https://tanstack.com/table/latest/docs/framework/react/examples/expanding" target="_blank" rel="noopener noreferrer">[S20]</a></li>
+          <li>Add a real, labeled button for expansion. Expose its expanded state and relationship in the accessible name, for example <code>Expand authors for “Article title”</code>, and keep <code>Enter</code>/<code>Space</code> behavior native. Base UI’s accessibility guidance requires application-owned accessible names and visible focus styling for custom controls.<a class="cite" href="https://base-ui.com/react/overview/accessibility" target="_blank" rel="noopener noreferrer">[S17]</a></li>
+          <li>If the API fetches children on demand, use TanStack’s manual-expanding mode and keep loading/error/empty states inside the expanded cell. The guide documents <code>manualExpanding: true</code> for server-side expansion.<a class="cite" href="https://tanstack.com/table/latest/docs/framework/react/guide/expanding" target="_blank" rel="noopener noreferrer">[S19]</a></li>
+        </ol>
+        <div class="callout warning">
+          <p><strong>Expansion stability:</strong> TanStack sorts expanded rows with the rest by default. Data or grouping changes may reset expansion; if the explorer should keep open branches while edits or filter changes recompute rows, evaluate <code>autoResetExpanded: false</code> (and, when pagination is present, the corresponding page-index reset policy).<a class="cite" href="https://tanstack.com/table/latest/docs/framework/react/guide/expanding" target="_blank" rel="noopener noreferrer">[S19]</a></p>
+        </div>
+        <h3>Filter semantics for this explorer</h3>
+        <p>Implement two explicit scopes in app state:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Scope</th><th>Effect</th><th>Nested rendering</th></tr></thead>
+            <tbody>
+              <tr><td>View filter</td><td>Filters root rows using root content fields and related values; a related match keeps its root article.</td><td>Keep the relation complete after the root row survives.</td></tr>
+              <tr><td>Table filter</td><td>Filters only the rows rendered by a named collection node.</td><td>Apply the same node policy to every occurrence of that nested table.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small">These two scopes follow the product decisions already made for the explorer; they are not defaults supplied by TanStack. Keep the filter model typed and translate it to TanStack column filters or a server query at one boundary.</p>
+      </section>
+
+      <section id="previews">
+        <h2>Long values, hover previews, and details</h2>
+        <p>The desired interaction is a good fit for a layered disclosure model:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Need</th><th>Default UI</th><th>Accessibility rule</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Long content field in a cell</td>
+                <td>Show a one-line or two-line ellipsis, plus a visible “View details” button when the full value matters.</td>
+                <td>The complete value must remain available by click/tap and keyboard, not only by hover.</td>
+              </tr>
+              <tr>
+                <td>Quick supplementary preview</td>
+                <td>Use a Base UI <code>Popover</code> anchored to a focusable trigger; it can open on hover with <code>openOnHover</code> and a delay, while still being usable from a keyboard-triggered interaction.<a class="cite" href="https://base-ui.com/react/components/popover" target="_blank" rel="noopener noreferrer">[S21]</a></td>
+                <td>Keep the preview supplementary and provide a non-hover path. For many cells, a controlled popover with a trigger payload/handle avoids mounting a separate complex popup for every value.<a class="cite" href="https://base-ui.com/react/components/popover" target="_blank" rel="noopener noreferrer">[S21]</a></td>
+              </tr>
+              <tr>
+                <td>Important explanatory text</td>
+                <td>Use inline text or a popover if space is limited.</td>
+                <td>Do not hide essential meaning behind a tooltip; Base UI explicitly says tooltips are not reliable for touch users or assistive technologies.<a class="cite" href="https://base-ui.com/react/components/tooltip" target="_blank" rel="noopener noreferrer">[S22]</a></td>
+              </tr>
+              <tr>
+                <td>Full item card with every field</td>
+                <td>Open a right-side shadcn <code>Sheet</code> with field groups and a scrollable body.</td>
+                <td>Keep a title, description, and visible close action. The Sheet extends Dialog, whose modal default traps focus, locks document scrolling, and disables pointer interaction outside the popup.<a class="cite" href="https://ui.shadcn.com/docs/components/base/sheet" target="_blank" rel="noopener noreferrer">[S23]</a><a class="cite" href="https://base-ui.com/react/components/dialog" target="_blank" rel="noopener noreferrer">[S24]</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <p><strong>Popover versus preview card:</strong> Base UI’s <code>PreviewCard</code> is deliberately a visual progressive enhancement for a link. Its preview content is not touch, keyboard, or screen-reader navigable, so it is suitable only when the destination contains the same information. For a table cell’s full value, use an accessible popover or sheet instead.<a class="cite" href="https://base-ui.com/react/components/preview-card" target="_blank" rel="noopener noreferrer">[S25]</a></p>
+        </div>
+      </section>
+
+      <section id="overlays">
+        <h2>Overlay implementation caveats</h2>
+        <h3>Popover</h3>
+        <ul>
+          <li>Use the documented anatomy: <code>Root</code>, <code>Trigger</code>, <code>Portal</code>, <code>Positioner</code>, and <code>Popup</code>; add <code>Title</code>, <code>Description</code>, and <code>Close</code> when the popup needs them.<a class="cite" href="https://base-ui.com/react/components/popover" target="_blank" rel="noopener noreferrer">[S21]</a></li>
+          <li>Prefer a real button or another explicitly accessible trigger. The trigger should expose what it opens; do not make a non-interactive text span the only hover anchor.</li>
+          <li>Use collision-aware positioning and a portal rather than hand-tuned global z-index values. shadcn’s own component guidance says overlay components handle their stacking; Base UI exposes positioner/collision APIs.<a class="cite" href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/SKILL.md" target="_blank" rel="noopener noreferrer">[S9]</a><a class="cite" href="https://base-ui.com/react/components/popover" target="_blank" rel="noopener noreferrer">[S21]</a></li>
+        </ul>
+        <h3>Tooltip</h3>
+        <ul>
+          <li>Reserve it for supplementary visual labels. Do not use it as the only way to reveal the full value of a long content field.<a class="cite" href="https://base-ui.com/react/components/tooltip" target="_blank" rel="noopener noreferrer">[S22]</a></li>
+          <li>Icon-only triggers still need a clear accessible name; Base UI’s examples use <code>aria-label</code> on the trigger, and the application remains responsible for meaningful labels.<a class="cite" href="https://base-ui.com/react/components/tooltip" target="_blank" rel="noopener noreferrer">[S22]</a><a class="cite" href="https://base-ui.com/react/overview/accessibility" target="_blank" rel="noopener noreferrer">[S17]</a></li>
+        </ul>
+        <h3>Sheet and Dialog</h3>
+        <ul>
+          <li>Compose a Sheet with <code>SheetTrigger</code>, <code>SheetContent</code>, <code>SheetHeader</code>, <code>SheetTitle</code>, <code>SheetDescription</code>, and optional footer/close parts. The right side is the recommended placement for item details on desktop, with responsive width and an internal scroll body.<a class="cite" href="https://ui.shadcn.com/docs/components/base/sheet" target="_blank" rel="noopener noreferrer">[S23]</a></li>
+          <li>Do not remove the close affordance just because <kbd>Esc</kbd> works. Base UI’s dialog API says that when a dialog is modal or focus-trapped, a <code>Dialog.Close</code> inside the popup is needed so touch screen-reader users can escape.<a class="cite" href="https://base-ui.com/react/components/dialog" target="_blank" rel="noopener noreferrer">[S24]</a></li>
+          <li>Dialog focus moves into the popup and returns to the trigger/previous element by default; use <code>initialFocus</code> and <code>finalFocus</code> only when the details workflow needs a deliberate destination.<a class="cite" href="https://base-ui.com/react/components/dialog" target="_blank" rel="noopener noreferrer">[S24]</a></li>
+          <li>For a panel with gestures or snap points, use a Drawer rather than stretching Dialog/Sheet beyond their documented purpose. Base UI explicitly distinguishes the two.<a class="cite" href="https://base-ui.com/react/components/dialog" target="_blank" rel="noopener noreferrer">[S24]</a></li>
+        </ul>
+      </section>
+
+      <section id="architecture">
+        <h2>Suggested source boundaries</h2>
+        <p>This is the smallest structure that keeps relationship semantics, table mechanics, and visual primitives from becoming one large component.</p>
+        <pre><code>src/
+├─ components/
+│  ├─ ui/                     # shadcn source components (Base UI base)
+│  ├─ explorer/
+│  │  ├─ explorer-shell.tsx
+│  │  ├─ item-details-sheet.tsx
+│  │  ├─ truncated-value.tsx
+│  │  └─ value-preview-popover.tsx
+│  └─ tables/
+│     ├─ collection-table.tsx # generic columns/filter/sort/expansion shell
+│     ├─ articles-table.tsx
+│     ├─ authors-table.tsx
+│     └─ offices-table.tsx
+├─ lib/
+│  ├─ filters/                # typed view/table filter model
+│  └─ relationships/          # path + related-item accessors
+└─ data/
+   └─ types.ts                # content fields, metadata, collection node types</code></pre>
+        <p>Keep technical metadata and raw JSON out of the default column set, but include both in the details Sheet when the user explicitly opens an item. For content fields, use a truncation renderer that owns three states: short value, accessible full-value action, and optional supplementary preview.</p>
+        <div class="callout warning">
+          <p><strong>Do not share one global TanStack table instance across nested collections.</strong> Share typed column/filter helpers where useful, but instantiate table state per collection node. This prevents an Authors filter from accidentally changing Articles pagination or Offices expansion.</p>
+        </div>
+      </section>
+
+      <section id="checklist">
+        <h2>Verification checklist before implementation is considered done</h2>
+        <ul>
+          <li><strong>Scaffold:</strong> <code>npm run build</code> succeeds on the Node version required by Vite; aliases resolve in both the editor and Vite.</li>
+          <li><strong>Runtime:</strong> <code>npx shadcn@latest info --json</code> confirms Base UI as the project base; generated overlay components use Base UI composition, not copied Radix <code>asChild</code> examples.</li>
+          <li><strong>Tables:</strong> every expand control is keyboard reachable and labeled; nested filters do not mutate the root table; open branches behave intentionally after data refresh.</li>
+          <li><strong>Long text:</strong> the full value is reachable by keyboard and touch without hover; popover content is supplementary; the details Sheet contains the authoritative complete value.</li>
+          <li><strong>Overlays:</strong> opening a Sheet moves focus into it, <kbd>Esc</kbd> and the visible close action close it, and focus returns to the initiating details control. Popover positioning remains usable near viewport edges.</li>
+          <li><strong>Dark-only:</strong> the first paint is dark, no light/system toggle is exposed, semantic tokens remain readable, and focus indicators are visible on the dark surfaces.</li>
+          <li><strong>Responsive:</strong> wide tables scroll horizontally without hiding controls; the details Sheet has a usable width on narrow screens; hover is an enhancement rather than a required input modality.</li>
+        </ul>
+      </section>
+
+      <section id="sources" class="sources">
+        <h2>Sources</h2>
+        <p class="small">All sources below are first-party documentation or source from the projects named in the research brief. Claims in the body point to these links by identifier.</p>
+        <ol>
+          <li id="s1"><a href="https://react.dev/learn/build-a-react-app-from-scratch" target="_blank" rel="noopener noreferrer">React — Build a React app from scratch</a></li>
+          <li id="s2"><a href="https://vite.dev/guide/" target="_blank" rel="noopener noreferrer">Vite — Getting Started</a></li>
+          <li id="s3"><a href="https://ui.shadcn.com/docs/changelog/2026-07-base-ui-default" target="_blank" rel="noopener noreferrer">shadcn/ui — July 2026: Base UI as the Default</a></li>
+          <li id="s4"><a href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/rules/base-vs-radix.md" target="_blank" rel="noopener noreferrer">shadcn/ui source — Base vs Radix</a></li>
+          <li id="s5"><a href="https://ui.shadcn.com/docs/components/base/data-table" target="_blank" rel="noopener noreferrer">shadcn/ui — Data Table</a></li>
+          <li id="s6"><a href="https://tanstack.com/table/latest/docs/framework/react/quick-start" target="_blank" rel="noopener noreferrer">TanStack Table — React Quick Start</a></li>
+          <li id="s7"><a href="https://ui.shadcn.com/docs" target="_blank" rel="noopener noreferrer">shadcn/ui — Introduction</a></li>
+          <li id="s8"><a href="https://ui.shadcn.com/docs/cli" target="_blank" rel="noopener noreferrer">shadcn/ui — CLI</a></li>
+          <li id="s9"><a href="https://github.com/shadcn-ui/ui/blob/main/skills/shadcn/SKILL.md" target="_blank" rel="noopener noreferrer">shadcn/ui source — shadcn skill and project context fields</a></li>
+          <li id="s10"><a href="https://github.com/shadcn-ui/ui/blob/main/apps/v4/scripts/build-registry.mts" target="_blank" rel="noopener noreferrer">shadcn/ui source — registry style/base combinations</a></li>
+          <li id="s11"><a href="https://base-ui.com/react/overview/about" target="_blank" rel="noopener noreferrer">Base UI — About</a></li>
+          <li id="s12"><a href="https://base-ui.com/react/handbook/styling" target="_blank" rel="noopener noreferrer">Base UI — Styling</a></li>
+          <li id="s13"><a href="https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/bases/base/ui/button.tsx" target="_blank" rel="noopener noreferrer">shadcn/ui source — Base UI Button</a></li>
+          <li id="s14"><a href="https://ui.shadcn.com/docs/installation/vite" target="_blank" rel="noopener noreferrer">shadcn/ui — Vite installation</a></li>
+          <li id="s15"><a href="https://ui.shadcn.com/docs/theming" target="_blank" rel="noopener noreferrer">shadcn/ui — Theming</a></li>
+          <li id="s16"><a href="https://ui.shadcn.com/docs/dark-mode/vite" target="_blank" rel="noopener noreferrer">shadcn/ui — Dark mode for Vite</a></li>
+          <li id="s17"><a href="https://base-ui.com/react/overview/accessibility" target="_blank" rel="noopener noreferrer">Base UI — Accessibility</a></li>
+          <li id="s18"><a href="https://tanstack.com/table/latest/docs/installation" target="_blank" rel="noopener noreferrer">TanStack Table — Installation</a></li>
+          <li id="s19"><a href="https://tanstack.com/table/latest/docs/framework/react/guide/expanding" target="_blank" rel="noopener noreferrer">TanStack Table — Expanding guide</a></li>
+          <li id="s20"><a href="https://tanstack.com/table/latest/docs/framework/react/examples/expanding" target="_blank" rel="noopener noreferrer">TanStack Table — React expanding example</a></li>
+          <li id="s21"><a href="https://base-ui.com/react/components/popover" target="_blank" rel="noopener noreferrer">Base UI — Popover</a></li>
+          <li id="s22"><a href="https://base-ui.com/react/components/tooltip" target="_blank" rel="noopener noreferrer">Base UI — Tooltip</a></li>
+          <li id="s23"><a href="https://ui.shadcn.com/docs/components/base/sheet" target="_blank" rel="noopener noreferrer">shadcn/ui — Sheet (Base UI)</a></li>
+          <li id="s24"><a href="https://base-ui.com/react/components/dialog" target="_blank" rel="noopener noreferrer">Base UI — Dialog</a></li>
+          <li id="s25"><a href="https://base-ui.com/react/components/preview-card" target="_blank" rel="noopener noreferrer">Base UI — Preview Card</a></li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">Prepared for the zesty-explorer implementation discussion. Research cutoff: 2026-09-11 (Europe/Warsaw).</div>
+    </footer>
+  </body>
+</html>

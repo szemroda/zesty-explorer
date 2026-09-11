@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>EffectJS w Zesty Explorer — research i decyzja</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --panel: #12161b;
+      --panel-2: #171d24;
+      --line: #2d3742;
+      --text: #e9eef4;
+      --muted: #aab6c3;
+      --accent: #8bd5ff;
+      --good: #8de4ae;
+      --warn: #f6d17a;
+      --bad: #ff9eaa;
+      --code: #091016;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.58 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px 20px 72px; }
+    header { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 26px; }
+    h1, h2, h3 { line-height: 1.2; letter-spacing: -.018em; }
+    h1 { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 8px 0 12px; }
+    h2 { font-size: 1.38rem; margin: 36px 0 12px; }
+    h3 { font-size: 1.06rem; margin: 24px 0 8px; }
+    p { max-width: 92ch; }
+    .eyebrow { color: var(--accent); font-size: .75rem; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; margin: 0; }
+    .lede, .muted, .small { color: var(--muted); }
+    .small { font-size: .86rem; }
+    .decision, .callout, .warning, .risk, .source-note {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 9px;
+      padding: 14px 16px;
+      margin: 14px 0;
+    }
+    .decision { border-left-color: var(--good); }
+    .warning { border-left-color: var(--warn); }
+    .risk { border-left-color: var(--bad); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 15px 16px; }
+    .card h3 { margin-top: 0; }
+    .tag { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; margin: 1px 3px 1px 0; color: var(--muted); font-size: .79rem; }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; background: var(--panel); }
+    th, td { border: 1px solid var(--line); padding: 10px 11px; text-align: left; vertical-align: top; }
+    th { color: var(--accent); background: var(--panel-2); font-size: .9rem; }
+    td:first-child { font-weight: 650; min-width: 155px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { color: #b9e8ff; background: rgba(139, 213, 255, .09); padding: .1em .3em; border-radius: 4px; }
+    pre { background: var(--code); border: 1px solid var(--line); border-radius: 7px; overflow-x: auto; padding: 13px 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    pre code { background: transparent; padding: 0; color: #d6e7f3; }
+    a { color: var(--accent); }
+    a:hover, a:focus { color: #e0f6ff; }
+    ul, ol { padding-left: 1.35rem; }
+    li { margin: 5px 0; }
+    .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+    .flow > div { position: relative; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .flow > div:not(:last-child)::after { content: "→"; position: absolute; right: -15px; top: 50%; transform: translateY(-50%); color: var(--accent); z-index: 1; }
+    .flow strong { display: block; margin-bottom: 5px; }
+    .source-list { columns: 2; column-gap: 28px; }
+    .source-list li { break-inside: avoid; }
+    footer { border-top: 1px solid var(--line); margin-top: 34px; padding-top: 16px; }
+    @media (max-width: 760px) {
+      main { padding: 22px 12px 46px; }
+      .grid, .flow { grid-template-columns: 1fr; }
+      .flow > div:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -17px; transform: translateX(-50%); }
+      table { display: block; overflow-x: auto; }
+      th, td { min-width: 180px; }
+      .source-list { columns: 1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Research brief · stan na 2026-09-11</p>
+    <h1>EffectJS w Zesty Explorer</h1>
+    <p class="lede">Decyzja dla browser-only Vite + React z nested table: <strong>tak, ale Effect powinien objąć I/O i lifecycle, nie całą aplikację</strong>. Czyste łączenie, filtrowanie, sortowanie i przygotowanie wierszy pozostają zwykłymi, szybkimi funkcjami TypeScript.</p>
+    <p class="small">Zakres obejmuje aktualny oficjalny ekosystem Effect, Schema kontra Zod, HTTP w przeglądarce, anulowanie, współbieżność, retry, integrację z React/TanStack Query, language service, Vite, Vitest oraz plan lokalnych testów performance. Badanie nie wykonuje requestów do Zesty, nie używa <code>app.sid</code> i nie zawiera sekretów.</p>
+  </header>
+
+  <section class="decision" aria-labelledby="decision-title">
+    <h2 id="decision-title">Wniosek wykonawczy</h2>
+    <p><strong>Rekomenduję zacząć od stabilnej linii Effect v3.</strong> Oficjalne repozytorium opisuje Effect v4 jako release candidate; v4 przenosi wiele modułów do <code>effect/unstable/*</code>, a te moduły mogą zmieniać się także w ramach minor release. Dla prostego narzędzia, które ma być użyteczne i względnie proste, koszt tej niestabilności nie daje obecnie wystarczającej korzyści.</p>
+    <p>W v3 używamy <code>effect</code> oraz <code>@effect/platform</code> z fetchowym <code>FetchHttpClient.layer</code>. <code>@effect/platform-browser</code> dokładamy tylko wtedy, gdy faktycznie potrzebne są browser-specific services albo klient XHR. Jeśli projekt świadomie wybierze v4, wszystkie pakiety Effect muszą pochodzić z kompatybilnego tagu <code>@rc</code>; nie wolno mieszać v3 i v4.</p>
+    <p>Effect daje największą wartość w trzech miejscach: typed failures na granicy API, kontrolowana współbieżność ładowania kolekcji oraz przerwanie/retry/timeout. TanStack Query pozostaje właścicielem cache i stanu zapytań, a React właścicielem renderowania. Nie dokładamy równolegle <code>@effect/atom-react</code> do tego samego rodzaju stanu.</p>
+  </section>
+
+  <section aria-labelledby="context-title">
+    <h2 id="context-title">Założenia i granice</h2>
+    <table>
+      <thead><tr><th>Założenie</th><th>Konsekwencja architektoniczna</th></tr></thead>
+      <tbody>
+        <tr><td>Browser-only SPA</td><td>Transport korzysta z browserowego <code>fetch</code>, CORS i <code>AbortSignal</code>. Effect nie omija ograniczeń przeglądarki ani nie powinien tworzyć proxy.</td></tr>
+        <tr><td>Token lokalny</td><td><code>APP_SID</code> jest wartością wejściową trzymaną lokalnie w pamięci aplikacji. Nie umieszczamy go w URL-u, logach, fixture’ach ani snapshotach testowych.</td></tr>
+        <tr><td>Nested table</td><td>Najpierw normalizujemy dane i budujemy indeksy. Renderujemy tylko spłaszczone, rozwinięte wiersze; nie wykonujemy joinu w każdej komórce.</td></tr>
+        <tr><td>Brak CI</td><td>Weryfikacja ma być lokalna i uruchamiana komendą pnpm. Wszystkie testy sieciowe używają mocków, fake’ów i syntetycznych danych.</td></tr>
+        <tr><td>Umiarkowana responsywność</td><td>Nie celujemy w „zero ms”. Celujemy w brak odczuwalnego laga oraz w pomiar przed dodaniem Web Workera.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="versions-title">
+    <h2 id="versions-title">Stan ekosystemu: v3 kontra v4 RC</h2>
+    <table>
+      <thead><tr><th>Wariant</th><th>Oficjalny stan</th><th>Najważniejsze pakiety</th><th>Decyzja dla Explorer</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Effect v3</strong><br><span class="tag">stabilna linia</span></td>
+          <td>Oficjalna gałąź <code>v3</code>; dokumentacja v3 i działające API platformy. <code>@effect/platform</code> ma klient HTTP, a browserowe implementacje są w <code>@effect/platform-browser</code>.</td>
+          <td><code>effect</code><br><code>@effect/platform</code><br><code>@effect/platform-browser</code> opcjonalnie<br><code>@effect/vitest</code></td>
+          <td><span class="good">Start tutaj.</span> Pinujemy rozwiązaną wersję w lockfile i nie używamy tagu <code>rc</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>Effect v4</strong><br><span class="tag">release candidate</span></td>
+          <td>Aktualny <code>main</code> repozytorium to rozwój v4. Instalacja używa <code>effect@rc</code>. HTTP, HTTP API i część wcześniejszych pakietów są pod <code>effect/unstable/*</code>.</td>
+          <td><code>effect@rc</code><br><code>@effect/platform-browser@rc</code><br><code>@effect/vitest@rc</code><br><code>@effect/atom-react@rc</code></td>
+          <td><span class="warn">Rezerwa na później.</span> Rozważyć po GA albo gdy v4 daje konkretną potrzebną funkcję.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="source-note">Źródła: <a href="https://github.com/Effect-TS/effect" target="_blank" rel="noopener noreferrer">oficjalne repozytorium Effect</a>, <a href="https://github.com/Effect-TS/effect/blob/main/MIGRATION.md" target="_blank" rel="noopener noreferrer">migration v3 → v4</a>, <a href="https://effect.website/docs/v3/getting-started/installation" target="_blank" rel="noopener noreferrer">instalacja v3</a> i <a href="https://effect.website/docs/v4/getting-started/installation" target="_blank" rel="noopener noreferrer">instalacja v4</a>.</p>
+    <h3>Minimalny zestaw zależności</h3>
+    <pre><code># runtime (v3; zachować zgodną rodzinę wersji w pnpm-lock.yaml)
+pnpm add effect@^3 @effect/platform@^0
+
+# tylko jeśli potrzebne są browser-specific usługi lub XHR
+pnpm add @effect/platform-browser@^0
+
+# narzędzia deweloperskie; @effect/vitest bez tagu rc dla linii v3
+pnpm add -D typescript@^5.9 vitest@^3 @effect/vitest @effect/language-service</code></pre>
+    <p class="small">To jest komenda startowa, nie obietnica konkretnych numerów minor. Po instalacji należy zachować lockfile i sprawdzić, czy nie pojawiły się jednocześnie pakiety v3 i v4. Language service ma osobne zalecenie dla TypeScript 7 — opisane niżej.</p>
+  </section>
+
+  <section aria-labelledby="ownership-title">
+    <h2 id="ownership-title">Jedna odpowiedzialność na warstwę</h2>
+    <div class="flow" aria-label="Przepływ danych przez warstwy">
+      <div><strong>HTTP + Schema</strong><span class="muted">Effect pobiera, dekoduje i klasyfikuje błędy.</span></div>
+      <div><strong>Snapshot</strong><span class="muted">TanStack Query cache’uje pełne, znormalizowane dane.</span></div>
+      <div><strong>Pure core</strong><span class="muted">TypeScript buduje indeksy, joiny i widoczne wiersze.</span></div>
+      <div><strong>React table</strong><span class="muted">UI kontroluje rozwinięcia, filtry i renderowanie.</span></div>
+    </div>
+    <table>
+      <thead><tr><th>Problem</th><th>Właściciel</th><th>Czego nie dodawać</th></tr></thead>
+      <tbody>
+        <tr><td>Request, status HTTP, JSON, autoryzacja</td><td>Effect adapter + Effect Schema</td><td>Osobny globalny fetch-wrapper, który zwraca niejawne <code>Promise&lt;unknown&gt;</code>.</td></tr>
+        <tr><td>Retry, timeout, interrupt, concurrency</td><td>Effect program</td><td>Ręczne mieszanie <code>Promise.race</code>, timerów i wielu niezależnych AbortControllerów.</td></tr>
+        <tr><td>Cache, stale state, refetch, query status</td><td>TanStack Query</td><td>Drugi cache w <code>Ref</code>, Atom albo własnym store dla tych samych danych.</td></tr>
+        <tr><td>Join, indeks, filter, sort, flatten visible rows</td><td>Czyste funkcje TS</td><td><code>Effect.succeed</code> dla synchronicznej pętli lub pipeline z efektami per element.</td></tr>
+        <tr><td>Expand/collapse i rendering</td><td>React + biblioteka tabeli</td><td>Uruchamianie Effect podczas renderu komponentu.</td></tr>
+        <tr><td>CPU poza głównym wątkiem</td><td>Opcjonalny Web Worker</td><td>Przenoszenie całego runtime Effect do Workera zanim pomiar pokaże potrzebę.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="interfaces-title">
+    <h2 id="interfaces-title">Minimalne moduły i interfejsy</h2>
+    <p>Granice poniżej są celowo małe. Moduł <code>domain/core</code> nie importuje Effect, React, TanStack ani browser API; dzięki temu ma niski koszt wywołania i może zostać użyty w Workerze bez zmian.</p>
+    <h3>1. Czysty model i algorytmy</h3>
+    <pre><code>export type ItemId = string
+export type Scalar = string | number | boolean
+
+export interface ContentItem {
+  readonly id: ItemId
+  readonly fields: Readonly&lt;Record&lt;string, unknown&gt;&gt;
+}
+
+export interface CollectionSnapshot {
+  readonly collectionId: string
+  readonly items: readonly ContentItem[]
+}
+
+export interface JoinIndex {
+  readonly byKey: ReadonlyMap&lt;Scalar, readonly ContentItem[]&gt;
+}
+
+export interface ExplorerIndexes {
+  readonly byCollection: ReadonlyMap&lt;string, JoinIndex&gt;
+}
+
+export function buildIndexes(snapshot: readonly CollectionSnapshot[]): ExplorerIndexes
+export function relatedItems(
+  index: JoinIndex,
+  key: Scalar,
+): readonly ContentItem[]
+export function applyViewFilter(
+  items: readonly ContentItem[],
+  predicate: (item: ContentItem) =&gt; boolean,
+): readonly ContentItem[]
+export function flattenVisibleRows(
+  root: readonly ContentItem[],
+  indexes: ExplorerIndexes,
+  expanded: ReadonlySet&lt;ItemId&gt;,
+): readonly ContentItem[]</code></pre>
+    <p>Implementacja powinna budować każdy indeks raz na identity snapshotu, używać <code>Map</code> zamiast zagnieżdżonych <code>find</code> i zachowywać referencje do itemów. Join oparty o relację custom powinien stosować ścisłą równość scalarów zgodnie z modelem domeny. Filter/sort działa na referencjach lub ID, a nie tworzy głębokich kopii całego datasetu.</p>
+
+    <h3>2. Effectowa granica I/O</h3>
+    <pre><code>export interface PageRequest {
+  readonly url: string
+  readonly page: number
+  readonly signal: AbortSignal
+}
+
+export interface ZestyApi {
+  readonly fetchPage: (
+    request: PageRequest,
+  ) =&gt; Effect.Effect&lt;CollectionPage, ZestyError&gt;
+}
+
+export interface LoadRequest {
+  readonly rootUrl: string
+  readonly collectionIds: readonly string[]
+  readonly signal: AbortSignal
+}
+
+export function loadSnapshot(
+  request: LoadRequest,
+): Effect.Effect&lt;CollectionSnapshot[], LoadError, ZestyApi&gt;</code></pre>
+    <p>W realnym kodzie <code>ZestyApi</code> jest serwisem/tagiem dostarczanym przez Layer. Implementacja adaptera pobiera strony, odrzuca niepoprawny status, dekoduje stronę Schema i mapuje błąd transportu/dekodowania na typ aplikacyjny. UI zna tylko <code>loadSnapshot</code>, a nie szczegóły klienta HTTP.</p>
+
+    <h3>3. Jedyny punkt wejścia z React/TanStack Query</h3>
+    <pre><code>const snapshotQuery = useQuery({
+  queryKey: ["snapshot", input.rootUrl, input.collectionIds],
+  queryFn: ({ signal }) =&gt;
+    Effect.runPromise(
+      loadSnapshot({ ...input, signal }).pipe(
+        Effect.provide(AppLive),
+      ),
+    ),
+})</code></pre>
+    <p>To jest schemat granicy, nie gotowy kod zależny od konkretnej wersji API. <code>queryKey</code> musi obejmować wszystkie zmienne używane przez funkcję zapytania. Sygnał TanStack przekazujemy do wszystkich requestów strony. Nie wywołujemy <code>Effect.runPromise</code> w środku innego Effect ani w fazie renderu React.</p>
+  </section>
+
+  <section aria-labelledby="schema-title">
+    <h2 id="schema-title">Effect Schema czy Zod?</h2>
+    <table>
+      <thead><tr><th>Wymiar</th><th>Effect Schema</th><th>Zod</th></tr></thead>
+      <tbody>
+        <tr><td>Podstawowy model</td><td>Immutable schema values, osobne widoki typu, dekodera, encodera i codec.</td><td>Schema builder z metodami chaining; <code>parse</code> rzuca <code>ZodError</code>, <code>safeParse</code> zwraca wynik rozłączny.</td></tr>
+        <tr><td>Kierunek danych</td><td>Decode i encode, transformacje, normalizacja, JSON Schema oraz Standard Schema.</td><td>Najczęściej parse wejścia; transformacje również są możliwe, ale model jest węższy.</td></tr>
+        <tr><td>Integracja z Effect</td><td>Typed failures, wymagania serwisów i warianty effectful decoderów pasują bezpośrednio do pipeline’u.</td><td>Trzeba osobno mapować wyjątki/wyniki Zod na kanał błędów Effect.</td></tr>
+        <tr><td>Narzędzia dodatkowe</td><td>Oficjalnie opisane formattery, JSON Schema, arbitrary, equivalence i obsługa Standard Schema.</td><td>Zod 4 ma własne narzędzia JSON Schema i wariant Zod Mini dla mniejszego bundle.</td></tr>
+        <tr><td>Decyzja</td><td><span class="good">Wybór dla tego projektu.</span> Jedna definicja kontraktu na granicy API.</td><td>Nie dodawać obok Effect Schema. Zostawić tylko wtedy, gdy istniejący komponent lub zewnętrzny kontrakt wymusza Zod.</td></tr>
+      </tbody>
+    </table>
+    <p>Rekomendacja: użyć Effect Schema do dekodowania każdej strony odpowiedzi Zesty dokładnie raz, przy wejściu do snapshotu. Później operować na znormalizowanych typach domenowych. Nie wkładać dekodera do pętli renderującej ani do każdego joinu. Zod jest dobrym samodzielnym walidatorem, ale mieszanie obu schematów tworzyłoby drugi język kontraktów i drugi sposób obsługi błędów.</p>
+    <p class="source-note">Źródła: <a href="https://effect.website/docs/v4/schema/introduction" target="_blank" rel="noopener noreferrer">Effect Schema — wprowadzenie</a>, <a href="https://zod.dev/basics" target="_blank" rel="noopener noreferrer">Zod — podstawy parse/safeParse</a>, <a href="https://zod.dev/packages/zod" target="_blank" rel="noopener noreferrer">Zod — pakiety</a> i <a href="https://zod.dev/v4" target="_blank" rel="noopener noreferrer">Zod 4</a>.</p>
+  </section>
+
+  <section aria-labelledby="http-title">
+    <h2 id="http-title">HTTP w przeglądarce</h2>
+    <table>
+      <thead><tr><th>Linia</th><th>Oficjalna ścieżka</th><th>Praktyczne użycie</th></tr></thead>
+      <tbody>
+        <tr><td>v3</td><td><code>@effect/platform/HttpClient</code> + <code>@effect/platform/FetchHttpClient</code></td><td><code>FetchHttpClient.layer</code> opiera się na globalnym fetch. Klient ma helpers <code>get</code>/<code>execute</code>, filtrowanie statusu i response helpers do Schema JSON.</td></tr>
+        <tr><td>v3 browser</td><td><code>@effect/platform-browser/BrowserHttpClient</code></td><td>Potrzebny dla klienta XHR i usług browserowych. Nie instalować tylko dlatego, że aplikacja działa w przeglądarce, jeśli wystarcza fetchowy klient platformy.</td></tr>
+        <tr><td>v4 RC</td><td><code>effect/unstable/http</code> + <code>@effect/platform-browser</code></td><td>Nowa organizacja jest atrakcyjna, ale HTTP jest pod ścieżką unstable, a pakiety wymagają zgodnego tagu <code>rc</code>.</td></tr>
+      </tbody>
+    </table>
+    <p>Adapter powinien mieć jedno miejsce konfiguracji: base URL, nagłówek autoryzacji, obsługę statusu i dekoder strony. Dla requestów read-only retry jest rozsądny tylko dla błędów przejściowych (np. sieć, 429, 5xx po świadomej polityce), nigdy dla błędu Schema, 4xx wynikającego z danych wejściowych ani przerwania użytkownika. CORS, cookies, redirecty i rzeczywiste zachowanie fetch nadal należą do runtime’u przeglądarki.</p>
+    <p class="source-note">Źródła: <a href="https://github.com/Effect-TS/effect/blob/v3/packages/platform/src/HttpClient.ts" target="_blank" rel="noopener noreferrer">v3 HttpClient</a>, <a href="https://github.com/Effect-TS/effect/blob/v3/packages/platform/src/FetchHttpClient.ts" target="_blank" rel="noopener noreferrer">v3 FetchHttpClient</a>, <a href="https://github.com/Effect-TS/effect/blob/v3/packages/platform-browser/src/BrowserHttpClient.ts" target="_blank" rel="noopener noreferrer">v3 BrowserHttpClient</a> oraz <a href="https://github.com/Effect-TS/effect/blob/main/packages/platform/browser/src/BrowserHttpClient.ts" target="_blank" rel="noopener noreferrer">v4 BrowserHttpClient</a>.</p>
+  </section>
+
+  <section aria-labelledby="control-title">
+    <h2 id="control-title">Anulowanie, współbieżność i retry</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Anulowanie</h3>
+        <p>TanStack Query przekazuje <code>AbortSignal</code> do <code>queryFn</code>. Domyślnie nie anuluje obietnicy, gdy komponent znika; gdy funkcja skonsumuje sygnał, anulowanie fetch powoduje również cofnięcie stanu query. To dokładnie ten sygnał, który powinien trafić do Effectowego adaptera.</p>
+        <p>Effect może przerwać fiber i posprzątać zasoby. W praktyce: zmiana query key, unmount albo ręczne <code>cancelQueries</code> kończy requesty stron, zamiast pozwalać im wyścignąć nowy snapshot.</p>
+      </article>
+      <article class="card">
+        <h3>Współbieżność</h3>
+        <p>Effect domyślnie wykonuje efekty sekwencyjnie; <code>Effect.all</code> lub <code>Effect.forEach</code> może przyjąć limit. Dla ładowania pozostałych kolekcji zacząć od <code>concurrency: 3</code>. To amortyzuje latency bez otwierania nieograniczonej liczby requestów.</p>
+        <p>Nie uruchamiać jednego Effectu na każdą komórkę lub item. Współbieżność dotyczy requestów kolekcji/stron, nie czystych joinów.</p>
+      </article>
+      <article class="card">
+        <h3>Timeout</h3>
+        <p>Timeout powinien kończyć program przerwaniem źródła, a nie zostawiać fetch w tle. Ustalić jedną wartość na request lub całą operację ładowania i pokazać użytkownikowi rozróżnienie timeoutu od błędu danych.</p>
+      </article>
+      <article class="card">
+        <h3>Retry</h3>
+        <p>Effect ma <code>Effect.retry</code> i <code>Schedule</code>. Użyć krótkiego limitu i backoffu tylko dla typed transient errors. W TanStack Query nie dublować automatycznie tej samej polityki — wybrać jedno miejsce odpowiedzialne za retry, najlepiej adapter Effect.</p>
+      </article>
+    </div>
+    <pre><code>const loadRelated = Effect.forEach(
+  collectionIds,
+  (collectionId) =&gt; loadCollection(collectionId).pipe(
+    Effect.retry(transientSchedule),
+    Effect.timeout("15 seconds"),
+  ),
+  { concurrency: 3 },
+)</code></pre>
+    <p class="small">Przykład pokazuje intencję i kolejność kontroli; konkretne nazwy helperów mogą różnić się między v3 i v4. Nie retry’ujemy interruption/cancel, błędów walidacji ani zwykłych błędów 4xx. Źródła: <a href="https://effect.website/docs/v3/concurrency/basic-concurrency" target="_blank" rel="noopener noreferrer">Effect concurrency</a>, <a href="https://effect.website/docs/v3/error-management/retrying" target="_blank" rel="noopener noreferrer">Effect retry</a>, <a href="https://effect.website/docs/v4/error-management/timing-out" target="_blank" rel="noopener noreferrer">Effect timeout</a> oraz <a href="https://tanstack.com/query/latest/docs/framework/react/guides/query-cancellation" target="_blank" rel="noopener noreferrer">TanStack Query cancellation</a>.</p>
+  </section>
+
+  <section aria-labelledby="react-title">
+    <h2 id="react-title">React i TanStack Query bez nakładania abstrakcji</h2>
+    <p>Najprostszy podział to: <strong>TanStack Query = server state i cache</strong>, <strong>Effect = wykonanie jednego programu</strong>, <strong>React = stan interakcji i render</strong>. Query function zwraca Promise, więc na tej jednej krawędzi wykonujemy przygotowany program przez <code>Effect.runPromise</code>. Wewnątrz programu używamy usług/layers, nie globali.</p>
+    <table>
+      <thead><tr><th>Wzorzec</th><th>Zastosowanie tutaj</th></tr></thead>
+      <tbody>
+        <tr><td>Query key</td><td>Uwzględnia identyfikator instancji, root collection, wybrane kolekcje, view/filter inputs i wersję snapshotu, jeśli wpływają na wynik.</td></tr>
+        <tr><td><code>queryFn({ signal })</code></td><td>Przekazuje sygnał do wszystkich requestów Effectowego loadera; nie ignoruje cancellation.</td></tr>
+        <tr><td><code>select</code></td><td>Może wyciągać lekkie pochodne dane. Duży nested tree lepiej wyprowadzać memoizowaną czystą funkcją zależną od identity snapshotu i stanu UI.</td></tr>
+        <tr><td>Dependent/prefetch queries</td><td>Używać dla rozwijanej kolekcji, jeśli nie chcemy pobierać całego grafu od razu. Klucz query powinien opisywać konkretną kolekcję.</td></tr>
+        <tr><td><code>@effect/atom-react</code></td><td>Nie dodawać w MVP. To v4-owe bindingi do Atom, a wprowadzenie drugiego mechanizmu cache/reactivity zwiększa koszt poznawczy i ryzyko duplikacji stanu.</td></tr>
+      </tbody>
+    </table>
+    <p>Nie tworzyć trwałego Effect fiber dla każdego renderu. Program uruchamia Query, a lifecycle Query i jego sygnał kończą pracę. Przy manualnym przycisku „Load” można uruchomić program w callbacku i zapisać wynik do QueryClient albo pozostawić całe ładowanie jako query.</p>
+    <p class="source-note">Źródła: <a href="https://tanstack.com/query/latest/docs/framework/react/guides/query-keys" target="_blank" rel="noopener noreferrer">query keys</a>, <a href="https://tanstack.com/query/latest/docs/framework/react/reference/functions/useQuery" target="_blank" rel="noopener noreferrer">useQuery</a>, <a href="https://tanstack.com/query/latest/docs/framework/react/guides/render-optimizations" target="_blank" rel="noopener noreferrer">render optimizations</a>, <a href="https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries" target="_blank" rel="noopener noreferrer">dependent queries</a> oraz <a href="https://github.com/Effect-TS/effect/blob/main/packages/atom/react/README.md" target="_blank" rel="noopener noreferrer">oficjalne @effect/atom-react</a>.</p>
+  </section>
+
+  <section aria-labelledby="language-title">
+    <h2 id="language-title">Effect language service: tak, z ograniczeniami</h2>
+    <p>Language service jest dobrą inwestycją w tę bazę kodu: wykrywa m.in. floating Effects, brakujące wymagania/error context, problemy z Layer oraz duplikaty pakietów; oferuje też quickinfo i refactory. Nie jest jednak zamiennikiem <code>tsc</code>, Vitest ani Vite build.</p>
+    <h3>Konfiguracja dla TypeScript poniżej 7</h3>
+    <pre><code>pnpm add -D @effect/language-service typescript@^5.9</code></pre>
+    <pre><code>{
+  "$schema": "./node_modules/@effect/language-service/schema.json",
+  "compilerOptions": {
+    "strict": true,
+    "plugins": [
+      { "name": "@effect/language-service" }
+    ]
+  }
+}</code></pre>
+    <ul>
+      <li>Plugin powinien być ostatnim wpisem w <code>plugins</code>.</li>
+      <li>VS Code musi używać workspace TypeScript z projektu.</li>
+      <li>Vite tylko transpile’uje TypeScript; uruchamiamy osobne <code>tsc --noEmit</code>.</li>
+      <li>CLI <code>pnpm exec effect-language-service diagnostics --project tsconfig.json</code> daje lokalny raport bez patchowania TypeScript.</li>
+    </ul>
+    <div class="warning"><strong>Nie patchować tsc na starcie.</strong> Oficjalny plugin ma <code>effect-language-service patch</code>, który modyfikuje lokalne pliki TypeScript w <code>node_modules</code> i może wymagać pełnego rebuilda/wyczyszczenia tsbuildinfo. Dla projektu bez CI wystarczy plugin w edytorze, <code>tsc --noEmit</code> i opcjonalny CLI diagnostics. Patch można włączyć świadomie dopiero, gdy brak build-time diagnostics będzie realnym problemem.</div>
+    <p>Jeśli projekt przejdzie na TypeScript 7, aktualny README language service zaleca zamiast pluginu użyć <code>@effect/tsgo</code>. To osobna decyzja narzędziowa; nie instalować obu bez potrzeby.</p>
+    <p class="source-note">Źródło: <a href="https://github.com/Effect-TS/language-service/blob/main/README.md" target="_blank" rel="noopener noreferrer">oficjalny README @effect/language-service</a>.</p>
+  </section>
+
+  <section aria-labelledby="bundle-title">
+    <h2 id="bundle-title">Vite, tree-shaking i koszt bundle</h2>
+    <p>Effect nie powinien być oceniany po liczbie plików w dev serverze. Vite pre-bundle’uje zależności w development, a produkcyjny build przechodzi przez tree-shaking. Mimo to importy i moduły mają znaczenie:</p>
+    <ul>
+      <li>Preferować importy z konkretnych modułów, np. <code>effect/Effect</code>, <code>effect/Schema</code>, <code>effect/Schedule</code> oraz <code>@effect/platform/HttpClient</code>, zamiast budowania własnych barrel files.</li>
+      <li>Efektowe funkcje są tree-shakeable; bundler musi jednak poprawnie analizować zakresy. Rollup/Rolldown i Webpack 5+ są wskazane w dokumentacji Effect jako wspierające deep scope analysis.</li>
+      <li><code>@effect/language-service</code>, <code>vitest</code> i <code>@effect/vitest</code> są devDependencies i nie trafiają do runtime bundle.</li>
+      <li>Nie importować <code>@effect/atom-react</code> ani modułów <code>Stream</code>/<code>Worker</code>, jeśli nie są używane.</li>
+      <li>Po pierwszej implementacji uruchomić realny <code>pnpm vite build</code> i zapisać rozmiar initial chunk. Nie optymalizować na podstawie intuicji.</li>
+    </ul>
+    <p>Vite zaleca unikanie barrel files oraz dynamiczne importowanie dużych zależności używanych warunkowo. Dependency pre-bundling poprawia development, ale działa tylko w dev, więc decyzję o bundle podejmujemy na produkcyjnym buildzie.</p>
+    <p class="source-note">Źródła: <a href="https://effect.website/docs/v3/getting-started/importing-effect" target="_blank" rel="noopener noreferrer">Effect imports/tree-shaking</a>, <a href="https://vite.dev/guide/dep-pre-bundling.html" target="_blank" rel="noopener noreferrer">Vite dependency pre-bundling</a>, <a href="https://vite.dev/guide/performance.html" target="_blank" rel="noopener noreferrer">Vite performance</a> i <a href="https://vite.dev/guide/features" target="_blank" rel="noopener noreferrer">Vite features</a>.</p>
+  </section>
+
+  <section aria-labelledby="nested-title">
+    <h2 id="nested-title">Plan performance dla nested table</h2>
+    <p>Nested table ma dwa różne koszty: obliczenie grafu i render DOM. Effect pomaga tylko w pierwszym przypadku, jeśli graf wymaga asynchronicznych requestów. Sam join nie staje się szybszy przez opakowanie go w Effect.</p>
+    <table>
+      <thead><tr><th>Etap</th><th>Implementacja startowa</th><th>Cel pomiaru</th></tr></thead>
+      <tbody>
+        <tr><td>Pobranie</td><td>Jedno query dla snapshotu albo query per kolekcja; limit Effect concurrency 3; pages bounded.</td><td>Brak lawiny requestów i możliwość przerwania starego query.</td></tr>
+        <tr><td>Normalizacja</td><td>Schema decode raz na stronę; itemy są immutable/referencyjne od tego momentu.</td><td>Brak ponownego parse całego datasetu przy filtrze.</td></tr>
+        <tr><td>Indeks</td><td><code>Map&lt;Scalar, ContentItem[]&gt;</code> na kolekcję; budowa raz dla identity snapshotu.</td><td>Zamiast O(root × related) uzyskać lookup O(1) średnio po przygotowaniu O(n).</td></tr>
+        <tr><td>Widoczne rows</td><td>Memoizowane flatten tylko dla rozwiniętych gałęzi; filtr i sort na ID/ref.</td><td>Praca proporcjonalna do widocznego wyniku, nie do liczby komórek.</td></tr>
+        <tr><td>DOM</td><td>Stabilne klucze, małe komponenty, render tylko flattened visible rows; windowing, gdy liczba wierszy tego wymaga.</td><td>Brak setek/tysięcy niepotrzebnych nodes i rerenderów.</td></tr>
+      </tbody>
+    </table>
+    <p>Na start użyć <code>useMemo</code> dla funkcji zależnej od identity snapshotu, filtrów i expansion state. Dla wyszukiwania można dodać krótkie opóźnienie albo <code>useDeferredValue</code>, ale dopiero po pomiarze. Jeśli widocznych jest dużo wierszy, windowing jest ważniejszy niż przenoszenie joinu do Workera.</p>
+    <div class="risk"><strong>Próg dla Web Workera:</strong> najpierw naprawić algorytm, memoizację i liczbę renderowanych wierszy. Worker ma sens dopiero, gdy syntetyczne dane realistycznego rozmiaru nadal tworzą długie taski (około 50 ms lub więcej) podczas filtrowania/flattening albo p95 interakcji przekracza uzgodniony budżet.</div>
+  </section>
+
+  <section aria-labelledby="worker-title">
+    <h2 id="worker-title">Opcjonalna ścieżka Web Worker</h2>
+    <p>Pure core może zostać przeniesiony bez zmiany interfejsu. Worker nie powinien znać TanStack Query, tokenu ani Effectowego klienta HTTP; dostaje serializowalny snapshot i polecenie wyliczenia rows.</p>
+    <pre><code>type CoreRequest = {
+  readonly requestId: number
+  readonly op: "deriveRows"
+  readonly snapshot: SerializableSnapshot
+  readonly filter: FilterInput
+  readonly expanded: readonly string[]
+}
+
+type CoreResponse =
+  | { readonly requestId: number; readonly ok: true; readonly rows: readonly Row[] }
+  | { readonly requestId: number; readonly ok: false; readonly message: string }</code></pre>
+    <p>Na głównej stronie utrzymujemy tylko jeden worker, numerujemy requesty i ignorujemy odpowiedzi starsze niż aktualny input. Trzeba mierzyć także koszt structured clone; przeniesienie dużego snapshotu może zjeść zysk. Vite rekomenduje standardowy konstruktor:</p>
+    <pre><code>const worker = new Worker(
+  new URL("./explorer.worker.ts", import.meta.url),
+  { type: "module" },
+)</code></pre>
+    <p>W produkcyjnym buildzie Vite emituje Worker jako osobny chunk. To pozwala nie obciążać initial bundle, ale jest kolejnym lifecycle’em do testowania i zamknięcia. Nie dodawać go do pierwszej wersji bez czerwonego wyniku benchmarku.</p>
+    <p class="source-note">Źródło: <a href="https://vite.dev/guide/features" target="_blank" rel="noopener noreferrer">Vite Web Workers</a>.</p>
+  </section>
+
+  <section aria-labelledby="testing-title">
+    <h2 id="testing-title">Testy i automatyzacja lokalna</h2>
+    <p>Tak — performance można zautomatyzować bez CI i bez prawdziwego Zesty. Podział testów powinien utrzymać szybkość codziennej pracy:</p>
+    <table>
+      <thead><tr><th>Warstwa</th><th>Runner i fixture</th><th>Co sprawdzamy</th></tr></thead>
+      <tbody>
+        <tr><td>Pure core</td><td>Zwykły Vitest, syntetyczne kolekcje 1k/10k/50k</td><td>Join, strict scalar equality, filter, sort, flatten, brak mutacji i poprawność kolejności.</td></tr>
+        <tr><td>Effect loader</td><td>Zwykły Vitest + <code>@effect/vitest</code>; fake transport/Layer</td><td>Status mapping, Schema decode, pagination, concurrency limit, timeout, retry tylko dla transient error i cancellation.</td></tr>
+        <tr><td>Query boundary</td><td>Mockowany <code>queryFn</code> z kontrolowanym <code>AbortSignal</code></td><td>Query key, przekazanie sygnału, brak aktualizacji starym wynikiem po zmianie inputu.</td></tr>
+        <tr><td>UI</td><td>Vitest Browser Mode + Playwright, syntetyczny snapshot</td><td>Expand/collapse, filtr, liczba widocznych rows, brak zbędnego requestu i podstawowy budżet interakcji.</td></tr>
+        <tr><td>Bundle</td><td>Lokalny <code>vite build</code> i inspekcja outputu</td><td>Initial chunk, osobny chunk Workera (jeśli powstanie), brak dev-only packages w runtime.</td></tr>
+      </tbody>
+    </table>
+    <h3>Komendy bez CI</h3>
+    <pre><code># proponowany lokalny zestaw skryptów package.json
+pnpm typecheck
+pnpm vitest run
+pnpm vitest bench
+pnpm vitest --project browser --run
+pnpm vite build
+
+# opcjonalnie, diagnostyki Effect bez patchowania tsc
+pnpm exec effect-language-service diagnostics --project tsconfig.json</code></pre>
+    <p>Benchmarki powinny być w plikach <code>*.bench.ts</code>, poza codziennym <code>vitest run</code>. Aktualna dokumentacja Vitest używa fixture <code>bench</code>, drukuje mean/p75/p99 i pozwala na asercje throughputu; starsza linia Vitest może mieć starszy kształt API, dlatego kod benchmarku trzeba dopasować do przypiętej wersji. Wynik benchmarku powinien konsumować rezultat, żeby silnik JS nie usunął obliczenia jako dead code.</p>
+    <p>Nie ustawiałbym od pierwszego dnia sztywnego progu w milisekundach jako jedynego gate’a — laptop, throttling i GC robią różnicę. Najpierw zapisać lokalny baseline dla 10k i 50k, a potem traktować regresję np. &gt;2× baseline jako fail do wyjaśnienia. Dla UI można dodatkowo obserwować długie taski i p95 interakcji w Browser Mode. To daje powtarzalną decyzję bez udawania, że każdy komputer ma ten sam czas.</p>
+    <p class="source-note">Źródła: <a href="https://main.vitest.dev/guide/benchmarking.html" target="_blank" rel="noopener noreferrer">Vitest benchmarking</a>, <a href="https://main.vitest.dev/guide/browser/" target="_blank" rel="noopener noreferrer">Vitest Browser Mode</a>, <a href="https://vitest.dev/guide/mocking/timers.html" target="_blank" rel="noopener noreferrer">Vitest fake timers</a>, <a href="https://github.com/Effect-TS/effect/blob/v3/packages/vitest/README.md" target="_blank" rel="noopener noreferrer">@effect/vitest v3</a> i <a href="https://github.com/Effect-TS/effect/blob/main/packages/vitest/README.md" target="_blank" rel="noopener noreferrer">@effect/vitest v4 RC</a>.</p>
+  </section>
+
+  <section aria-labelledby="acceptance-title">
+    <h2 id="acceptance-title">Kryteria akceptacji implementacji</h2>
+    <ol>
+      <li>Ścieżka happy path ładuje fixture przez fake transport, bez sieci, <code>app.sid</code> i prawdziwej instancji Zesty.</li>
+      <li>Zmiana query key lub unmount konsumuje <code>AbortSignal</code> i nie pozwala staremu snapshotowi nadpisać nowego.</li>
+      <li>Ładowanie wielu kolekcji ma jawny limit concurrency (start: 3), bounded pages i test pokazujący, że limit działa.</li>
+      <li>Join/filter/sort/flatten są pure, mają indeks O(n), nie mutują danych i nie są uruchamiane jako Effect.</li>
+      <li>Nested table renderuje tylko widoczne, spłaszczone rows i nie dekoduje/łączy danych na poziomie komórki.</li>
+      <li>Local performance command działa z syntetycznymi fixture’ami i pokazuje baseline/regresję dla 10k i 50k.</li>
+      <li><code>pnpm vite build</code> potwierdza, że initial bundle jest akceptowalny; Worker pozostaje opcjonalny i osobno chunkowany.</li>
+      <li>Language service jest używalny w workspace TS, ale nie wymaga patchowania <code>tsc</code> ani dodatkowego CI.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="tradeoffs-title">
+    <h2 id="tradeoffs-title">Koszty i świadome „nie”</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Co zyskujemy</h3>
+        <ul>
+          <li>Typed failure zamiast rozlanego <code>catch (unknown)</code>.</li>
+          <li>Jedną politykę timeout/retry/concurrency i poprawne cleanup po interrupt.</li>
+          <li>Testowalne usługi: real Layer i fake Layer mają ten sam interfejs.</li>
+          <li>Łatwą zmianę transportu bez dotykania pure core i tabeli.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>Czego nie używamy w MVP</h3>
+        <ul>
+          <li>Effect Atom/React jako drugi server-state store.</li>
+          <li><code>Stream</code>, jeśli nie potrzebujemy progresywnego renderowania stron.</li>
+          <li>RPC/HTTP API codegen, bo aplikacja nie tworzy własnego serwera.</li>
+          <li>Web Worker, dopóki benchmark nie pokaże długich tasków.</li>
+          <li>Effect w czystych pętlach tylko po to, by „wszystko było Effect”.</li>
+        </ul>
+      </article>
+    </div>
+    <p><strong>Najważniejsza zasada:</strong> Effect ma być głębokim modułem wąskiej granicy I/O, a nie płytką warstwą opakowującą każdą funkcję. Dzięki temu zachowujemy typed lifecycle bez płacenia złożonością w najgorętszej ścieżce nested table.</p>
+  </section>
+
+  <section aria-labelledby="sources-title">
+    <h2 id="sources-title">Źródła oficjalne</h2>
+    <p class="small">Linki prowadzą do dokumentacji albo źródeł utrzymywanych przez autorów danego narzędzia. Stan i rekomendacje odnoszą się do 2026-09-11.</p>
+    <ul class="source-list">
+      <li><a href="https://github.com/Effect-TS/effect" target="_blank" rel="noopener noreferrer">Effect monorepo — v4 RC, pakiety i wymagania</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/main/MIGRATION.md" target="_blank" rel="noopener noreferrer">Effect migration v3 → v4</a></li>
+      <li><a href="https://effect.website/docs/v3/getting-started/installation" target="_blank" rel="noopener noreferrer">Effect v3 installation, Vite + React</a></li>
+      <li><a href="https://effect.website/docs/v3/getting-started/importing-effect" target="_blank" rel="noopener noreferrer">Effect v3 imports i tree-shaking</a></li>
+      <li><a href="https://effect.website/docs/v3/requirements-management/services" target="_blank" rel="noopener noreferrer">Effect v3 services</a></li>
+      <li><a href="https://effect.website/docs/v3/requirements-management/layers" target="_blank" rel="noopener noreferrer">Effect v3 layers</a></li>
+      <li><a href="https://effect.website/docs/v3/concurrency/basic-concurrency" target="_blank" rel="noopener noreferrer">Effect v3 concurrency</a></li>
+      <li><a href="https://effect.website/docs/v3/error-management/retrying" target="_blank" rel="noopener noreferrer">Effect v3 retrying</a></li>
+      <li><a href="https://effect.website/docs/v4/error-management/timing-out" target="_blank" rel="noopener noreferrer">Effect v4 timeout semantics</a></li>
+      <li><a href="https://effect.website/docs/v4/schema/introduction" target="_blank" rel="noopener noreferrer">Effect Schema introduction</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/v3/packages/platform/src/HttpClient.ts" target="_blank" rel="noopener noreferrer">Effect v3 HttpClient source</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/v3/packages/platform/src/FetchHttpClient.ts" target="_blank" rel="noopener noreferrer">Effect v3 FetchHttpClient source</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/main/packages/platform/browser/src/BrowserHttpClient.ts" target="_blank" rel="noopener noreferrer">Effect v4 BrowserHttpClient source</a></li>
+      <li><a href="https://github.com/Effect-TS/language-service/blob/main/README.md" target="_blank" rel="noopener noreferrer">Effect language service</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/v3/packages/vitest/README.md" target="_blank" rel="noopener noreferrer">@effect/vitest v3</a></li>
+      <li><a href="https://github.com/Effect-TS/effect/blob/main/packages/atom/react/README.md" target="_blank" rel="noopener noreferrer">@effect/atom-react</a></li>
+      <li><a href="https://zod.dev/basics" target="_blank" rel="noopener noreferrer">Zod basics</a> i <a href="https://zod.dev/v4" target="_blank" rel="noopener noreferrer">Zod 4</a></li>
+      <li><a href="https://tanstack.com/query/latest/docs/framework/react/guides/query-cancellation" target="_blank" rel="noopener noreferrer">TanStack Query cancellation</a></li>
+      <li><a href="https://tanstack.com/query/latest/docs/framework/react/guides/query-keys" target="_blank" rel="noopener noreferrer">TanStack Query keys</a></li>
+      <li><a href="https://tanstack.com/query/latest/docs/framework/react/guides/render-optimizations" target="_blank" rel="noopener noreferrer">TanStack Query render optimizations</a></li>
+      <li><a href="https://vite.dev/guide/features" target="_blank" rel="noopener noreferrer">Vite features, TypeScript and Web Workers</a></li>
+      <li><a href="https://vite.dev/guide/dep-pre-bundling.html" target="_blank" rel="noopener noreferrer">Vite dependency pre-bundling</a></li>
+      <li><a href="https://vite.dev/guide/performance.html" target="_blank" rel="noopener noreferrer">Vite performance guide</a></li>
+      <li><a href="https://main.vitest.dev/guide/benchmarking.html" target="_blank" rel="noopener noreferrer">Vitest benchmarking</a></li>
+      <li><a href="https://main.vitest.dev/guide/browser/" target="_blank" rel="noopener noreferrer">Vitest Browser Mode</a></li>
+      <li><a href="https://vitest.dev/guide/mocking/timers.html" target="_blank" rel="noopener noreferrer">Vitest fake timers</a></li>
+    </ul>
+  </section>
+
+  <footer>
+    <p class="small">Artefakt jest samodzielnym HTML-em: inline CSS, bez skryptów i bez zewnętrznych assetów. Nie zawiera danych dostępowych ani requestów do Zesty.</p>
+  </footer>
+</main>
+</body>
+</html>

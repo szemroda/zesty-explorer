@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Zesty Explorer — Explorer Plan</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="./index.html">Zesty Explorer plan</a>
+        <nav aria-label="Plan sections">
+          <a href="./index.html">Overview</a>
+          <a href="./01-foundation.html">Foundation</a>
+          <a href="./02-explorer.html" aria-current="page">Explorer</a>
+          <a href="./03-verification.html">Verification</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <p class="eyebrow">Phases 5–10</p>
+      <h1>Deliver the explorer in vertical slices.</h1>
+      <p class="lede">
+        Start with a useful root collection browser. Add orchestration, relationships, querying,
+        recursive presentation, and sharing only after the previous slice behaves correctly.
+      </p>
+
+      <ol class="toc">
+        <li><a href="#phase-5">Ship the root vertical slice</a></li>
+        <li><a href="#phase-6">Orchestrate snapshots and loading</a></li>
+        <li><a href="#phase-7">Build the relationship engine and tree editor</a></li>
+        <li><a href="#phase-8">Add filtering, sorting, and pagination</a></li>
+        <li><a href="#phase-9">Render recursive tables and item details</a></li>
+        <li><a href="#phase-10">Synchronize and share the view</a></li>
+      </ol>
+
+      <section class="phase" id="phase-5">
+        <span class="phase-number">5</span>
+        <h2>Ship the root vertical slice</h2>
+        <div class="phase-meta"><span>Depends on: phase 4</span><span>Milestone: M2 begins</span></div>
+        <ul class="tasks">
+          <li>Build the compact dark application shell: top bar, empty/start state, left tree region, main table region, and right Sheet region.</li>
+          <li>Add the password-style session-token input with reveal, clear confirmation, and a helper for production, stage, and development cookie names.</li>
+          <li>Add the root collection reference input, accepted examples, validation feedback, and collection-link helper.</li>
+          <li>Connect one parsed root collection to TanStack Query and the Effect-backed <code>ZestyApi</code>.</li>
+          <li>Render the root collection with generated columns, default <code>modified</code> descending sort, technical fields hidden, horizontal scrolling, and root pagination at 100 rows.</li>
+          <li>Add the view-wide <code>Published only</code> control and explicit Refresh action.</li>
+          <li>Open item details automatically when the initial collection reference contains an item ZUID.</li>
+          <li>Implement root loading, empty, authentication, permission, missing collection, decoding, network, and retry states.</li>
+          <li>On <code>401</code>, clear the token, preserve the root reference, reopen token entry, and resume after replacement.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> the first genuinely usable product slice: open, browse, inspect, switch state, and refresh one collection.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> a fake-backed browser test covers the entire start-to-root-table flow, including token recovery and item deep-link details.</p></div>
+
+      <section class="phase" id="phase-6">
+        <span class="phase-number">6</span>
+        <h2>Orchestrate snapshots and loading</h2>
+        <div class="phase-meta"><span>Depends on: phase 5</span><span>Milestone: M2</span></div>
+        <ul class="tasks">
+          <li>Define TanStack Query identities by instance, deployment, collection, content state, and <code>en-US</code>.</li>
+          <li>Cache each unique collection snapshot once even when the collection has several nodes in the tree.</li>
+          <li>Load the root first, then configured descendants with at most three collection requests running concurrently.</li>
+          <li>Cancel superseded loads when the root, content state, or view changes.</li>
+          <li>Enforce the 10,000-item per-collection and 50,000-item per-view limits during pagination and orchestration.</li>
+          <li>Represent complete, partial, pending, stale, failed, and successful snapshots explicitly.</li>
+          <li>Keep usable snapshots visible during explicit refresh and preserve expansion for item IDs that still exist.</li>
+          <li>Ensure Effect owns request retry while TanStack Query does not introduce a second retry loop.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> predictable, cancellable snapshot loading with no duplicate collection fetches.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> orchestration tests prove root-first order, concurrency ≤ 3, deduplication, cancellation, partial limits, and no double retry.</p></div>
+
+      <section class="phase" id="phase-7">
+        <span class="phase-number">7</span>
+        <h2>Build the relationship engine and tree editor</h2>
+        <div class="phase-meta"><span>Depends on: phases 2 and 6</span><span>Milestone: M3 begins</span></div>
+        <ul class="tasks">
+          <li>Implement pure <code>ExplorerCore</code> normalization over stable content-item IDs and immutable snapshot references.</li>
+          <li>Read model schemas and identify native relationship fields that target the selected child model.</li>
+          <li>Require user choice when multiple native fields are valid; never guess an ambiguous relationship.</li>
+          <li>Support custom parent and child nested scalar field paths with strict typed equality and no coercion.</li>
+          <li>Build <code>Map&lt;scalar, item IDs[]&gt;</code> child indexes once per snapshot and relationship definition.</li>
+          <li>Preserve all matches, unmatched parents with empty child lists, and children referenced by several parents.</li>
+          <li>Build the left-side relationship tree editor with add, rename, and confirmed subtree removal.</li>
+          <li>Enforce one instance, one deployment, an acyclic tree, maximum depth five, and maximum ten nodes before loading a child.</li>
+          <li>Allow the same collection in several role-specific nodes while sharing its fetched snapshot.</li>
+          <li>Mark schema-stale paths invalid without discarding the node or the remainder of the view.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> a validated collection-node tree and indexed relationship results independent of React.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> relationship tests cover cardinality, duplicate roles, strict type equality, missing values, cycles, depth, node limits, and stale paths.</p></div>
+
+      <section class="phase" id="phase-8">
+        <span class="phase-number">8</span>
+        <h2>Add filtering, sorting, and pagination</h2>
+        <div class="phase-meta"><span>Depends on: phase 7</span><span>Milestone: M3</span></div>
+        <ul class="tasks">
+          <li>Implement pure field-path resolution that distinguishes missing, null, scalar, structured, and invalid values.</li>
+          <li>Implement text, number, date, boolean, empty, and closed-value-set operators from the specification.</li>
+          <li>Combine separate filters with AND and multi-select values with OR.</li>
+          <li>Implement descendant predicates with <code>any</code> semantics without filtering the retained related-items list.</li>
+          <li>Implement the global free-text search across root and descendants, excluding technical metadata and raw JSON.</li>
+          <li>Strip HTML tags and compare text case-insensitively without executing or injecting markup.</li>
+          <li>Implement node-level table free text, column filters, and path-based filters that limit rows but preserve ancestors.</li>
+          <li>Implement one sort field per node, default <code>modified</code> descending, stable ordering, and nulls last.</li>
+          <li>Implement root and per-parent nested pagination with 25, 50, and 100-row options.</li>
+          <li>Memoize derived ID sets by snapshot identity and relevant view state; calculate facet options only when their control opens.</li>
+          <li>Debounce text inputs by 200 ms, show progress only after another 300 ms, and ignore superseded calculations.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> deterministic query primitives and UI controls shared across root and nested tables.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> unit tests exhaust operator/null semantics and prove that view filters, table filters, and retained relationships remain distinct.</p></div>
+
+      <section class="phase" id="phase-9">
+        <span class="phase-number">9</span>
+        <h2>Render recursive tables and item details</h2>
+        <div class="phase-meta"><span>Depends on: phases 7–8</span><span>Milestone: M3</span></div>
+        <ul class="tasks">
+          <li>Create one recursive nested-table component bounded by the validated five-level tree.</li>
+          <li>Start every relation collapsed, allow several expanded rows, and mount nested content only while expanded.</li>
+          <li>Give each node shared columns, widths, filters, and sort while keeping page numbers local to each parent occurrence.</li>
+          <li>Render all content fields by default and keep technical metadata plus raw JSON hidden until selected.</li>
+          <li>Add column visibility and resizing, a sticky leading actions column, horizontal scroll, and compact node toolbars.</li>
+          <li>Truncate long values and route hover or explicit interaction through one controlled, keyboard-accessible popover.</li>
+          <li>Render structured and HTML values safely as readable text.</li>
+          <li>Add separate row actions for relation expansion, details, and opening the matching Zesty Manager item.</li>
+          <li>Build the right-side details Sheet with all fields, technical metadata, raw JSON, per-value copy, visible close, and focus restoration.</li>
+          <li>Display loading, partial-data, and failed-descendant states at the affected node without blocking healthy nodes.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> the complete nested browsing experience with bounded rendering work.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> component and browser tests cover five-level nesting, repeated node occurrences, independent paging, shared node state, details, popovers, and partial children.</p></div>
+
+      <section class="phase" id="phase-10">
+        <span class="phase-number">10</span>
+        <h2>Synchronize and share the view</h2>
+        <div class="phase-meta"><span>Depends on: phases 5–9</span><span>Milestone: M3 completes</span></div>
+        <ul class="tasks">
+          <li>Hydrate the application from the URL fragment before starting collection requests.</li>
+          <li>Synchronize settled non-secret state through <code>history.replaceState</code> without adding history entries while typing.</li>
+          <li>Include root and child references, deployment, content state, relations, names, filters, columns, widths, and sorts.</li>
+          <li>Exclude token, expansion, pages, open panels, request state, and temporary input state.</li>
+          <li>Add <code>Copy view link</code> and warn when the encoded URL exceeds 8,000 characters.</li>
+          <li>Restore a valid view after reload using URL state plus a token read separately from <code>sessionStorage</code>.</li>
+          <li>Offer copy-raw and confirmed reset actions for invalid, truncated, or unsupported payloads.</li>
+          <li>Implement confirmed Reset view while preserving the session token.</li>
+          <li>Implement confirmed root replacement and subtree deletion summaries before destructive view changes.</li>
+          <li>Add version-migration tests and golden URL fixtures so future codec changes remain deliberate.</li>
+        </ul>
+        <p class="deliverables"><strong>Output:</strong> reload-safe, credential-free share links and recoverable URL-state failures.</p>
+      </section>
+      <div class="gate"><p><strong>Exit gate:</strong> opening a copied URL in a second tab reconstructs the same view but requires that tab’s own session token.</p></div>
+
+      <h2>Explorer completion check</h2>
+      <ul class="tasks">
+        <li>One view can contain ten nodes across five levels without duplicate collection requests.</li>
+        <li>Published state is global and consistent across every node.</li>
+        <li>Changing one node’s filters, columns, or sort updates all rendered occurrences of that node.</li>
+        <li>Expansion and nested page numbers do not inflate shared URLs.</li>
+      </ul>
+
+      <div class="next">
+        <a href="./01-foundation.html">← Foundation</a>
+        <a href="./03-verification.html">Continue to Verification →</a>
+      </div>
+    </main>
+
+    <footer>Local documentation only. Explorer phases 5–10.</footer>
+  </body>
+</html>
