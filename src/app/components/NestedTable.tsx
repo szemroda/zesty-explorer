@@ -1,11 +1,12 @@
 import { ChevronDown, ChevronRight, ExternalLink, PanelRightOpen } from 'lucide-react';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
   ContentItem,
   ContentState,
   ItemZuid,
+  NodePresentation,
   SortState,
   ViewFilter,
 } from '../../domain';
@@ -35,6 +36,7 @@ interface NestedTableProps {
   readonly contentState: ContentState;
   readonly nodeStates: ReadonlyMap<CollectionNodeId, SharedNodeTableState>;
   readonly updateNodeState: (nodeId: CollectionNodeId, state: SharedNodeTableState) => void;
+  readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onPreview: (label: string, value: string) => void;
   readonly onRetry: () => void;
@@ -80,13 +82,18 @@ function CellValue({
 function stateFor(
   node: CollectionNode,
   states: ReadonlyMap<CollectionNodeId, SharedNodeTableState>,
+  fieldNames: readonly string[],
 ): SharedNodeTableState {
   return (
     states.get(node.id) ?? {
       freeText: node.presentation.freeText,
       filters: node.presentation.filters,
       sort: node.presentation.sort,
-      hiddenColumns: new Set(),
+      hiddenColumns: new Set(
+        node.presentation.visibleColumns.length === 0
+          ? []
+          : fieldNames.filter((name) => !node.presentation.visibleColumns.includes(name)),
+      ),
     }
   );
 }
@@ -109,6 +116,7 @@ export function NestedTable(props: NestedTableProps) {
     contentState,
     nodeStates,
     updateNodeState,
+    onPresentationChange,
     onOpenDetails,
     onPreview,
     onRetry,
@@ -116,10 +124,10 @@ export function NestedTable(props: NestedTableProps) {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [expanded, setExpanded] = useState<ReadonlySet<ItemZuid>>(new Set());
-  const sharedState = stateFor(node, nodeStates);
-  const deferredText = useDebouncedValue(sharedState.freeText);
   const state = snapshotState(node, loadedView, contentState);
   const schema = loadedView.schemas.get(node.id);
+  const sharedState = stateFor(node, nodeStates, schema?.fields.map((field) => field.name) ?? []);
+  const deferredText = useDebouncedValue(sharedState.freeText);
   const parentSchema = loadedView.schemas.get(parentNode.id);
   const parentField = node.relationship?.parentField[0];
   const childField = node.relationship?.kind === 'custom' ? node.relationship.childField[0] : 'id';
@@ -131,7 +139,7 @@ export function NestedTable(props: NestedTableProps) {
     (childField !== 'id' && !schema?.fields.some((field) => field.name === childField)),
   );
 
-  const sortedIds = useMemo(() => {
+  const sortedIds = (() => {
     if (!state || (state.status !== 'complete' && state.status !== 'partial')) return [];
     const related = graph.relatedItemIds(node.id, parentItemId);
     const filtered = filterNodeItemIds(
@@ -142,15 +150,7 @@ export function NestedTable(props: NestedTableProps) {
       deferredText.value,
     );
     return sortItemIds(state.snapshot, filtered, sharedState.sort);
-  }, [
-    deferredText.value,
-    graph,
-    node.id,
-    parentItemId,
-    sharedState.filters,
-    sharedState.sort,
-    state,
-  ]);
+  })();
 
   if (!state || state.status === 'pending' || state.status === 'stale') {
     return <div className="nested-state">Loading {node.name}…</div>;
@@ -172,9 +172,25 @@ export function NestedTable(props: NestedTableProps) {
     );
   }
 
+  const currentSchema = schema;
   const pageIds = pageItemIds(sortedIds, pageIndex, pageSize);
   const pageCount = Math.max(1, Math.ceil(sortedIds.length / pageSize));
-  const visibleFields = schema.fields.filter((field) => !sharedState.hiddenColumns.has(field.name));
+  const visibleFields = currentSchema.fields.filter(
+    (field) => !sharedState.hiddenColumns.has(field.name),
+  );
+
+  function updateSharedState(next: SharedNodeTableState) {
+    updateNodeState(node.id, next);
+    onPresentationChange(node.id, {
+      freeText: next.freeText,
+      filters: next.filters,
+      sort: next.sort,
+      visibleColumns: currentSchema.fields
+        .map((field) => field.name)
+        .filter((name) => !next.hiddenColumns.has(name)),
+      columnWidths: node.presentation.columnWidths,
+    });
+  }
 
   return (
     <section className="nested-table" aria-label={`${node.name} related items`}>
@@ -185,9 +201,7 @@ export function NestedTable(props: NestedTableProps) {
           aria-label={`Filter ${node.name}`}
           placeholder="Filter rows"
           value={sharedState.freeText}
-          onChange={(event) =>
-            updateNodeState(node.id, { ...sharedState, freeText: event.target.value })
-          }
+          onChange={(event) => updateSharedState({ ...sharedState, freeText: event.target.value })}
         />
         <span className="muted">{sharedState.filters.length} filters</span>
         <label className="compact-label">
@@ -195,14 +209,14 @@ export function NestedTable(props: NestedTableProps) {
           <select
             value={sharedState.sort.fieldPath.join('.')}
             onChange={(event) =>
-              updateNodeState(node.id, {
+              updateSharedState({
                 ...sharedState,
                 sort: { ...sharedState.sort, fieldPath: [event.target.value] },
               })
             }
           >
             <option value="modified">Modified</option>
-            {schema.fields.map((field) => (
+            {currentSchema.fields.map((field) => (
               <option key={field.id} value={field.name}>
                 {field.label}
               </option>
@@ -212,7 +226,7 @@ export function NestedTable(props: NestedTableProps) {
         <button
           className="button button--quiet"
           onClick={() =>
-            updateNodeState(node.id, {
+            updateSharedState({
               ...sharedState,
               sort: {
                 ...sharedState.sort,

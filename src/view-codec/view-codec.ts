@@ -1,6 +1,14 @@
 import { Either, Schema } from 'effect';
 import { compressSync, decompressSync, strFromU8, strToU8 } from 'fflate';
-import type { PersistedView } from '../domain';
+import { parseCollectionReference } from '../collection-reference';
+import type {
+  CollectionNode,
+  PersistedView,
+  RelationshipDefinition,
+  SortState,
+  ViewFilter,
+} from '../domain';
+import { validateCollectionTree } from '../explorer-core/collection-tree';
 
 const VersionedViewSchema = Schema.Struct({
   version: Schema.Literal(1),
@@ -51,31 +59,102 @@ function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function isCollectionNode(value: unknown, depth = 1): boolean {
+function isFieldPath(value: unknown): value is readonly string[] {
+  return isStringArray(value) && value.length > 0 && value.every(Boolean);
+}
+
+function isSortState(value: unknown): value is SortState {
+  return (
+    isRecord(value) &&
+    isFieldPath(value.fieldPath) &&
+    (value.direction === 'asc' || value.direction === 'desc')
+  );
+}
+
+const filterOperators = new Set([
+  'contains',
+  'equals',
+  'starts-with',
+  'not-equal',
+  'greater-than',
+  'less-than',
+  'between',
+  'is-empty',
+  'is-not-empty',
+  'true',
+  'false',
+  'one-of',
+]);
+
+function isViewFilter(value: unknown): value is ViewFilter {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isStringArray(value.nodePath) &&
+    isFieldPath(value.fieldPath) &&
+    typeof value.operator === 'string' &&
+    filterOperators.has(value.operator) &&
+    (value.invalid === undefined || typeof value.invalid === 'boolean')
+  );
+}
+
+function isRelationship(value: unknown): value is RelationshipDefinition {
+  if (!isRecord(value) || !isFieldPath(value.parentField)) return false;
+  if (value.kind === 'native') {
+    return (
+      typeof value.targetModelZuid === 'string' && /^6-[a-z0-9-]{5,}$/i.test(value.targetModelZuid)
+    );
+  }
+  return value.kind === 'custom' && isFieldPath(value.childField);
+}
+
+function hasSafeReference(value: Readonly<Record<string, unknown>>): boolean {
+  if (
+    typeof value.managerBaseUrl !== 'string' ||
+    typeof value.area !== 'string' ||
+    typeof value.modelZuid !== 'string'
+  ) {
+    return false;
+  }
+  const parsed = parseCollectionReference(
+    `${value.managerBaseUrl}/${value.area}/${value.modelZuid}`,
+  );
+  return (
+    parsed.ok &&
+    parsed.value.instanceZuid === value.instanceZuid &&
+    parsed.value.modelZuid === value.modelZuid &&
+    parsed.value.deployment === value.deployment &&
+    parsed.value.area === value.area &&
+    parsed.value.apiBaseUrl === value.apiBaseUrl &&
+    parsed.value.managerBaseUrl === value.managerBaseUrl
+  );
+}
+
+function isCollectionNode(value: unknown, depth = 1): value is CollectionNode {
   if (!isRecord(value) || depth > 5) return false;
-  if (typeof value.id !== 'string' || typeof value.name !== 'string') return false;
+  if (!/^node-[a-z0-9-]+$/i.test(String(value.id)) || typeof value.name !== 'string') return false;
   if (!isRecord(value.reference) || !isRecord(value.presentation)) return false;
   if (!Array.isArray(value.children)) return false;
 
   const reference = value.reference;
   const presentation = value.presentation;
-  const referenceValid =
-    typeof reference.instanceZuid === 'string' &&
-    typeof reference.modelZuid === 'string' &&
-    ['production', 'stage', 'development'].includes(String(reference.deployment)) &&
-    ['content', 'blocks'].includes(String(reference.area)) &&
-    typeof reference.apiBaseUrl === 'string' &&
-    typeof reference.managerBaseUrl === 'string';
+  const referenceValid = hasSafeReference(reference);
   const presentationValid =
     isStringArray(presentation.visibleColumns) &&
     isRecord(presentation.columnWidths) &&
-    isRecord(presentation.sort) &&
+    Object.values(presentation.columnWidths).every(
+      (width) =>
+        typeof width === 'number' && Number.isFinite(width) && width >= 40 && width <= 2_000,
+    ) &&
+    isSortState(presentation.sort) &&
     Array.isArray(presentation.filters) &&
+    presentation.filters.every(isViewFilter) &&
     typeof presentation.freeText === 'string';
 
   return (
     referenceValid &&
     presentationValid &&
+    (value.relationship === undefined || isRelationship(value.relationship)) &&
     value.children.every((child) => isCollectionNode(child, depth + 1))
   );
 }
@@ -107,8 +186,21 @@ function base64UrlToBytes(value: string): Uint8Array {
 
 function validateDecodedView(value: unknown): PersistedView | undefined {
   const decoded = Schema.decodeUnknownEither(VersionedViewSchema)(value);
-  if (Either.isLeft(decoded) || !isCollectionNode(decoded.right.root)) return undefined;
-  return decoded.right as PersistedView;
+  if (
+    Either.isLeft(decoded) ||
+    !isCollectionNode(decoded.right.root) ||
+    !decoded.right.viewFilters.every(isViewFilter)
+  ) {
+    return undefined;
+  }
+  if (!validateCollectionTree(decoded.right.root).ok) return undefined;
+  return {
+    version: 1,
+    root: decoded.right.root,
+    contentState: decoded.right.contentState,
+    viewFilters: decoded.right.viewFilters,
+    globalFreeText: decoded.right.globalFreeText,
+  };
 }
 
 export const ViewCodec = {

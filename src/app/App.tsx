@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, Eye, EyeOff, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
 import type {
   CollectionNode,
@@ -9,9 +9,18 @@ import type {
   ContentItem,
   ContentState,
   ExplorerError,
+  NodePresentation,
+  PersistedView,
   RelationshipDefinition,
 } from '../domain';
-import { addCollectionNode, removeCollectionNode, renameCollectionNode } from '../explorer-core';
+import {
+  addCollectionNode,
+  removeCollectionNode,
+  renameCollectionNode,
+  subtreeNodeNames,
+  updateNodePresentation,
+} from '../explorer-core';
+import { ViewCodec, type ViewDecodeResult } from '../view-codec';
 import {
   createBrowserSessionTokenStore,
   type SessionTokenStore,
@@ -47,18 +56,70 @@ function isExplorerError(value: unknown): value is ExplorerError {
   return Boolean(value && typeof value === 'object' && 'kind' in value && 'message' in value);
 }
 
+type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
+
+function initialSharedView(): {
+  readonly view?: PersistedView;
+  readonly error?: InvalidSharedView;
+} {
+  if (!window.location.hash.startsWith('#view=')) return {};
+  const decoded = ViewCodec.decode(window.location.hash);
+  return decoded.ok ? { view: decoded.view } : { error: decoded };
+}
+
+function collectionUrl(reference: CollectionReference): string {
+  return `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`;
+}
+
 function Explorer({ api, tokenStore }: ExplorerProps) {
-  const [token, setToken] = useState('');
+  const [initial] = useState(initialSharedView);
+  const [token, setToken] = useState(() =>
+    initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
+  );
   const [showToken, setShowToken] = useState(false);
-  const [collectionInput, setCollectionInput] = useState('');
+  const [collectionInput, setCollectionInput] = useState(() =>
+    initial.view ? collectionUrl(initial.view.root.reference) : '',
+  );
   const [inputError, setInputError] = useState<string>();
-  const [reference, setReference] = useState<CollectionReference>();
-  const [treeRoot, setTreeRoot] = useState<CollectionNode>();
-  const [contentState, setContentState] = useState<ContentState>('latest');
-  const [globalFreeText, setGlobalFreeText] = useState('');
+  const [reference, setReference] = useState<CollectionReference | undefined>(
+    initial.view?.root.reference,
+  );
+  const [treeRoot, setTreeRoot] = useState<CollectionNode | undefined>(initial.view?.root);
+  const [contentState, setContentState] = useState<ContentState>(
+    initial.view?.contentState ?? 'latest',
+  );
+  const [globalFreeText, setGlobalFreeText] = useState(initial.view?.globalFreeText ?? '');
+  const [viewDecodeError, setViewDecodeError] = useState(initial.error);
+  const [shareMessage, setShareMessage] = useState<string>();
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
-  const [tokenRequired, setTokenRequired] = useState(false);
+  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !token));
+
+  const encodedView = useMemo(() => {
+    if (!treeRoot || viewDecodeError) return undefined;
+    return ViewCodec.encode({
+      version: 1,
+      root: treeRoot,
+      contentState,
+      viewFilters: initial.view?.viewFilters ?? [],
+      globalFreeText,
+    });
+  }, [contentState, globalFreeText, initial.view?.viewFilters, treeRoot, viewDecodeError]);
+
+  useEffect(() => {
+    if (viewDecodeError) return;
+    if (!treeRoot) {
+      if (window.location.hash.startsWith('#view=')) {
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        );
+      }
+      return;
+    }
+    if (encodedView) window.history.replaceState(null, '', encodedView.fragment);
+  }, [encodedView, treeRoot, viewDecodeError]);
 
   const query = useQuery({
     queryKey: treeRoot
@@ -117,6 +178,22 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       return;
     }
 
+    const replacingRoot = Boolean(
+      treeRoot &&
+      (treeRoot.reference.instanceZuid !== parsed.value.instanceZuid ||
+        treeRoot.reference.modelZuid !== parsed.value.modelZuid ||
+        treeRoot.reference.deployment !== parsed.value.deployment),
+    );
+    if (
+      replacingRoot &&
+      treeRoot &&
+      !window.confirm(
+        `Replace the current root and discard ${subtreeNodeNames(treeRoot, treeRoot.id).length} collection nodes and their saved settings?`,
+      )
+    ) {
+      return;
+    }
+
     tokenStore.set(parsed.value.deployment, token);
     setReference(parsed.value);
     setTreeRoot((current) => {
@@ -158,6 +235,30 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTokenRequired(true);
   }
 
+  function resetView() {
+    if (!window.confirm('Reset the complete view? Your session token will be preserved.')) return;
+    setTreeRoot(undefined);
+    setReference(undefined);
+    setCollectionInput('');
+    setContentState('latest');
+    setGlobalFreeText('');
+    setSelectedItemId(undefined);
+    setViewDecodeError(undefined);
+    setTokenRequired(false);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
+
+  async function copyViewLink() {
+    await navigator.clipboard.writeText(window.location.href);
+    setShareMessage('View link copied. The session token is not included.');
+  }
+
+  async function copyRawView() {
+    if (!viewDecodeError) return;
+    await navigator.clipboard.writeText(viewDecodeError.raw);
+    setShareMessage('Raw view data copied.');
+  }
+
   const showStart = !reference || tokenRequired;
 
   function addRelatedCollection(
@@ -176,6 +277,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTreeRoot(result.root);
     return undefined;
   }
+
+  const changePresentation = useCallback(
+    (nodeId: CollectionNodeId, presentation: NodePresentation) =>
+      setTreeRoot((root) => (root ? updateNodePresentation(root, nodeId, presentation) : root)),
+    [],
+  );
 
   return (
     <main className="app-shell">
@@ -207,6 +314,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </label>
               <button className="button button--quiet" onClick={() => void query.refetch()}>
                 <RefreshCw size={14} aria-hidden="true" /> Refresh
+              </button>
+              <button className="button button--quiet" onClick={() => void copyViewLink()}>
+                <Copy size={14} aria-hidden="true" /> Copy view link
+              </button>
+              <button className="button button--quiet" onClick={resetView}>
+                <RotateCcw size={14} aria-hidden="true" /> Reset view
               </button>
               <button className="icon-button" aria-label="Clear session token" onClick={clearToken}>
                 <Trash2 size={16} aria-hidden="true" />
@@ -251,7 +364,31 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         </aside>
 
         <section className="main-panel" aria-live="polite">
-          {showStart ? (
+          {encodedView && encodedView.length > 8_000 ? (
+            <p className="share-message" role="status">
+              This view link is {encodedView.length.toLocaleString()} characters and may be too long
+              for some tools.
+            </p>
+          ) : null}
+          {shareMessage ? (
+            <p className="share-message" role="status">
+              {shareMessage}
+            </p>
+          ) : null}
+          {viewDecodeError ? (
+            <div className="state-card state-card--error" role="alert">
+              <h2>Shared view could not be restored</h2>
+              <p>{viewDecodeError.reason}</p>
+              <div className="button-row">
+                <button className="button" onClick={() => void copyRawView()}>
+                  Copy raw view data
+                </button>
+                <button className="button button--primary" onClick={resetView}>
+                  Reset view
+                </button>
+              </div>
+            </div>
+          ) : showStart ? (
             <form className="start-card" aria-labelledby="start-title" onSubmit={openCollection}>
               <p className="eyebrow">{tokenRequired ? 'Session expired' : 'Start a view'}</p>
               <h2 id="start-title">
@@ -319,6 +456,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           ) : null}
           {!showStart && query.data && treeRoot ? (
             <RootTable
+              key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
               schema={query.data.schemas.get(treeRoot.id)!}
               snapshot={(() => {
                 const state = query.data.snapshots.snapshots.get(
@@ -339,6 +477,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 setSelectedItemId(item.id);
               }}
               onRetry={() => void query.refetch()}
+              onPresentationChange={changePresentation}
             />
           ) : null}
         </section>

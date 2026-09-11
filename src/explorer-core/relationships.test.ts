@@ -12,6 +12,7 @@ import {
   joinRelatedItems,
   removeCollectionNode,
   renameCollectionNode,
+  updateNodePresentation,
   validateCollectionTree,
   validateRelationshipPaths,
 } from './index';
@@ -194,5 +195,17 @@ describe('collection tree operations', () => {
     expect(renamed.children[0]?.name).toBe('Authors');
     const removed = removeCollectionNode(renamed, 'node-child');
     expect(removed?.children).toEqual([]);
+  });
+
+  it('updates saved presentation state immutably', () => {
+    const root = node('node-root', '6-root');
+    const presentation = {
+      ...root.presentation,
+      freeText: 'shared state',
+      visibleColumns: ['title'],
+    };
+    const updated = updateNodePresentation(root, root.id, presentation);
+    expect(updated.presentation).toEqual(presentation);
+    expect(root.presentation.freeText).toBe('');
   });
 });

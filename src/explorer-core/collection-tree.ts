@@ -1,4 +1,4 @@
-import type { CollectionNode, CollectionNodeId } from '../domain';
+import type { CollectionNode, CollectionNodeId, NodePresentation } from '../domain';
 
 export type TreeOperationResult =
   | { readonly ok: true; readonly root: CollectionNode }
@@ -95,6 +95,18 @@ export function renameCollectionNode(
   return {
     ...root,
     children: root.children.map((child) => renameCollectionNode(child, nodeId, trimmed)),
+  };
+}
+
+export function updateNodePresentation(
+  root: CollectionNode,
+  nodeId: CollectionNodeId,
+  presentation: NodePresentation,
+): CollectionNode {
+  if (root.id === nodeId) return { ...root, presentation };
+  return {
+    ...root,
+    children: root.children.map((child) => updateNodePresentation(child, nodeId, presentation)),
   };
 }
 

@@ -101,6 +101,7 @@ describe('recursive collection tables', () => {
         contentState="latest"
         onOpenDetails={details}
         onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
       />,
     );
 

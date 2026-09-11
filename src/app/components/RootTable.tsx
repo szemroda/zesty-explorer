@@ -31,6 +31,7 @@ import type {
   CollectionSnapshot,
   ContentItem,
   ContentState,
+  NodePresentation,
   ViewFilter,
 } from '../../domain';
 import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
@@ -48,6 +49,7 @@ interface RootTableProps {
   readonly globalFreeText?: string;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
+  readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
 }
 
 const features = tableFeatures({
@@ -84,21 +86,36 @@ export function RootTable({
   globalFreeText = '',
   onOpenDetails,
   onRetry,
+  onPresentationChange,
 }: RootTableProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
   );
   const [preview, setPreview] = useState<{ readonly label: string; readonly value: string }>();
-  const [tableFreeText, setTableFreeText] = useState('');
-  const [filters, setFilters] = useState<ViewFilter[]>([]);
+  const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
+  const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
   const [filterField, setFilterField] = useState(schema.fields[0]?.name ?? '');
   const [filterOperator, setFilterOperator] = useState<ViewFilter['operator']>('contains');
   const [filterValue, setFilterValue] = useState('');
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'modified', desc: true }]);
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({
-    modified: false,
+  const [sorting, setSorting] = useState<SortingState>([
+    {
+      id: treeRoot.presentation.sort.fieldPath.join('.'),
+      desc: treeRoot.presentation.sort.direction === 'desc',
+    },
+  ]);
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
+    treeRoot.presentation.columnWidths,
+  );
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>(() => {
+    const saved = treeRoot.presentation.visibleColumns;
+    return schema.fields.reduce<ColumnVisibilityState>(
+      (visibility, field) => ({
+        ...visibility,
+        [field.name]: saved.length === 0 || saved.includes(field.name),
+      }),
+      { modified: saved.includes('modified') },
+    );
   });
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const deferredTableText = useDebouncedValue(tableFreeText);
@@ -221,19 +238,48 @@ export function RootTable({
     data: filteredItems,
     columns,
     state: { sorting, columnSizing, columnVisibility, pagination },
-    onSortingChange: setSorting,
-    onColumnSizingChange: setColumnSizing,
-    onColumnVisibilityChange: setColumnVisibility,
+    onSortingChange: (updater) =>
+      setSorting((current) => {
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        const active = next[0];
+        persistPresentation({
+          sort: {
+            fieldPath: [active?.id ?? 'modified'],
+            direction: active?.desc === false ? 'asc' : 'desc',
+          },
+        });
+        return next;
+      }),
+    onColumnSizingChange: (updater) =>
+      setColumnSizing((current) => {
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        persistPresentation({ columnWidths: next });
+        return next;
+      }),
+    onColumnVisibilityChange: (updater) =>
+      setColumnVisibility((current) => {
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        persistPresentation({
+          visibleColumns: ['modified', ...schema.fields.map((field) => field.name)].filter(
+            (name) => next[name] !== false,
+          ),
+        });
+        return next;
+      }),
     onPaginationChange: setPagination,
     manualSorting: true,
     defaultColumn: { size: 190, minSize: 90, maxSize: 520 },
     columnResizeMode: 'onChange',
   });
 
+  function persistPresentation(patch: Partial<NodePresentation>) {
+    onPresentationChange(treeRoot.id, { ...treeRoot.presentation, ...patch });
+  }
+
   function addFilter() {
     if (!filterField) return;
-    setFilters((current) => [
-      ...current,
+    const next = [
+      ...filters,
       {
         id: crypto.randomUUID(),
         nodePath: [],
@@ -243,7 +289,9 @@ export function RootTable({
           ? { value: filterValue }
           : {}),
       },
-    ]);
+    ];
+    setFilters(next);
+    persistPresentation({ filters: next });
     setFilterValue('');
     setPagination((current) => ({ ...current, pageIndex: 0 }));
   }
@@ -272,7 +320,10 @@ export function RootTable({
             aria-label="Filter this table"
             placeholder="Filter this table"
             value={tableFreeText}
-            onChange={(event) => setTableFreeText(event.target.value)}
+            onChange={(event) => {
+              setTableFreeText(event.target.value);
+              persistPresentation({ freeText: event.target.value });
+            }}
           />
           <details className="columns-menu">
             <summary className="button button--quiet">
@@ -341,7 +392,13 @@ export function RootTable({
           Add filter
         </button>
         {filters.length > 0 ? (
-          <button className="button button--quiet" onClick={() => setFilters([])}>
+          <button
+            className="button button--quiet"
+            onClick={() => {
+              setFilters([]);
+              persistPresentation({ filters: [] });
+            }}
+          >
             Clear {filters.length}
           </button>
         ) : null}
@@ -418,6 +475,7 @@ export function RootTable({
                             contentState={contentState}
                             nodeStates={nodeStates}
                             updateNodeState={updateNodeState}
+                            onPresentationChange={onPresentationChange}
                             onOpenDetails={onOpenDetails}
                             onPreview={(label, value) => setPreview({ label, value })}
                             onRetry={onRetry}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CollectionNode, PersistedView } from '../domain';
+import { v1Fragment } from './fixtures/v1-fragment';
 import { createSessionTokenStore, ViewCodec } from './index';
 
 const root = {
@@ -40,12 +41,37 @@ describe('ViewCodec', () => {
     expect(ViewCodec.encode(view)).toEqual(encoded);
   });
 
+  it('decodes the version-one golden link fixture', () => {
+    expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, view });
+  });
+
   it('preserves corrupt raw data for recovery', () => {
     expect(ViewCodec.decode('#view=not-valid')).toEqual({
       ok: false,
       raw: 'not-valid',
       reason: 'The shared view is invalid or truncated.',
     });
+  });
+
+  it('rejects unsafe hosts and invalid nested state after decompression', () => {
+    expect(() =>
+      ViewCodec.encode({
+        ...view,
+        root: {
+          ...root,
+          reference: { ...root.reference, apiBaseUrl: 'https://example.com/v1' },
+        },
+      }),
+    ).toThrow(/valid, settled/i);
+    expect(() =>
+      ViewCodec.encode({
+        ...view,
+        root: {
+          ...root,
+          presentation: { ...root.presentation, columnWidths: { title: -1 } },
+        },
+      }),
+    ).toThrow(/valid, settled/i);
   });
 
   it('refuses secrets and ephemeral state at runtime', () => {
