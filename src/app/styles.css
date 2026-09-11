@@ -467,6 +467,57 @@ th.sticky-cell {
   display: flex;
   gap: 8px;
 }
+.view-filters {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-panel);
+}
+.view-filters > div:first-child {
+  min-width: 120px;
+}
+.filter-chips {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.filter-chip--invalid {
+  border-color: #92400e;
+  color: #fdba74;
+}
+.filter-chip button {
+  display: grid;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.nested-column-control {
+  display: grid;
+  grid-template-columns: 1fr 72px;
+  align-items: center;
+  gap: 8px;
+}
+.nested-column-control input[type='number'] {
+  width: 72px;
+  min-height: 28px;
+}
 .details-sheet {
   position: fixed;
   inset-block: 70px 0;

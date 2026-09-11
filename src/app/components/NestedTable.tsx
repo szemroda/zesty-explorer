@@ -19,12 +19,15 @@ import {
 import { snapshotQueryKey, type SnapshotLoadState } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { describeExplorerError } from '../error-message';
+import { FilterBuilder } from './FilterBuilder';
 
 export interface SharedNodeTableState {
   readonly freeText: string;
   readonly filters: readonly ViewFilter[];
   readonly sort: SortState;
   readonly hiddenColumns: ReadonlySet<string>;
+  readonly columnWidths: Readonly<Record<string, number>>;
 }
 
 interface NestedTableProps {
@@ -94,6 +97,7 @@ function stateFor(
           ? []
           : fieldNames.filter((name) => !node.presentation.visibleColumns.includes(name)),
       ),
+      columnWidths: node.presentation.columnWidths,
     }
   );
 }
@@ -156,14 +160,13 @@ export function NestedTable(props: NestedTableProps) {
     return <div className="nested-state">Loading {node.name}…</div>;
   }
   if (state.status === 'failed' || !schema) {
-    const message =
-      state.status === 'failed'
-        ? state.error.message
-        : loadedView.schemaErrors.get(node.id)?.message;
+    const failure = state.status === 'failed' ? state.error : loadedView.schemaErrors.get(node.id);
+    const message = failure ? describeExplorerError(failure) : undefined;
     return (
       <div className="nested-state nested-state--error" role="alert">
         <span>
-          {node.name}: {message ?? 'The collection schema could not load.'}
+          {node.name}: {message?.message ?? 'The collection schema could not load.'}{' '}
+          {message?.recovery}
         </span>
         <button className="button button--quiet" onClick={onRetry}>
           Retry
@@ -188,7 +191,7 @@ export function NestedTable(props: NestedTableProps) {
       visibleColumns: currentSchema.fields
         .map((field) => field.name)
         .filter((name) => !next.hiddenColumns.has(name)),
-      columnWidths: node.presentation.columnWidths,
+      columnWidths: next.columnWidths,
     });
   }
 
@@ -204,6 +207,46 @@ export function NestedTable(props: NestedTableProps) {
           onChange={(event) => updateSharedState({ ...sharedState, freeText: event.target.value })}
         />
         <span className="muted">{sharedState.filters.length} filters</span>
+        <details className="columns-menu">
+          <summary className="button button--quiet">Columns</summary>
+          <div className="columns-menu__popup">
+            {currentSchema.fields.map((field) => (
+              <div className="nested-column-control" key={field.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={!sharedState.hiddenColumns.has(field.name)}
+                    onChange={(event) => {
+                      const hiddenColumns = new Set(sharedState.hiddenColumns);
+                      if (event.target.checked) hiddenColumns.delete(field.name);
+                      else hiddenColumns.add(field.name);
+                      updateSharedState({ ...sharedState, hiddenColumns });
+                    }}
+                  />
+                  {field.label}
+                </label>
+                <input
+                  type="number"
+                  aria-label={`${field.label} column width`}
+                  min="90"
+                  max="520"
+                  value={sharedState.columnWidths[field.name] ?? 190}
+                  onChange={(event) => {
+                    const width = Number(event.target.value);
+                    if (!Number.isFinite(width) || width < 90 || width > 520) return;
+                    updateSharedState({
+                      ...sharedState,
+                      columnWidths: {
+                        ...sharedState.columnWidths,
+                        [field.name]: width,
+                      },
+                    });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </details>
         <label className="compact-label">
           Sort
           <select
@@ -238,6 +281,13 @@ export function NestedTable(props: NestedTableProps) {
           {sharedState.sort.direction === 'asc' ? 'Ascending' : 'Descending'}
         </button>
       </div>
+      <FilterBuilder
+        label={`${node.name} table filter`}
+        root={node}
+        schemas={loadedView.schemas}
+        filters={sharedState.filters}
+        onChange={(filters) => updateSharedState({ ...sharedState, filters })}
+      />
       {state.status === 'partial' ? (
         <p className="partial-warning">Incomplete related results</p>
       ) : null}
@@ -251,12 +301,24 @@ export function NestedTable(props: NestedTableProps) {
         <p className="nested-empty">No related items match.</p>
       ) : (
         <div className="table-scroll">
-          <table>
+          <table
+            style={{
+              tableLayout: 'fixed',
+              width:
+                96 +
+                visibleFields.reduce(
+                  (total, field) => total + (sharedState.columnWidths[field.name] ?? 190),
+                  0,
+                ),
+            }}
+          >
             <thead>
               <tr>
                 <th className="sticky-cell">Actions</th>
                 {visibleFields.map((field) => (
-                  <th key={field.id}>{field.label}</th>
+                  <th key={field.id} style={{ width: sharedState.columnWidths[field.name] ?? 190 }}>
+                    {field.label}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -305,7 +367,10 @@ export function NestedTable(props: NestedTableProps) {
                         </div>
                       </td>
                       {visibleFields.map((field) => (
-                        <td key={field.id}>
+                        <td
+                          key={field.id}
+                          style={{ width: sharedState.columnWidths[field.name] ?? 190 }}
+                        >
                           <CellValue
                             label={field.label}
                             value={item.fields[field.name]}

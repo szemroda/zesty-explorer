@@ -12,6 +12,7 @@ import type {
   NodePresentation,
   PersistedView,
   RelationshipDefinition,
+  ViewFilter,
 } from '../domain';
 import {
   addCollectionNode,
@@ -27,11 +28,13 @@ import {
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
 import { snapshotQueryKey } from '../zesty-api';
+import { FilterBuilder } from './components/FilterBuilder';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
 import { loadView, viewLoadKey, ViewLoadError } from './load-view';
+import { describeExplorerError } from './error-message';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -89,6 +92,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initial.view?.contentState ?? 'latest',
   );
   const [globalFreeText, setGlobalFreeText] = useState(initial.view?.globalFreeText ?? '');
+  const [viewFilters, setViewFilters] = useState<readonly ViewFilter[]>(
+    initial.view?.viewFilters ?? [],
+  );
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
   const [shareMessage, setShareMessage] = useState<string>();
   const [selectedItemId, setSelectedItemId] = useState<string>();
@@ -101,10 +107,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       version: 1,
       root: treeRoot,
       contentState,
-      viewFilters: initial.view?.viewFilters ?? [],
+      viewFilters,
       globalFreeText,
     });
-  }, [contentState, globalFreeText, initial.view?.viewFilters, treeRoot, viewDecodeError]);
+  }, [contentState, globalFreeText, treeRoot, viewDecodeError, viewFilters]);
 
   useEffect(() => {
     if (viewDecodeError) return;
@@ -141,6 +147,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   });
 
   const queryError = query.error instanceof ExplorerQueryError ? query.error : null;
+  const queryErrorMessage = queryError ? describeExplorerError(queryError.failure) : undefined;
   const nestedAuthenticationError = [...(query.data?.snapshots.snapshots.values() ?? [])].find(
     (state) => state.status === 'failed' && state.error.kind === 'authentication',
   );
@@ -242,6 +249,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setCollectionInput('');
     setContentState('latest');
     setGlobalFreeText('');
+    setViewFilters([]);
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setTokenRequired(false);
@@ -448,37 +456,68 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           {!showStart && queryError ? (
             <div className="state-card state-card--error" role="alert">
               <h2>Collection could not load</h2>
-              <p>{queryError?.message ?? 'The collection request failed unexpectedly.'}</p>
+              <p>{queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}</p>
+              {queryErrorMessage ? <p>{queryErrorMessage.recovery}</p> : null}
               <button className="button" onClick={() => void query.refetch()}>
                 Retry
               </button>
             </div>
           ) : null}
           {!showStart && query.data && treeRoot ? (
-            <RootTable
-              key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
-              schema={query.data.schemas.get(treeRoot.id)!}
-              snapshot={(() => {
-                const state = query.data.snapshots.snapshots.get(
-                  snapshotQueryKey(treeRoot.reference, contentState),
-                );
-                if (!state || (state.status !== 'complete' && state.status !== 'partial')) {
-                  throw new Error('Root snapshot is unavailable.');
-                }
-                return state.snapshot;
-              })()}
-              reference={treeRoot.reference}
-              treeRoot={treeRoot}
-              loadedView={query.data}
-              contentState={contentState}
-              globalFreeText={globalFreeText}
-              onOpenDetails={(item, trigger) => {
-                detailsTrigger.current = trigger;
-                setSelectedItemId(item.id);
-              }}
-              onRetry={() => void query.refetch()}
-              onPresentationChange={changePresentation}
-            />
+            <>
+              <section className="view-filters" aria-label="View filters">
+                <div>
+                  <p className="eyebrow">Root result rules</p>
+                  <strong>View filters</strong>
+                </div>
+                <FilterBuilder
+                  label="View filter"
+                  root={treeRoot}
+                  schemas={query.data.schemas}
+                  filters={viewFilters}
+                  onChange={setViewFilters}
+                />
+              </section>
+              {query.isFetching &&
+              (viewFilters.some((filter) => filter.nodePath.length > 0) || globalFreeText) ? (
+                <p className="partial-warning" role="status">
+                  Related data is loading. Descendant-dependent results are not final yet.
+                </p>
+              ) : null}
+              {[...query.data.snapshots.snapshots.values()].some(
+                (state) => state.status === 'partial',
+              ) ? (
+                <p className="partial-warning" role="status">
+                  This view contains incomplete collection data. Related results and filters may be
+                  incomplete.
+                </p>
+              ) : null}
+              <RootTable
+                key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                schema={query.data.schemas.get(treeRoot.id)!}
+                snapshot={(() => {
+                  const state = query.data.snapshots.snapshots.get(
+                    snapshotQueryKey(treeRoot.reference, contentState),
+                  );
+                  if (!state || (state.status !== 'complete' && state.status !== 'partial')) {
+                    throw new Error('Root snapshot is unavailable.');
+                  }
+                  return state.snapshot;
+                })()}
+                reference={treeRoot.reference}
+                treeRoot={treeRoot}
+                loadedView={query.data}
+                contentState={contentState}
+                globalFreeText={globalFreeText}
+                viewFilters={viewFilters}
+                onOpenDetails={(item, trigger) => {
+                  detailsTrigger.current = trigger;
+                  setSelectedItemId(item.id);
+                }}
+                onRetry={() => void query.refetch()}
+                onPresentationChange={changePresentation}
+              />
+            </>
           ) : null}
         </section>
       </div>

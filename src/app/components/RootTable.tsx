@@ -37,6 +37,7 @@ import type {
 import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { buildLoadedViewGraph, type LoadedView } from '../load-view';
+import { FilterBuilder } from './FilterBuilder';
 import { CellValue, NestedTable, type SharedNodeTableState } from './NestedTable';
 
 interface RootTableProps {
@@ -47,6 +48,7 @@ interface RootTableProps {
   readonly loadedView: LoadedView;
   readonly contentState: ContentState;
   readonly globalFreeText?: string;
+  readonly viewFilters?: readonly ViewFilter[];
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
@@ -84,6 +86,7 @@ export function RootTable({
   loadedView,
   contentState,
   globalFreeText = '',
+  viewFilters = [],
   onOpenDetails,
   onRetry,
   onPresentationChange,
@@ -95,9 +98,6 @@ export function RootTable({
   const [preview, setPreview] = useState<{ readonly label: string; readonly value: string }>();
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
   const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
-  const [filterField, setFilterField] = useState(schema.fields[0]?.name ?? '');
-  const [filterOperator, setFilterOperator] = useState<ViewFilter['operator']>('contains');
-  const [filterValue, setFilterValue] = useState('');
   const [sorting, setSorting] = useState<SortingState>([
     {
       id: treeRoot.presentation.sort.fieldPath.join('.'),
@@ -127,7 +127,13 @@ export function RootTable({
   );
   const filteredItems = useMemo(() => {
     const allIds = snapshot.items.map((item) => item.id);
-    const viewIds = filterNodeItemIds(graph, treeRoot.id, allIds, [], deferredGlobalText.value);
+    const viewIds = filterNodeItemIds(
+      graph,
+      treeRoot.id,
+      allIds,
+      viewFilters,
+      deferredGlobalText.value,
+    );
     const tableIds = filterNodeItemIds(
       graph,
       treeRoot.id,
@@ -152,6 +158,7 @@ export function RootTable({
     snapshot,
     sorting,
     treeRoot.id,
+    viewFilters,
   ]);
 
   const columns = useMemo(
@@ -276,26 +283,6 @@ export function RootTable({
     onPresentationChange(treeRoot.id, { ...treeRoot.presentation, ...patch });
   }
 
-  function addFilter() {
-    if (!filterField) return;
-    const next = [
-      ...filters,
-      {
-        id: crypto.randomUUID(),
-        nodePath: [],
-        fieldPath: [filterField],
-        operator: filterOperator,
-        ...(!['is-empty', 'is-not-empty', 'true', 'false'].includes(filterOperator)
-          ? { value: filterValue }
-          : {}),
-      },
-    ];
-    setFilters(next);
-    persistPresentation({ filters: next });
-    setFilterValue('');
-    setPagination((current) => ({ ...current, pageIndex: 0 }));
-  }
-
   function updateNodeState(nodeId: CollectionNodeId, state: SharedNodeTableState) {
     setNodeStates((current) => {
       const next = new Map(current);
@@ -347,61 +334,18 @@ export function RootTable({
           </details>
         </div>
       </div>
-      <div className="filter-builder">
-        <select
-          aria-label="Filter field"
-          value={filterField}
-          onChange={(event) => setFilterField(event.target.value)}
-        >
-          {schema.fields.map((field) => (
-            <option key={field.id} value={field.name}>
-              {field.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filter operator"
-          value={filterOperator}
-          onChange={(event) => setFilterOperator(event.target.value as ViewFilter['operator'])}
-        >
-          {[
-            'contains',
-            'equals',
-            'starts-with',
-            'not-equal',
-            'greater-than',
-            'less-than',
-            'between',
-            'is-empty',
-            'is-not-empty',
-            'true',
-            'false',
-          ].map((operator) => (
-            <option key={operator} value={operator}>
-              {operator.replaceAll('-', ' ')}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="Filter value"
-          value={filterValue}
-          disabled={['is-empty', 'is-not-empty', 'true', 'false'].includes(filterOperator)}
-          onChange={(event) => setFilterValue(event.target.value)}
+      <div>
+        <FilterBuilder
+          label="Table filter"
+          root={treeRoot}
+          schemas={loadedView.schemas}
+          filters={filters}
+          onChange={(next) => {
+            setFilters(next);
+            persistPresentation({ filters: next });
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
         />
-        <button className="button button--quiet" onClick={addFilter}>
-          Add filter
-        </button>
-        {filters.length > 0 ? (
-          <button
-            className="button button--quiet"
-            onClick={() => {
-              setFilters([]);
-              persistPresentation({ filters: [] });
-            }}
-          >
-            Clear {filters.length}
-          </button>
-        ) : null}
         {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
           <span className="muted">Filtering…</span>
         ) : null}

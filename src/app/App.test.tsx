@@ -89,7 +89,9 @@ describe('root collection browser', () => {
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit');
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: 'First story' })).toBeInTheDocument();
+    const htmlCell = screen.getByRole('cell', { name: 'First story' });
+    expect(htmlCell).toBeInTheDocument();
+    expect(htmlCell.querySelector('strong')).toBeNull();
     expect(screen.getByRole('dialog', { name: '7-000000-aaaaaa' })).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /open first story in zesty manager/i }),
