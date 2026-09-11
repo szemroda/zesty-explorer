@@ -25,6 +25,9 @@ importers:
       effect:
         specifier: 3.22.2
         version: 3.22.2
+      fflate:
+        specifier: 0.8.2
+        version: 0.8.2
       lucide-react:
         specifier: 1.45.0
         version: 1.45.0(react@19.3.0)
@@ -1800,6 +1803,12 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.2:
+    resolution:
+      {
+        integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==,
+      }
 
   file-entry-cache@11.1.5:
     resolution:
@@ -3913,6 +3922,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  fflate@0.8.2: {}
 
   file-entry-cache@11.1.5:
     dependencies:

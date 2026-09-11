@@ -26,6 +26,7 @@
     "@tanstack/react-table": "9.2.4",
     "clsx": "2.1.1",
     "effect": "3.22.2",
+    "fflate": "0.8.2",
     "lucide-react": "1.45.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

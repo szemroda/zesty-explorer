@@ -1,4 +1,4 @@
-import type { CollectionSnapshot, ItemZuid, ModelZuid, SnapshotId } from './types';
+import type { CollectionSnapshot, ItemZuid, ModelZuid } from './types';
 
 export const fixtureCollectionPage = {
   data: [
@@ -47,8 +47,8 @@ function makeSnapshot(
   items: CollectionSnapshot['items'],
 ): CollectionSnapshot {
   return {
-    id: id as SnapshotId,
-    instanceZuid: '8-fixture-instance' as CollectionSnapshot['instanceZuid'],
+    id: `snapshot-${id}`,
+    instanceZuid: '8-fixture-instance',
     modelZuid: modelZuid as ModelZuid,
     state: 'latest',
     language: 'en-US',

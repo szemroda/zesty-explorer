@@ -1,11 +1,9 @@
-export type Brand<Value, Name extends string> = Value & { readonly __brand: Name };
-
-export type InstanceZuid = Brand<string, 'InstanceZuid'>;
-export type ModelZuid = Brand<string, 'ModelZuid'>;
-export type ItemZuid = Brand<string, 'ItemZuid'>;
-export type FieldZuid = Brand<string, 'FieldZuid'>;
-export type CollectionNodeId = Brand<string, 'CollectionNodeId'>;
-export type SnapshotId = Brand<string, 'SnapshotId'>;
+export type InstanceZuid = `8-${string}`;
+export type ModelZuid = `6-${string}`;
+export type ItemZuid = `7-${string}`;
+export type FieldZuid = `12-${string}`;
+export type CollectionNodeId = `node-${string}`;
+export type SnapshotId = `snapshot-${string}`;
 
 export type Deployment = 'production' | 'stage' | 'development';
 export type CollectionArea = 'content' | 'blocks';
