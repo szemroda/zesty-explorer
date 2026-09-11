@@ -58,6 +58,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [reference, setReference] = useState<CollectionReference>();
   const [treeRoot, setTreeRoot] = useState<CollectionNode>();
   const [contentState, setContentState] = useState<ContentState>('latest');
+  const [globalFreeText, setGlobalFreeText] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [tokenRequired, setTokenRequired] = useState(false);
 
@@ -188,6 +189,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         <div className="top-actions">
           {reference ? (
             <>
+              <input
+                className="global-search"
+                type="search"
+                aria-label="Search the complete view"
+                placeholder="Search view"
+                value={globalFreeText}
+                onChange={(event) => setGlobalFreeText(event.target.value)}
+              />
               <label className="checkbox-label">
                 <input
                   type="checkbox"
@@ -314,6 +323,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               schema={query.data.schema}
               snapshot={query.data.snapshot}
               reference={reference}
+              globalFreeText={globalFreeText}
               onOpenDetails={(item) => setSelectedItemId(item.id)}
             />
           ) : null}
