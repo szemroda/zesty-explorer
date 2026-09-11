@@ -245,34 +245,31 @@ export function RootTable({
     data: filteredItems,
     columns,
     state: { sorting, columnSizing, columnVisibility, pagination },
-    onSortingChange: (updater) =>
-      setSorting((current) => {
-        const next = typeof updater === 'function' ? updater(current) : updater;
-        const active = next[0];
-        persistPresentation({
-          sort: {
-            fieldPath: [active?.id ?? 'modified'],
-            direction: active?.desc === false ? 'asc' : 'desc',
-          },
-        });
-        return next;
-      }),
-    onColumnSizingChange: (updater) =>
-      setColumnSizing((current) => {
-        const next = typeof updater === 'function' ? updater(current) : updater;
-        persistPresentation({ columnWidths: next });
-        return next;
-      }),
-    onColumnVisibilityChange: (updater) =>
-      setColumnVisibility((current) => {
-        const next = typeof updater === 'function' ? updater(current) : updater;
-        persistPresentation({
-          visibleColumns: ['modified', ...schema.fields.map((field) => field.name)].filter(
-            (name) => next[name] !== false,
-          ),
-        });
-        return next;
-      }),
+    onSortingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater;
+      const active = next[0];
+      setSorting(next);
+      persistPresentation({
+        sort: {
+          fieldPath: [active?.id ?? 'modified'],
+          direction: active?.desc === false ? 'asc' : 'desc',
+        },
+      });
+    },
+    onColumnSizingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnSizing) : updater;
+      setColumnSizing(next);
+      persistPresentation({ columnWidths: next });
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
+      setColumnVisibility(next);
+      persistPresentation({
+        visibleColumns: ['modified', ...schema.fields.map((field) => field.name)].filter(
+          (name) => next[name] !== false,
+        ),
+      });
+    },
     onPaginationChange: setPagination,
     manualSorting: true,
     defaultColumn: { size: 190, minSize: 90, maxSize: 520 },

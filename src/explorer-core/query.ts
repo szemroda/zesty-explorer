@@ -195,17 +195,31 @@ function graphContains(
   nodeId: CollectionNodeId,
   itemId: ItemZuid,
   search: string,
+  memo: Map<CollectionNodeId, Map<ItemZuid, boolean>>,
 ): boolean {
+  const nodeMemo = memo.get(nodeId) ?? new Map<ItemZuid, boolean>();
+  if (!memo.has(nodeId)) memo.set(nodeId, nodeMemo);
+  const cached = nodeMemo.get(itemId);
+  if (cached !== undefined) return cached;
+
   const item = graph.snapshot(nodeId).itemsById.get(itemId);
-  if (!item) return false;
-  if (itemContains(item, search)) return true;
-  return graph
+  if (!item) {
+    nodeMemo.set(itemId, false);
+    return false;
+  }
+  if (itemContains(item, search)) {
+    nodeMemo.set(itemId, true);
+    return true;
+  }
+  const result = graph
     .childNodeIds(nodeId)
     .some((childNodeId) =>
       graph
         .relatedItemIds(childNodeId, itemId)
-        .some((childId) => graphContains(graph, childNodeId, childId, search)),
+        .some((childId) => graphContains(graph, childNodeId, childId, search, memo)),
     );
+  nodeMemo.set(itemId, result);
+  return result;
 }
 
 export function filterNodeItemIds(
@@ -216,10 +230,11 @@ export function filterNodeItemIds(
   freeText = '',
 ): readonly ItemZuid[] {
   const search = normalizedText(freeText);
+  const searchMemo = new Map<CollectionNodeId, Map<ItemZuid, boolean>>();
   return itemIds.filter(
     (itemId) =>
       filters.every((filter) => matchesPath(graph, nodeId, itemId, filter.nodePath, filter)) &&
-      (!search || graphContains(graph, nodeId, itemId, search)),
+      (!search || graphContains(graph, nodeId, itemId, search, searchMemo)),
   );
 }
 

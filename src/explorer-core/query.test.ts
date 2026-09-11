@@ -178,6 +178,37 @@ describe('graph queries', () => {
     ).toEqual([]);
   });
 
+  it('reuses descendant search results shared by several parents', () => {
+    const child = snapshot([item('7-shared0', { body: 'Needle' })]);
+    const roots = snapshot([items[0]!, items[1]!]);
+    const graph = createExplorerGraph({
+      rootNodeId: 'node-root',
+      snapshots: new Map([
+        ['node-root', roots],
+        ['node-child', child],
+      ]),
+      childrenByNode: new Map([['node-root', ['node-child']]]),
+      relationshipsByChildNode: new Map([
+        [
+          'node-child',
+          new Map([
+            [items[0]!.id, ['7-shared0']],
+            [items[1]!.id, ['7-shared0']],
+          ]),
+        ],
+      ]),
+    });
+    expect(
+      filterNodeItemIds(
+        graph,
+        'node-root',
+        roots.items.map((entry) => entry.id),
+        [],
+        'needle',
+      ),
+    ).toEqual([items[0]!.id, items[1]!.id]);
+  });
+
   it('keeps table filtering local to that node', () => {
     const graph = createExplorerGraph({
       rootNodeId: 'node-root',
