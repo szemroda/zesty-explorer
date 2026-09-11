@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: false
+minimumReleaseAgeExclude:
+  - lucide-react@1.45.0

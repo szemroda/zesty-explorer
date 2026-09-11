@@ -22,11 +22,11 @@ Zesty Explorer is a local, read-only React application for browsing one Zesty in
 
 The user manually supplies the session token stored in the Zesty Manager cookie for the selected Zesty deployment:
 
-| Zesty deployment | Cookie name |
-| --- | --- |
-| Production | `APP_SID` |
-| Stage | `STAGE_APP_SID` |
-| Development | `DEV_APP_SID` |
+| Zesty deployment | Cookie name     |
+| ---------------- | --------------- |
+| Production       | `APP_SID`       |
+| Stage            | `STAGE_APP_SID` |
+| Development      | `DEV_APP_SID`   |
 
 - The token is sent to the Instances API as `Authorization: Bearer <token>`.
 - The token is stored only in `sessionStorage` and is never included in the URL, application logs, test output, fixtures, clipboard-generated view links, or error details.
@@ -40,11 +40,11 @@ Collection input is treated as untrusted. The parser accepts only a closed set o
 
 Supported Manager and API host mappings:
 
-| Deployment | Manager host suffix | Instances API host suffix |
-| --- | --- | --- |
-| Production | `.manager.zesty.io`, `.cms.content.one` | `.api.zesty.io/v1` |
-| Stage | `.manager.stage.zesty.io`, `.cms.stage.content.one` | `.api.stage.zesty.io/v1` |
-| Development | `.manager.dev.zesty.io:8080`, `.cms.dev.content.one:8080` | `.api.dev.zesty.io/v1` |
+| Deployment  | Manager host suffix                                       | Instances API host suffix |
+| ----------- | --------------------------------------------------------- | ------------------------- |
+| Production  | `.manager.zesty.io`, `.cms.content.one`                   | `.api.zesty.io/v1`        |
+| Stage       | `.manager.stage.zesty.io`, `.cms.stage.content.one`       | `.api.stage.zesty.io/v1`  |
+| Development | `.manager.dev.zesty.io:8080`, `.cms.dev.content.one:8080` | `.api.dev.zesty.io/v1`    |
 
 Unknown hosts are rejected without a network request and cannot be overridden by the user.
 

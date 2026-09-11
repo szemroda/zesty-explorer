@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -44,12 +44,22 @@
           <li>Review the product specification, domain language, and both ADRs as one contract.</li>
           <li>Resolve any contradiction before code or package choices make it expensive.</li>
           <li>Receive explicit shared-understanding confirmation from the product owner.</li>
-          <li>Change the specification status from <code>Proposed</code> to <code>Accepted</code> and record the date.</li>
+          <li>
+            Change the specification status from <code>Proposed</code> to <code>Accepted</code> and
+            record the date.
+          </li>
           <li>Keep this implementation plan aligned if the accepted contract changes.</li>
         </ul>
-        <p class="deliverables"><strong>Output:</strong> accepted specification and a stable vocabulary.</p>
+        <p class="deliverables">
+          <strong>Output:</strong> accepted specification and a stable vocabulary.
+        </p>
       </section>
-      <div class="gate"><p><strong>Exit gate:</strong> no implementation work starts before the specification is explicitly Accepted.</p></div>
+      <div class="gate">
+        <p>
+          <strong>Exit gate:</strong> no implementation work starts before the specification is
+          explicitly Accepted.
+        </p>
+      </div>
 
       <section class="phase" id="phase-1">
         <span class="phase-number">1</span>
@@ -57,79 +67,211 @@
         <div class="phase-meta"><span>Depends on: phase 0</span><span>Milestone: M1</span></div>
         <ul class="tasks">
           <li>Create a pnpm-managed Vite React TypeScript application targeting Node.js 22.12+.</li>
-          <li>Install stable Effect v3, <code>@effect/platform</code>, TanStack Query, TanStack Table v9, and the selected test tools.</li>
-          <li>Initialize shadcn/ui with the Base UI base and Nova preset; add only components used by the first vertical slice.</li>
-          <li>Configure Tailwind semantic dark tokens and apply the permanent <code>dark</code> class before application code loads.</li>
-          <li>Bind the development server to <code>127.0.0.1:5173</code> with strict-port behavior.</li>
+          <li>
+            Install stable Effect v3, <code>@effect/platform</code>, TanStack Query, TanStack Table
+            v9, and the selected test tools.
+          </li>
+          <li>
+            Initialize shadcn/ui with the Base UI base and Nova preset; add only components used by
+            the first vertical slice.
+          </li>
+          <li>
+            Configure Tailwind semantic dark tokens and apply the permanent <code>dark</code> class
+            before application code loads.
+          </li>
+          <li>
+            Bind the development server to <code>127.0.0.1:5173</code> with strict-port behavior.
+          </li>
           <li>Add formatting and lint rules that match the repository TypeScript preferences.</li>
-          <li>Configure <code>@effect/language-service</code> as the last TypeScript plugin and patch TypeScript from the package <code>prepare</code> script.</li>
-          <li>Add script placeholders for <code>dev</code>, <code>check</code>, <code>test</code>, <code>test:e2e</code>, <code>test:performance</code>, and <code>build</code>.</li>
-          <li>Create the initial module boundaries: <code>domain</code>, <code>view-codec</code>, <code>collection-reference</code>, <code>zesty-api</code>, <code>explorer-core</code>, and <code>app</code>.</li>
+          <li>
+            Configure <code>@effect/language-service</code> as the last TypeScript plugin and patch
+            TypeScript from the package <code>prepare</code> script.
+          </li>
+          <li>
+            Add script placeholders for <code>dev</code>, <code>check</code>, <code>test</code>,
+            <code>test:e2e</code>, <code>test:performance</code>, and <code>build</code>.
+          </li>
+          <li>
+            Create the initial module boundaries: <code>domain</code>, <code>view-codec</code>,
+            <code>collection-reference</code>, <code>zesty-api</code>, <code>explorer-core</code>,
+            and <code>app</code>.
+          </li>
         </ul>
-        <p class="deliverables"><strong>Output:</strong> a dark-only application shell that builds and runs locally without external runtime assets.</p>
+        <p class="deliverables">
+          <strong>Output:</strong> a dark-only application shell that builds and runs locally
+          without external runtime assets.
+        </p>
       </section>
-      <div class="gate"><p><strong>Exit gate:</strong> <code>pnpm check</code>, <code>pnpm test</code>, and <code>pnpm build</code> run successfully from a clean install.</p></div>
+      <div class="gate">
+        <p>
+          <strong>Exit gate:</strong> <code>pnpm check</code>, <code>pnpm test</code>, and
+          <code>pnpm build</code> run successfully from a clean install.
+        </p>
+      </div>
 
       <section class="phase" id="phase-2">
         <span class="phase-number">2</span>
         <h2>Define domain contracts and deterministic fixtures</h2>
         <div class="phase-meta"><span>Depends on: phase 1</span><span>Milestone: M1</span></div>
         <ul class="tasks">
-          <li>Model deployments, ZUIDs, collection references, content states, collection nodes, relationships, filters, sorting, and presentation state as explicit TypeScript types.</li>
-          <li>Separate raw API shapes, decoded API values, normalized snapshots, and persisted view state.</li>
-          <li>Define typed error variants for input, host, authentication, permission, missing resource, decoding, network/CORS, timeout, rate limit, server, and data limits.</li>
+          <li>
+            Model deployments, ZUIDs, collection references, content states, collection nodes,
+            relationships, filters, sorting, and presentation state as explicit TypeScript types.
+          </li>
+          <li>
+            Separate raw API shapes, decoded API values, normalized snapshots, and persisted view
+            state.
+          </li>
+          <li>
+            Define typed error variants for input, host, authentication, permission, missing
+            resource, decoding, network/CORS, timeout, rate limit, server, and data limits.
+          </li>
           <li>Define stable IDs for collection snapshots, collection nodes, and content items.</li>
-          <li>Create small checked-in fixtures for Content and Blocks models, native relations, custom scalar relations, nulls, missing fields, duplicate matches, unmatched parents, long HTML, technical metadata, and malformed responses.</li>
-          <li>Create deterministic generators for 1,000, 10,000, and 50,000-item relationship graphs without real credentials.</li>
-          <li>Assert that fixture serialization and test diagnostics cannot contain token-shaped fields.</li>
+          <li>
+            Create small checked-in fixtures for Content and Blocks models, native relations, custom
+            scalar relations, nulls, missing fields, duplicate matches, unmatched parents, long
+            HTML, technical metadata, and malformed responses.
+          </li>
+          <li>
+            Create deterministic generators for 1,000, 10,000, and 50,000-item relationship graphs
+            without real credentials.
+          </li>
+          <li>
+            Assert that fixture serialization and test diagnostics cannot contain token-shaped
+            fields.
+          </li>
         </ul>
-        <p class="deliverables"><strong>Output:</strong> reusable contracts and synthetic data shared by unit, browser, and performance tests.</p>
+        <p class="deliverables">
+          <strong>Output:</strong> reusable contracts and synthetic data shared by unit, browser,
+          and performance tests.
+        </p>
       </section>
-      <div class="gate"><p><strong>Exit gate:</strong> representative fixtures decode into stable domain snapshots, while malformed fixtures produce the intended typed errors.</p></div>
+      <div class="gate">
+        <p>
+          <strong>Exit gate:</strong> representative fixtures decode into stable domain snapshots,
+          while malformed fixtures produce the intended typed errors.
+        </p>
+      </div>
 
       <section class="phase" id="phase-3">
         <span class="phase-number">3</span>
         <h2>Secure browser inputs and shared view state</h2>
         <div class="phase-meta"><span>Depends on: phase 2</span><span>Milestone: M1</span></div>
         <ul class="tasks">
-          <li>Implement <code>CollectionReferenceParser</code> for allowlisted production, stage, and development Manager and Instances API URL shapes.</li>
-          <li>Validate instance, deployment, model ZUID, optional item ZUID, Content versus Blocks area, query strings, fragments, trailing slashes, and known editor suffixes.</li>
-          <li>Reject unknown hosts, invalid ZUIDs, <code>new</code>, <code>import</code>, and collection-area URLs without a model before any request is built.</li>
-          <li>Construct safe API and Manager targets exclusively from validated identifiers and the closed deployment mapping.</li>
-          <li>Implement a session-token store backed only by <code>sessionStorage</code>, with explicit set, read, and clear operations.</li>
-          <li>Implement <code>ViewCodec</code> with a versioned Effect Schema, canonical serialization, compression, fragment encoding, decoding, migration entry point, and encoded-length reporting.</li>
-          <li>Ensure the persisted view contains no token, pages, expanded rows, open panels, loading state, or other ephemeral values.</li>
-          <li>Preserve invalid raw view data long enough for a user to copy it or confirm reset; never silently replace it.</li>
-          <li>Add property-style round-trip tests and a corpus of malicious or malformed URL inputs.</li>
+          <li>
+            Implement <code>CollectionReferenceParser</code> for allowlisted production, stage, and
+            development Manager and Instances API URL shapes.
+          </li>
+          <li>
+            Validate instance, deployment, model ZUID, optional item ZUID, Content versus Blocks
+            area, query strings, fragments, trailing slashes, and known editor suffixes.
+          </li>
+          <li>
+            Reject unknown hosts, invalid ZUIDs, <code>new</code>, <code>import</code>, and
+            collection-area URLs without a model before any request is built.
+          </li>
+          <li>
+            Construct safe API and Manager targets exclusively from validated identifiers and the
+            closed deployment mapping.
+          </li>
+          <li>
+            Implement a session-token store backed only by <code>sessionStorage</code>, with
+            explicit set, read, and clear operations.
+          </li>
+          <li>
+            Implement <code>ViewCodec</code> with a versioned Effect Schema, canonical
+            serialization, compression, fragment encoding, decoding, migration entry point, and
+            encoded-length reporting.
+          </li>
+          <li>
+            Ensure the persisted view contains no token, pages, expanded rows, open panels, loading
+            state, or other ephemeral values.
+          </li>
+          <li>
+            Preserve invalid raw view data long enough for a user to copy it or confirm reset; never
+            silently replace it.
+          </li>
+          <li>
+            Add property-style round-trip tests and a corpus of malicious or malformed URL inputs.
+          </li>
         </ul>
-        <p class="deliverables"><strong>Output:</strong> trusted collection references, isolated secret storage, and a deterministic non-secret URL codec.</p>
+        <p class="deliverables">
+          <strong>Output:</strong> trusted collection references, isolated secret storage, and a
+          deterministic non-secret URL codec.
+        </p>
       </section>
-      <div class="gate"><p><strong>Exit gate:</strong> fuzzed and table-driven parser tests prove that no untrusted hostname can become an authenticated request target.</p></div>
+      <div class="gate">
+        <p>
+          <strong>Exit gate:</strong> fuzzed and table-driven parser tests prove that no untrusted
+          hostname can become an authenticated request target.
+        </p>
+      </div>
 
       <section class="phase" id="phase-4">
         <span class="phase-number">4</span>
         <h2>Implement the Zesty API boundary</h2>
         <div class="phase-meta"><span>Depends on: phases 2–3</span><span>Milestone: M1</span></div>
         <ul class="tasks">
-          <li>Define the small <code>ZestyApi</code> interface for model schema and paged collection snapshot loading.</li>
-          <li>Implement the adapter with Effect, <code>@effect/platform</code>, and a fetch-backed client.</li>
-          <li>Send <code>Authorization: Bearer &lt;session token&gt;</code>, <code>lang=en-US</code>, and only documented query parameters.</li>
-          <li>Use no <code>_active</code> parameter for Latest saved and <code>_active=true</code> for Published.</li>
-          <li>Decode every response page once with Effect Schema, then normalize it into the domain snapshot.</li>
-          <li>Fetch subsequent pages until complete or the 10,000-item collection limit is reached.</li>
-          <li>Map status codes and transport failures into the typed error model without exposing request headers.</li>
-          <li>Apply bounded timeout and retry only for transient network failures, <code>429</code>, and selected <code>5xx</code> responses.</li>
-          <li>Expose cancellation and bounded concurrency primitives without coupling the API interface to React.</li>
-          <li>Test pagination, headers, content state, decoding, retry, timeout, cancellation, and limits through a fake transport or Effect Layer.</li>
+          <li>
+            Define the small <code>ZestyApi</code> interface for model schema and paged collection
+            snapshot loading.
+          </li>
+          <li>
+            Implement the adapter with Effect, <code>@effect/platform</code>, and a fetch-backed
+            client.
+          </li>
+          <li>
+            Send <code>Authorization: Bearer &lt;session token&gt;</code>, <code>lang=en-US</code>,
+            and only documented query parameters.
+          </li>
+          <li>
+            Use no <code>_active</code> parameter for Latest saved and <code>_active=true</code> for
+            Published.
+          </li>
+          <li>
+            Decode every response page once with Effect Schema, then normalize it into the domain
+            snapshot.
+          </li>
+          <li>
+            Fetch subsequent pages until complete or the 10,000-item collection limit is reached.
+          </li>
+          <li>
+            Map status codes and transport failures into the typed error model without exposing
+            request headers.
+          </li>
+          <li>
+            Apply bounded timeout and retry only for transient network failures, <code>429</code>,
+            and selected <code>5xx</code> responses.
+          </li>
+          <li>
+            Expose cancellation and bounded concurrency primitives without coupling the API
+            interface to React.
+          </li>
+          <li>
+            Test pagination, headers, content state, decoding, retry, timeout, cancellation, and
+            limits through a fake transport or Effect Layer.
+          </li>
         </ul>
-        <p class="deliverables"><strong>Output:</strong> a fully tested, fake-backed API adapter ready for TanStack Query.</p>
+        <p class="deliverables">
+          <strong>Output:</strong> a fully tested, fake-backed API adapter ready for TanStack Query.
+        </p>
       </section>
-      <div class="gate"><p><strong>Exit gate:</strong> API tests prove correct request construction and failure mapping without contacting Zesty or reading <code>APP_SID</code>.</p></div>
+      <div class="gate">
+        <p>
+          <strong>Exit gate:</strong> API tests prove correct request construction and failure
+          mapping without contacting Zesty or reading <code>APP_SID</code>.
+        </p>
+      </div>
 
       <h2>Foundation completion check</h2>
       <ul class="tasks">
-        <li>The domain core imports no React, TanStack, Effect, browser storage, or network implementation.</li>
-        <li>The only code that sees the token is the token store and authenticated request adapter.</li>
+        <li>
+          The domain core imports no React, TanStack, Effect, browser storage, or network
+          implementation.
+        </li>
+        <li>
+          The only code that sees the token is the token store and authenticated request adapter.
+        </li>
         <li>Every network target originates from the validated deployment mapping.</li>
         <li>All tests are deterministic and offline.</li>
       </ul>
