@@ -1,14 +1,11 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { Effect } from 'effect';
 import { Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
 import type {
   CollectionNode,
   CollectionNodeId,
   CollectionReference,
-  CollectionSchema,
-  CollectionSnapshot,
   ContentItem,
   ContentState,
   ExplorerError,
@@ -20,10 +17,12 @@ import {
   type SessionTokenStore,
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
+import { snapshotQueryKey } from '../zesty-api';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
+import { loadView, viewLoadKey, ViewLoadError } from './load-view';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -44,10 +43,8 @@ class ExplorerQueryError extends Error {
   }
 }
 
-async function runApi<A>(effect: Effect.Effect<A, ExplorerError>): Promise<A> {
-  const result = await Effect.runPromise(Effect.either(effect));
-  if (result._tag === 'Left') throw new ExplorerQueryError(result.left);
-  return result.right;
+function isExplorerError(value: unknown): value is ExplorerError {
+  return Boolean(value && typeof value === 'object' && 'kind' in value && 'message' in value);
 }
 
 function Explorer({ api, tokenStore }: ExplorerProps) {
@@ -60,52 +57,53 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [contentState, setContentState] = useState<ContentState>('latest');
   const [globalFreeText, setGlobalFreeText] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string>();
+  const detailsTrigger = useRef<HTMLElement | null>(null);
   const [tokenRequired, setTokenRequired] = useState(false);
 
   const query = useQuery({
-    queryKey: reference
-      ? [
-          'collection',
-          reference.instanceZuid,
-          reference.deployment,
-          reference.modelZuid,
-          contentState,
-          'en-US',
-        ]
-      : ['collection', 'closed'],
-    enabled: Boolean(reference && token && !tokenRequired),
+    queryKey: treeRoot
+      ? ['view', contentState, ...viewLoadKey(treeRoot, contentState)]
+      : ['view', 'closed'],
+    enabled: Boolean(treeRoot && token && !tokenRequired),
     retry: false,
-    queryFn: async (): Promise<{
-      schema: CollectionSchema;
-      snapshot: CollectionSnapshot;
-    }> => {
-      if (!reference || !token) throw new Error('Collection request is not ready.');
-      const [schema, snapshot] = await Promise.all([
-        runApi(api.loadCollectionSchema(reference, token)),
-        runApi(api.loadCollectionSnapshot(reference, contentState, token)),
-      ]);
-      return { schema, snapshot };
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      if (!treeRoot || !token) throw new Error('Collection request is not ready.');
+      try {
+        return await loadView(api, treeRoot, contentState, token);
+      } catch (error) {
+        if (error instanceof ViewLoadError) throw new ExplorerQueryError(error.failure);
+        if (isExplorerError(error)) throw new ExplorerQueryError(error);
+        throw error;
+      }
     },
   });
 
   const queryError = query.error instanceof ExplorerQueryError ? query.error : null;
+  const nestedAuthenticationError = [...(query.data?.snapshots.snapshots.values() ?? [])].find(
+    (state) => state.status === 'failed' && state.error.kind === 'authentication',
+  );
+  const authenticationFailed =
+    queryError?.failure.kind === 'authentication' || nestedAuthenticationError !== undefined;
   useEffect(() => {
-    if (queryError?.failure.kind !== 'authentication' || !reference) return;
+    if (!authenticationFailed || !reference) return;
     tokenStore.clear(reference.deployment);
     const update = window.setTimeout(() => {
       setToken('');
       setTokenRequired(true);
     }, 0);
     return () => window.clearTimeout(update);
-  }, [queryError, reference, tokenStore]);
+  }, [authenticationFailed, reference, tokenStore]);
 
-  const selectedItem = useMemo(
-    () =>
-      selectedItemId && query.data
-        ? query.data.snapshot.itemsById.get(selectedItemId as ContentItem['id'])
-        : undefined,
-    [query.data, selectedItemId],
-  );
+  const selectedItem = useMemo(() => {
+    if (!selectedItemId || !query.data) return undefined;
+    for (const state of query.data.snapshots.snapshots.values()) {
+      if (state.status !== 'complete' && state.status !== 'partial') continue;
+      const item = state.snapshot.itemsById.get(selectedItemId as ContentItem['id']);
+      if (item) return item;
+    }
+    return undefined;
+  }, [query.data, selectedItemId]);
 
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -223,16 +221,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       <div className="workspace">
         <aside className="tree-panel" aria-label="Collection tree">
           <p className="eyebrow">View</p>
-          {treeRoot && query.data ? (
+          {treeRoot && query.data?.schemas.get(treeRoot.id) ? (
             <TreeEditor
               root={{
                 ...treeRoot,
                 name:
                   treeRoot.name === treeRoot.reference.modelZuid
-                    ? query.data.schema.label
+                    ? query.data.schemas.get(treeRoot.id)!.label
                     : treeRoot.name,
               }}
-              rootSchema={query.data.schema}
+              rootSchema={query.data.schemas.get(treeRoot.id)!}
+              schemas={query.data.schemas}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
@@ -318,19 +317,40 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </button>
             </div>
           ) : null}
-          {!showStart && query.data ? (
+          {!showStart && query.data && treeRoot ? (
             <RootTable
-              schema={query.data.schema}
-              snapshot={query.data.snapshot}
-              reference={reference}
+              schema={query.data.schemas.get(treeRoot.id)!}
+              snapshot={(() => {
+                const state = query.data.snapshots.snapshots.get(
+                  snapshotQueryKey(treeRoot.reference, contentState),
+                );
+                if (!state || (state.status !== 'complete' && state.status !== 'partial')) {
+                  throw new Error('Root snapshot is unavailable.');
+                }
+                return state.snapshot;
+              })()}
+              reference={treeRoot.reference}
+              treeRoot={treeRoot}
+              loadedView={query.data}
+              contentState={contentState}
               globalFreeText={globalFreeText}
-              onOpenDetails={(item) => setSelectedItemId(item.id)}
+              onOpenDetails={(item, trigger) => {
+                detailsTrigger.current = trigger;
+                setSelectedItemId(item.id);
+              }}
+              onRetry={() => void query.refetch()}
             />
           ) : null}
         </section>
       </div>
 
-      <ItemDetails item={selectedItem} onClose={() => setSelectedItemId(undefined)} />
+      <ItemDetails
+        item={selectedItem}
+        onClose={() => {
+          setSelectedItemId(undefined);
+          window.setTimeout(() => detailsTrigger.current?.focus(), 0);
+        }}
+      />
     </main>
   );
 }

@@ -14,6 +14,7 @@ import { findNativeRelationships, subtreeNodeNames } from '../../explorer-core';
 interface TreeEditorProps {
   readonly root: CollectionNode;
   readonly rootSchema: CollectionSchema;
+  readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
   readonly onAdd: (
     parentId: CollectionNodeId,
     reference: CollectionReference,
@@ -204,11 +205,15 @@ function TreeNodeRow({
   root,
   onRename,
   onRemove,
+  schemas,
+  onAdd,
 }: {
   readonly node: CollectionNode;
   readonly root: CollectionNode;
   readonly onRename: TreeEditorProps['onRename'];
   readonly onRemove: TreeEditorProps['onRemove'];
+  readonly schemas: TreeEditorProps['schemas'];
+  readonly onAdd: TreeEditorProps['onAdd'];
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(node.name);
@@ -249,6 +254,9 @@ function TreeNodeRow({
           </button>
         ) : null}
       </div>
+      {schemas.get(node.id) ? (
+        <AddRelationship parent={node} schema={schemas.get(node.id)!} onAdd={onAdd} />
+      ) : null}
       {node.children.length > 0 ? (
         <ul className="tree-children">
           {node.children.map((child) => (
@@ -258,6 +266,8 @@ function TreeNodeRow({
               root={root}
               onRename={onRename}
               onRemove={onRemove}
+              schemas={schemas}
+              onAdd={onAdd}
             />
           ))}
         </ul>
@@ -266,13 +276,27 @@ function TreeNodeRow({
   );
 }
 
-export function TreeEditor({ root, rootSchema, onAdd, onRename, onRemove }: TreeEditorProps) {
+export function TreeEditor({
+  root,
+  rootSchema,
+  schemas,
+  onAdd,
+  onRename,
+  onRemove,
+}: TreeEditorProps) {
+  const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
   return (
     <div>
       <ul className="tree-list">
-        <TreeNodeRow node={root} root={root} onRename={onRename} onRemove={onRemove} />
+        <TreeNodeRow
+          node={root}
+          root={root}
+          onRename={onRename}
+          onRemove={onRemove}
+          schemas={availableSchemas}
+          onAdd={onAdd}
+        />
       </ul>
-      <AddRelationship parent={root} schema={rootSchema} onAdd={onAdd} />
     </div>
   );
 }

@@ -379,6 +379,46 @@ th.sticky-cell {
   max-width: 340px;
   text-overflow: ellipsis;
 }
+.cell-preview-trigger {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: zoom-in;
+}
+.preview-anchor {
+  position: fixed;
+  inset-inline-end: 24px;
+  inset-block-end: 24px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+.value-popover {
+  z-index: 60;
+  width: min(480px, 45vw);
+  max-height: 360px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-panel-raised);
+  color: var(--color-foreground);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.48);
+}
+.value-popover pre,
+.raw-json {
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .pagination {
   justify-content: flex-end;
   min-height: 54px;
@@ -401,6 +441,14 @@ th.sticky-cell {
   border-bottom: 1px solid #854d0e;
   background: #422006;
   color: #fde68a;
+  font-size: 12px;
+}
+.stale-warning {
+  margin: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid #7c2d12;
+  background: #431407;
+  color: #fed7aa;
   font-size: 12px;
 }
 .state-card--error {
@@ -435,10 +483,77 @@ th.sticky-cell {
 }
 .details-sheet dl > div {
   display: grid;
-  grid-template-columns: 150px 1fr;
+  grid-template-columns: 140px 1fr 28px;
   gap: 14px;
   padding: 9px 0;
   border-bottom: 1px solid #27272a;
+}
+.details-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 18px;
+}
+.copy-value {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  place-items: center;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.nested-host-row > td {
+  padding: 0 0 0 26px;
+  background: #0a0a0c;
+}
+.nested-stack {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+.nested-table {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-panel);
+}
+.nested-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.nested-toolbar > strong {
+  margin-right: auto;
+}
+.nested-toolbar input {
+  width: 180px;
+}
+.compact-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.compact-label select {
+  width: auto;
+  min-height: 32px;
+}
+.nested-state,
+.nested-empty {
+  margin: 0;
+  padding: 14px;
+  color: var(--color-muted);
+}
+.nested-state--error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-danger);
 }
 .details-sheet dt {
   color: var(--color-muted);

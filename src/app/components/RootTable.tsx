@@ -15,28 +15,39 @@ import {
 } from '@tanstack/react-table';
 import {
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ExternalLink,
   PanelRightOpen,
   SlidersHorizontal,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Popover } from '@base-ui/react/popover';
+import { Fragment, useMemo, useState } from 'react';
 import type {
+  CollectionNode,
+  CollectionNodeId,
   CollectionReference,
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
+  ContentState,
   ViewFilter,
 } from '../../domain';
-import { createExplorerGraph, filterNodeItemIds, sortItemIds } from '../../explorer-core';
+import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { buildLoadedViewGraph, type LoadedView } from '../load-view';
+import { CellValue, NestedTable, type SharedNodeTableState } from './NestedTable';
 
 interface RootTableProps {
   readonly schema: CollectionSchema;
   readonly snapshot: CollectionSnapshot;
   readonly reference: CollectionReference;
+  readonly treeRoot: CollectionNode;
+  readonly loadedView: LoadedView;
+  readonly contentState: ContentState;
   readonly globalFreeText?: string;
-  readonly onOpenDetails: (item: ContentItem) => void;
+  readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
+  readonly onRetry: () => void;
 }
 
 const features = tableFeatures({
@@ -67,9 +78,18 @@ export function RootTable({
   schema,
   snapshot,
   reference,
+  treeRoot,
+  loadedView,
+  contentState,
   globalFreeText = '',
   onOpenDetails,
+  onRetry,
 }: RootTableProps) {
+  const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
+  const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
+    new Map(),
+  );
+  const [preview, setPreview] = useState<{ readonly label: string; readonly value: string }>();
   const [tableFreeText, setTableFreeText] = useState('');
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [filterField, setFilterField] = useState(schema.fields[0]?.name ?? '');
@@ -85,21 +105,15 @@ export function RootTable({
   const deferredGlobalText = useDebouncedValue(globalFreeText);
 
   const graph = useMemo(
-    () =>
-      createExplorerGraph({
-        rootNodeId: 'node-root',
-        snapshots: new Map([['node-root', snapshot]]),
-        childrenByNode: new Map(),
-        relationshipsByChildNode: new Map(),
-      }),
-    [snapshot],
+    () => buildLoadedViewGraph(treeRoot, loadedView, contentState),
+    [contentState, loadedView, treeRoot],
   );
   const filteredItems = useMemo(() => {
     const allIds = snapshot.items.map((item) => item.id);
-    const viewIds = filterNodeItemIds(graph, 'node-root', allIds, [], deferredGlobalText.value);
+    const viewIds = filterNodeItemIds(graph, treeRoot.id, allIds, [], deferredGlobalText.value);
     const tableIds = filterNodeItemIds(
       graph,
-      'node-root',
+      treeRoot.id,
       viewIds,
       filters,
       deferredTableText.value,
@@ -113,7 +127,15 @@ export function RootTable({
       const item = snapshot.itemsById.get(id);
       return item ? [item] : [];
     });
-  }, [deferredGlobalText.value, deferredTableText.value, filters, graph, snapshot, sorting]);
+  }, [
+    deferredGlobalText.value,
+    deferredTableText.value,
+    filters,
+    graph,
+    snapshot,
+    sorting,
+    treeRoot.id,
+  ]);
 
   const columns = useMemo(
     () =>
@@ -125,10 +147,30 @@ export function RootTable({
           enableResizing: false,
           cell: ({ row }) => (
             <div className="row-actions">
+              {treeRoot.children.length > 0 ? (
+                <button
+                  className="icon-button"
+                  aria-label={`${expanded.has(row.original.id) ? 'Collapse' : 'Expand'} relationships for ${row.original.id}`}
+                  onClick={() =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(row.original.id)) next.delete(row.original.id);
+                      else next.add(row.original.id);
+                      return next;
+                    })
+                  }
+                >
+                  {expanded.has(row.original.id) ? (
+                    <ChevronDown size={15} />
+                  ) : (
+                    <ChevronRight size={15} />
+                  )}
+                </button>
+              ) : null}
               <button
                 className="icon-button"
                 aria-label={`Open details for ${displayValue(row.original.fields.title)}`}
-                onClick={() => onOpenDetails(row.original)}
+                onClick={(event) => onOpenDetails(row.original, event.currentTarget)}
               >
                 <PanelRightOpen size={15} />
               </button>
@@ -149,17 +191,29 @@ export function RootTable({
             id: field.name,
             header: field.label,
             size: 190,
-            cell: ({ getValue }) => <span className="cell-value">{displayValue(getValue())}</span>,
+            cell: ({ getValue }) => (
+              <CellValue
+                label={field.label}
+                value={getValue()}
+                onPreview={(label, value) => setPreview({ label, value })}
+              />
+            ),
           }),
         ),
         columnHelper.accessor((item) => item.metadata.modified, {
           id: 'modified',
           header: 'Modified',
           size: 180,
-          cell: ({ getValue }) => <span className="cell-value">{displayValue(getValue())}</span>,
+          cell: ({ getValue }) => (
+            <CellValue
+              label="Modified"
+              value={getValue()}
+              onPreview={(label, value) => setPreview({ label, value })}
+            />
+          ),
         }),
       ]),
-    [onOpenDetails, reference, schema.fields],
+    [expanded, onOpenDetails, reference, schema.fields, treeRoot.children.length],
   );
 
   const table = useTable({
@@ -192,6 +246,14 @@ export function RootTable({
     ]);
     setFilterValue('');
     setPagination((current) => ({ ...current, pageIndex: 0 }));
+  }
+
+  function updateNodeState(nodeId: CollectionNodeId, state: SharedNodeTableState) {
+    setNodeStates((current) => {
+      const next = new Map(current);
+      next.set(nodeId, state);
+      return next;
+    });
   }
 
   if (snapshot.items.length === 0)
@@ -329,17 +391,43 @@ export function RootTable({
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.original.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <td
-                    key={cell.id}
-                    className={cell.column.id === 'actions' ? 'sticky-cell' : undefined}
-                    style={{ width: cell.column.getSize() }}
-                  >
-                    <table.FlexRender cell={cell} />
-                  </td>
-                ))}
-              </tr>
+              <Fragment key={row.original.id}>
+                <tr>
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className={cell.column.id === 'actions' ? 'sticky-cell' : undefined}
+                      style={{ width: cell.column.getSize() }}
+                    >
+                      <table.FlexRender cell={cell} />
+                    </td>
+                  ))}
+                </tr>
+                {expanded.has(row.original.id) ? (
+                  <tr className="nested-host-row">
+                    <td colSpan={table.getVisibleLeafColumns().length}>
+                      <div className="nested-stack">
+                        {treeRoot.children.map((child) => (
+                          <NestedTable
+                            key={child.id}
+                            node={child}
+                            parentNode={treeRoot}
+                            parentItemId={row.original.id}
+                            graph={graph}
+                            loadedView={loadedView}
+                            contentState={contentState}
+                            nodeStates={nodeStates}
+                            updateNodeState={updateNodeState}
+                            onOpenDetails={onOpenDetails}
+                            onPreview={(label, value) => setPreview({ label, value })}
+                            onRetry={onRetry}
+                          />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -377,6 +465,20 @@ export function RootTable({
           </select>
         </label>
       </div>
+      <Popover.Root open={Boolean(preview)} onOpenChange={(open) => !open && setPreview(undefined)}>
+        <Popover.Trigger className="preview-anchor" aria-hidden="true" tabIndex={-1}>
+          Preview
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Positioner side="bottom" align="end" sideOffset={8}>
+            <Popover.Popup className="value-popover">
+              <Popover.Title>{preview?.label}</Popover.Title>
+              <pre>{preview?.value}</pre>
+              <Popover.Close className="button button--quiet">Close</Popover.Close>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
   );
 }
