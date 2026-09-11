@@ -4,13 +4,17 @@ import { Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
 import type {
+  CollectionNode,
+  CollectionNodeId,
   CollectionReference,
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
   ContentState,
   ExplorerError,
+  RelationshipDefinition,
 } from '../domain';
+import { addCollectionNode, removeCollectionNode, renameCollectionNode } from '../explorer-core';
 import {
   createBrowserSessionTokenStore,
   type SessionTokenStore,
@@ -18,6 +22,8 @@ import {
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
+import { TreeEditor } from './components/TreeEditor';
+import { createChildNode } from './view-state';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -50,6 +56,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [collectionInput, setCollectionInput] = useState('');
   const [inputError, setInputError] = useState<string>();
   const [reference, setReference] = useState<CollectionReference>();
+  const [treeRoot, setTreeRoot] = useState<CollectionNode>();
   const [contentState, setContentState] = useState<ContentState>('latest');
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [tokenRequired, setTokenRequired] = useState(false);
@@ -113,6 +120,28 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
     tokenStore.set(parsed.value.deployment, token);
     setReference(parsed.value);
+    setTreeRoot((current) => {
+      if (
+        current?.reference.instanceZuid === parsed.value.instanceZuid &&
+        current.reference.modelZuid === parsed.value.modelZuid &&
+        current.reference.deployment === parsed.value.deployment
+      ) {
+        return current;
+      }
+      return {
+        id: 'node-root',
+        name: parsed.value.modelZuid,
+        reference: parsed.value,
+        presentation: {
+          visibleColumns: [],
+          columnWidths: {},
+          sort: { fieldPath: ['modified'], direction: 'desc' },
+          filters: [],
+          freeText: '',
+        },
+        children: [],
+      };
+    });
     setSelectedItemId(parsed.value.itemZuid);
     setInputError(undefined);
     setTokenRequired(false);
@@ -131,6 +160,23 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }
 
   const showStart = !reference || tokenRequired;
+
+  function addRelatedCollection(
+    parentId: CollectionNodeId,
+    childReference: CollectionReference,
+    name: string,
+    relationship: RelationshipDefinition,
+  ): string | undefined {
+    if (!treeRoot) return 'Open a root collection first.';
+    const result = addCollectionNode(
+      treeRoot,
+      parentId,
+      createChildNode(childReference, name, relationship),
+    );
+    if (!result.ok) return result.reason;
+    setTreeRoot(result.root);
+    return undefined;
+  }
 
   return (
     <main className="app-shell">
@@ -168,10 +214,28 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       <div className="workspace">
         <aside className="tree-panel" aria-label="Collection tree">
           <p className="eyebrow">View</p>
-          {reference ? (
+          {treeRoot && query.data ? (
+            <TreeEditor
+              root={{
+                ...treeRoot,
+                name:
+                  treeRoot.name === treeRoot.reference.modelZuid
+                    ? query.data.schema.label
+                    : treeRoot.name,
+              }}
+              rootSchema={query.data.schema}
+              onAdd={addRelatedCollection}
+              onRename={(nodeId, name) =>
+                setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
+              }
+              onRemove={(nodeId) =>
+                setTreeRoot((root) => (root ? removeCollectionNode(root, nodeId) : root))
+              }
+            />
+          ) : reference ? (
             <div className="tree-node">
               <span className="tree-node__dot" />
-              <span>{query.data?.schema.label ?? reference.modelZuid}</span>
+              <span>{reference.modelZuid}</span>
             </div>
           ) : (
             <p className="muted">Your root collection will appear here.</p>

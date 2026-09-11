@@ -101,11 +101,56 @@ summary:focus-visible {
   background: var(--color-panel-raised);
   font-size: 13px;
 }
+.tree-node > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-node input {
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+}
 .tree-node__dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--color-accent);
+}
+.tree-list,
+.tree-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tree-children {
+  margin-left: 13px;
+  padding-left: 10px;
+  border-left: 1px solid var(--color-border);
+}
+.tree-icon,
+.tree-action {
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.tree-icon {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+}
+.tree-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 7px 4px;
+  color: var(--color-accent);
+  font-size: 12px;
 }
 .main-panel {
   min-width: 0;
@@ -335,4 +380,39 @@ th.sticky-cell {
   overflow-wrap: anywhere;
   margin: 0;
   white-space: pre-wrap;
+}
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(0 0 0 / 0.66);
+}
+.dialog-popup {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  z-index: 41;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-panel);
+  color: var(--color-foreground);
+  box-shadow: 0 32px 80px rgb(0 0 0 / 0.5);
+}
+.dialog-popup h2 {
+  margin: 4px 0 8px;
+}
+.dialog-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
