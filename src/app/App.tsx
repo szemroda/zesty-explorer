@@ -97,6 +97,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   );
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
   const [shareMessage, setShareMessage] = useState<string>();
+  const [changingRoot, setChangingRoot] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !token));
@@ -173,6 +174,16 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }, [query.data, selectedItemId]);
 
+  const rootSnapshotState =
+    treeRoot && query.data
+      ? query.data.snapshots.snapshots.get(snapshotQueryKey(treeRoot.reference, contentState))
+      : undefined;
+  const rootSnapshot =
+    rootSnapshotState?.status === 'complete' || rootSnapshotState?.status === 'partial'
+      ? rootSnapshotState.snapshot
+      : undefined;
+  const rootSchema = treeRoot ? query.data?.schemas.get(treeRoot.id) : undefined;
+
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = parseCollectionReference(collectionInput);
@@ -199,6 +210,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       )
     ) {
       return;
+    }
+    if (replacingRoot) {
+      setViewFilters([]);
+      setGlobalFreeText('');
+      setContentState('latest');
     }
 
     tokenStore.set(parsed.value.deployment, token);
@@ -228,6 +244,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(parsed.value.itemZuid);
     setInputError(undefined);
     setTokenRequired(false);
+    setChangingRoot(false);
   }
 
   function clearToken() {
@@ -253,6 +270,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setTokenRequired(false);
+    setChangingRoot(false);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
 
@@ -267,7 +285,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setShareMessage('Raw view data copied.');
   }
 
-  const showStart = !reference || tokenRequired;
+  const showStart = !reference || tokenRequired || changingRoot;
 
   function addRelatedCollection(
     parentId: CollectionNodeId,
@@ -291,6 +309,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setTreeRoot((root) => (root ? updateNodePresentation(root, nodeId, presentation) : root)),
     [],
   );
+  const openDetails = useCallback((item: ContentItem, trigger: HTMLElement) => {
+    detailsTrigger.current = trigger;
+    setSelectedItemId(item.id);
+  }, []);
 
   return (
     <main className="app-shell">
@@ -325,6 +347,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </button>
               <button className="button button--quiet" onClick={() => void copyViewLink()}>
                 <Copy size={14} aria-hidden="true" /> Copy view link
+              </button>
+              <button
+                className="button button--quiet"
+                onClick={() => {
+                  setCollectionInput(collectionUrl(reference));
+                  setChangingRoot(true);
+                }}
+              >
+                Replace root
               </button>
               <button className="button button--quiet" onClick={resetView}>
                 <RotateCcw size={14} aria-hidden="true" /> Reset view
@@ -398,9 +429,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </div>
           ) : showStart ? (
             <form className="start-card" aria-labelledby="start-title" onSubmit={openCollection}>
-              <p className="eyebrow">{tokenRequired ? 'Session expired' : 'Start a view'}</p>
+              <p className="eyebrow">
+                {tokenRequired
+                  ? 'Session expired'
+                  : changingRoot
+                    ? 'Change this view'
+                    : 'Start a view'}
+              </p>
               <h2 id="start-title">
-                {tokenRequired ? 'Replace your session token' : 'Open a Zesty collection'}
+                {tokenRequired
+                  ? 'Replace your session token'
+                  : changingRoot
+                    ? 'Replace the root collection'
+                    : 'Open a Zesty collection'}
               </h2>
 
               <label className="field-label" htmlFor="session-token">
@@ -447,11 +488,23 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               <button className="button button--primary" type="submit">
                 Open collection
               </button>
+              {changingRoot ? (
+                <button
+                  className="button button--quiet"
+                  type="button"
+                  onClick={() => setChangingRoot(false)}
+                >
+                  Cancel
+                </button>
+              ) : null}
             </form>
           ) : null}
 
           {!showStart && query.isPending ? (
             <div className="state-card">Loading collection…</div>
+          ) : null}
+          {!showStart && query.isFetching && (!rootSnapshot || !rootSchema) ? (
+            <div className="state-card">Loading the current root collection…</div>
           ) : null}
           {!showStart && queryError ? (
             <div className="state-card state-card--error" role="alert">
@@ -463,7 +516,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </button>
             </div>
           ) : null}
-          {!showStart && query.data && treeRoot ? (
+          {!showStart && query.data && treeRoot && rootSnapshot && rootSchema ? (
             <>
               <section className="view-filters" aria-label="View filters">
                 <div>
@@ -494,26 +547,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               ) : null}
               <RootTable
                 key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
-                schema={query.data.schemas.get(treeRoot.id)!}
-                snapshot={(() => {
-                  const state = query.data.snapshots.snapshots.get(
-                    snapshotQueryKey(treeRoot.reference, contentState),
-                  );
-                  if (!state || (state.status !== 'complete' && state.status !== 'partial')) {
-                    throw new Error('Root snapshot is unavailable.');
-                  }
-                  return state.snapshot;
-                })()}
+                schema={rootSchema}
+                snapshot={rootSnapshot}
                 reference={treeRoot.reference}
                 treeRoot={treeRoot}
                 loadedView={query.data}
                 contentState={contentState}
                 globalFreeText={globalFreeText}
                 viewFilters={viewFilters}
-                onOpenDetails={(item, trigger) => {
-                  detailsTrigger.current = trigger;
-                  setSelectedItemId(item.id);
-                }}
+                onOpenDetails={openDetails}
                 onRetry={() => void query.refetch()}
                 onPresentationChange={changePresentation}
               />
@@ -524,9 +566,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
       <ItemDetails
         item={selectedItem}
+        finalFocus={detailsTrigger}
         onClose={() => {
           setSelectedItemId(undefined);
-          window.setTimeout(() => detailsTrigger.current?.focus(), 0);
+          window.setTimeout(() => detailsTrigger.current?.focus(), 100);
         }}
       />
     </main>

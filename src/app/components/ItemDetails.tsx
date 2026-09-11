@@ -1,11 +1,12 @@
 import { Dialog } from '@base-ui/react/dialog';
 import { Check, Copy, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 import type { ContentItem } from '../../domain';
 
 interface ItemDetailsProps {
   readonly item: ContentItem | undefined;
   readonly onClose: () => void;
+  readonly finalFocus: RefObject<HTMLElement | null>;
 }
 
 function formatted(value: unknown): string {
@@ -27,14 +28,18 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
   );
 }
 
-export function ItemDetails({ item, onClose }: ItemDetailsProps) {
+export function ItemDetails({ item, onClose, finalFocus }: ItemDetailsProps) {
   const [raw, setRaw] = useState(false);
   if (!item) return null;
 
   return (
     <Dialog.Root open modal={false} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Popup className="details-sheet" aria-labelledby="details-title">
+        <Dialog.Popup
+          className="details-sheet"
+          aria-labelledby="details-title"
+          finalFocus={finalFocus}
+        >
           <header>
             <div>
               <p className="eyebrow">Content item</p>
