@@ -1,6 +1,6 @@
 # Zesty Explorer product specification
 
-Status: Accepted  
+Status: Implemented
 Date: 2026-09-11
 
 ## Outcome
