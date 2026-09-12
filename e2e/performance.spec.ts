@@ -10,14 +10,34 @@ function percentile(samples: readonly number[], percentage: number): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percentage) - 1)] ?? 0;
 }
 
-async function measure(run: () => Promise<void>, repetitions = 5) {
-  const samples: number[] = [];
-  for (let index = 0; index < repetitions; index += 1) {
-    const started = performance.now();
-    await run();
-    samples.push(performance.now() - started);
-  }
-  return { p50: percentile(samples, 0.5), p95: percentile(samples, 0.95) };
+async function filterUntilPaint(
+  filter: Locator,
+  search: string,
+  expectedCount: string,
+): Promise<number> {
+  return filter.evaluate(
+    async (element, expected) => {
+      const input = element as HTMLInputElement;
+      const started = performance.now();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        expected.search,
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      while (performance.now() - started < 2_000) {
+        const settled = [...document.querySelectorAll('.pagination span')].some(
+          (candidate) => candidate.textContent === expected.count,
+        );
+        if (settled) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          return performance.now() - started;
+        }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      throw new Error(`Filter did not settle on ${expected.count}.`);
+    },
+    { search, count: expectedCount },
+  );
 }
 
 async function nextPaintAfterClick(locator: Locator): Promise<number> {
@@ -123,14 +143,21 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   const filter = page.getByLabel('Filter this table');
   const searches = ['8765', '765', '65', '5', '4321'];
   const expectedCounts = ['1 items', '11 items', '111 items', '1111 items', '1 items'];
-  let searchIndex = 0;
-  const filterTiming = await measure(async () => {
-    const search = `Performance item ${searches[searchIndex]}`;
-    const expectedCount = expectedCounts[searchIndex];
-    searchIndex += 1;
-    await filter.fill(search);
-    await expect(page.getByText(expectedCount)).toBeVisible();
-  });
+  await filter.fill('Performance item 9999');
+  await expect(page.getByText('1 items')).toBeVisible();
+  await filter.fill('');
+  await expect(page.getByText('10000 items')).toBeVisible();
+  const filterSamples: number[] = [];
+  for (let index = 0; index < searches.length; index += 1) {
+    filterSamples.push(
+      await filterUntilPaint(filter, `Performance item ${searches[index]}`, expectedCounts[index]),
+    );
+  }
+  const filterTiming = {
+    p50: percentile(filterSamples, 0.5),
+    p95: percentile(filterSamples, 0.95),
+    samples: filterSamples,
+  };
   const typingSamples: number[] = [];
   for (let index = 0; index < 5; index += 1) {
     typingSamples.push(
@@ -144,6 +171,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   }
   await filter.fill('');
   await expect(page.getByText('10000 items')).toBeVisible();
+  await page.waitForTimeout(350);
 
   const scoreSort = page.getByRole('button', { name: 'Score' });
   await nextPaintAfterClick(scoreSort);
@@ -210,7 +238,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
       : undefined,
   });
 
-  expect(filterTiming.p95).toBeLessThan(1_000);
+  expect(filterTiming.p95).toBeLessThan(250);
   expect(filterTiming.p95).toBeLessThan(600 * 2);
   expect(percentile(typingSamples, 0.95)).toBeLessThan(100);
   expect(percentile(typingSamples, 0.95)).toBeLessThan(12 * 2);

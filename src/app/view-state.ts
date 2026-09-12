@@ -11,7 +11,7 @@ export function createChildNode(
     reference,
     relationship,
     presentation: {
-      visibleColumns: [],
+      visibleColumns: ['*'],
       columnWidths: {},
       sort: { fieldPath: ['modified'], direction: 'desc' },
       filters: [],

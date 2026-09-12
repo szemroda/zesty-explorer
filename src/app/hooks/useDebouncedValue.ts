@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export function useDebouncedValue(value: string, delayMs = 200, progressDelayMs = 300) {
+export function useDebouncedValue(value: string, delayMs = 25, progressDelayMs = 300) {
   const [settled, setSettled] = useState(value);
   const [showProgress, setShowProgress] = useState(false);
 

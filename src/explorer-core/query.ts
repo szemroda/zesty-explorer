@@ -52,6 +52,8 @@ export function resolveFieldPath(item: ContentItem, path: FieldPath): ResolvedFi
 
   let value: unknown;
   if (head === 'id') value = item.id;
+  else if (head === 'metadata') value = item.metadata;
+  else if (head === 'raw') value = item.raw;
   else if (hasOwn(item.fields, head)) value = item.fields[head];
   else if (hasOwn(item.metadata, head)) value = item.metadata[head];
   else return missing;
@@ -184,10 +186,15 @@ function scalarText(value: unknown): readonly string[] {
   return [];
 }
 
+const searchableTextByItem = new WeakMap<ContentItem, readonly string[]>();
+
 function itemContains(item: ContentItem, search: string): boolean {
-  return Object.values(item.fields)
-    .flatMap(scalarText)
-    .some((value) => value.includes(search));
+  let values = searchableTextByItem.get(item);
+  if (!values) {
+    values = Object.values(item.fields).flatMap(scalarText);
+    searchableTextByItem.set(item, values);
+  }
+  return values.some((value) => value.includes(search));
 }
 
 function graphContains(
@@ -230,6 +237,7 @@ export function filterNodeItemIds(
   freeText = '',
 ): readonly ItemZuid[] {
   const search = normalizedText(freeText);
+  if (filters.length === 0 && !search) return itemIds;
   const searchMemo = new Map<CollectionNodeId, Map<ItemZuid, boolean>>();
   return itemIds.filter(
     (itemId) =>

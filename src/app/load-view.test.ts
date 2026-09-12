@@ -33,7 +33,7 @@ function node(
       managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
     },
     presentation: {
-      visibleColumns: [],
+      visibleColumns: ['*'],
       columnWidths: {},
       sort: { fieldPath: ['modified'], direction: 'desc' },
       filters: [],

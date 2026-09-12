@@ -22,7 +22,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { Popover } from '@base-ui/react/popover';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -63,6 +63,23 @@ const features = tableFeatures({
   paginatedRowModel: createPaginatedRowModel(),
 });
 const columnHelper = createColumnHelper<typeof features, ContentItem>();
+const technicalColumnIds = ['$id', '$created', '$modified', '$version', '$raw'] as const;
+const technicalColumnLabels: Readonly<Record<(typeof technicalColumnIds)[number], string>> = {
+  $id: 'ZUID',
+  $created: 'Created',
+  $modified: 'Modified',
+  $version: 'Version',
+  $raw: 'Raw JSON',
+};
+
+function sortColumnId(fieldPath: readonly string[]): string {
+  const path = fieldPath.join('.');
+  return ['id', 'created', 'modified', 'version'].includes(path) ? `$${path}` : path;
+}
+
+function sortFieldPath(columnId: string): readonly string[] {
+  return columnId.startsWith('$') ? [columnId.slice(1)] : columnId.split('.');
+}
 
 function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
@@ -96,11 +113,15 @@ export function RootTable({
     new Map(),
   );
   const [preview, setPreview] = useState<{ readonly label: string; readonly value: string }>();
+  const setPreviewValue = useCallback(
+    (label: string, value: string) => setPreview({ label, value }),
+    [],
+  );
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
   const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
   const [sorting, setSorting] = useState<SortingState>([
     {
-      id: treeRoot.presentation.sort.fieldPath.join('.'),
+      id: sortColumnId(treeRoot.presentation.sort.fieldPath),
       desc: treeRoot.presentation.sort.direction === 'desc',
     },
   ]);
@@ -109,17 +130,54 @@ export function RootTable({
   );
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>(() => {
     const saved = treeRoot.presentation.visibleColumns;
+    const usesDefaults = saved.includes('*');
     return schema.fields.reduce<ColumnVisibilityState>(
       (visibility, field) => ({
         ...visibility,
-        [field.name]: saved.length === 0 || saved.includes(field.name),
+        [field.name]: usesDefaults || saved.includes(field.name),
       }),
-      { modified: saved.includes('modified') },
+      Object.fromEntries(technicalColumnIds.map((id) => [id, !usesDefaults && saved.includes(id)])),
     );
   });
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const deferredTableText = useDebouncedValue(tableFreeText);
   const deferredGlobalText = useDebouncedValue(globalFreeText);
+
+  useEffect(() => {
+    if (treeRoot.presentation.freeText === tableFreeText) return;
+    const timer = window.setTimeout(
+      () =>
+        onPresentationChange(treeRoot.id, {
+          ...treeRoot.presentation,
+          freeText: tableFreeText,
+        }),
+      300,
+    );
+    return () => window.clearTimeout(timer);
+  }, [onPresentationChange, tableFreeText, treeRoot.id, treeRoot.presentation]);
+
+  useEffect(() => {
+    const active = sorting[0];
+    const sort = {
+      fieldPath: sortFieldPath(active?.id ?? '$modified'),
+      direction: active?.desc === false ? ('asc' as const) : ('desc' as const),
+    };
+    if (
+      treeRoot.presentation.sort.direction === sort.direction &&
+      treeRoot.presentation.sort.fieldPath.join('.') === sort.fieldPath.join('.')
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () =>
+        onPresentationChange(treeRoot.id, {
+          ...treeRoot.presentation,
+          sort,
+        }),
+      300,
+    );
+    return () => window.clearTimeout(timer);
+  }, [onPresentationChange, sorting, treeRoot.id, treeRoot.presentation]);
 
   const graph = useMemo(
     () => buildLoadedViewGraph(treeRoot, loadedView, contentState),
@@ -143,7 +201,7 @@ export function RootTable({
     );
     const activeSort = sorting[0];
     const sortedIds = sortItemIds(snapshot, tableIds, {
-      fieldPath: [activeSort?.id ?? 'modified'],
+      fieldPath: sortFieldPath(activeSort?.id ?? '$modified'),
       direction: activeSort?.desc === false ? 'asc' : 'desc',
     });
     return sortedIds.flatMap((id) => {
@@ -224,20 +282,49 @@ export function RootTable({
             ),
           }),
         ),
+        columnHelper.accessor((item) => item.id, {
+          id: '$id',
+          header: 'ZUID',
+          size: 210,
+          cell: ({ getValue }) => (
+            <CellValue label="ZUID" value={getValue()} onPreview={setPreviewValue} />
+          ),
+        }),
+        columnHelper.accessor((item) => item.metadata.created, {
+          id: '$created',
+          header: 'Created',
+          size: 180,
+          cell: ({ getValue }) => (
+            <CellValue label="Created" value={getValue()} onPreview={setPreviewValue} />
+          ),
+        }),
         columnHelper.accessor((item) => item.metadata.modified, {
-          id: 'modified',
+          id: '$modified',
           header: 'Modified',
           size: 180,
           cell: ({ getValue }) => (
-            <CellValue
-              label="Modified"
-              value={getValue()}
-              onPreview={(label, value) => setPreview({ label, value })}
-            />
+            <CellValue label="Modified" value={getValue()} onPreview={setPreviewValue} />
+          ),
+        }),
+        columnHelper.accessor((item) => item.metadata.version, {
+          id: '$version',
+          header: 'Version',
+          size: 110,
+          cell: ({ getValue }) => (
+            <CellValue label="Version" value={getValue()} onPreview={setPreviewValue} />
+          ),
+        }),
+        columnHelper.accessor((item) => item.raw, {
+          id: '$raw',
+          header: 'Raw JSON',
+          size: 260,
+          enableSorting: false,
+          cell: ({ getValue }) => (
+            <CellValue label="Raw JSON" value={getValue()} onPreview={setPreviewValue} />
           ),
         }),
       ]),
-    [expanded, onOpenDetails, reference, schema.fields, treeRoot.children.length],
+    [expanded, onOpenDetails, reference, schema.fields, setPreviewValue, treeRoot.children.length],
   );
 
   const table = useTable({
@@ -247,14 +334,7 @@ export function RootTable({
     state: { sorting, columnSizing, columnVisibility, pagination },
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
-      const active = next[0];
       setSorting(next);
-      persistPresentation({
-        sort: {
-          fieldPath: [active?.id ?? 'modified'],
-          direction: active?.desc === false ? 'asc' : 'desc',
-        },
-      });
     },
     onColumnSizingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(columnSizing) : updater;
@@ -265,7 +345,7 @@ export function RootTable({
       const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
       setColumnVisibility(next);
       persistPresentation({
-        visibleColumns: ['modified', ...schema.fields.map((field) => field.name)].filter(
+        visibleColumns: [...technicalColumnIds, ...schema.fields.map((field) => field.name)].filter(
           (name) => next[name] !== false,
         ),
       });
@@ -304,10 +384,7 @@ export function RootTable({
             aria-label="Filter this table"
             placeholder="Filter this table"
             value={tableFreeText}
-            onChange={(event) => {
-              setTableFreeText(event.target.value);
-              persistPresentation({ freeText: event.target.value });
-            }}
+            onChange={(event) => setTableFreeText(event.target.value)}
           />
           <details className="columns-menu">
             <summary className="button button--quiet">
@@ -324,7 +401,9 @@ export function RootTable({
                       checked={column.getIsVisible()}
                       onChange={column.getToggleVisibilityHandler()}
                     />
-                    {column.id}
+                    {technicalColumnLabels[column.id as keyof typeof technicalColumnLabels] ??
+                      schema.fields.find((field) => field.name === column.id)?.label ??
+                      column.id}
                   </label>
                 ))}
             </div>

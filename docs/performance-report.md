@@ -1,6 +1,6 @@
 # Performance report
 
-Calibration date: 2026-09-11. Dataset seed: `2026`.
+Calibration date: 2026-09-12. Dataset seed: `2026`.
 
 Machine: AMD Ryzen 7 9800X3D, 16 logical cores, 31 GiB RAM, Windows x64. Runtime: Node.js v24.15.0. Browser: Playwright Chromium 153.0.8010.12. Browser measurements use the production build at a 1600 × 1000 viewport.
 
@@ -28,14 +28,14 @@ The 10,000-item computation target of 250 ms and the 50,000-item target of one s
 
 The calibrated 10,000-item production run reported:
 
-| Interaction                            |    p50 |    p95 |
-| -------------------------------------- | -----: | -----: |
-| Debounced filter, including DOM update | 287.38 | 543.35 |
-| Key event to next paint                |   6.70 |   7.60 |
-| Sort to next paint                     |  19.80 | 244.10 |
-| Loaded expansion to next paint         |  26.70 |  28.80 |
+| Interaction                            |   p50 |    p95 |
+| -------------------------------------- | ----: | -----: |
+| Debounced filter, including DOM update | 60.60 |  86.50 |
+| Key event to next paint                | 11.40 |  11.80 |
+| Sort to next paint                     | 32.10 | 312.20 |
+| Loaded expansion to next paint         | 30.60 |  33.70 |
 
-The table mounted 100 rows, matching the selected page rather than the 10,000-item snapshot. Chromium reported 45.2 MiB used JavaScript heap after the run. No interaction long task remained after initial loading in this production sample.
+The table mounted 100 rows, matching the selected page rather than the 10,000-item snapshot. Chromium reported 35.6 MiB used JavaScript heap after the run. No interaction long task remained after initial loading in this production sample.
 
 The checked-in tests store per-operation local p95 baselines and fail above twice those values. The browser suite uses the same two-times rule for settled filtering, typing, warmed sorting, and expansion, while also enforcing the absolute product targets. Small sub-millisecond operations have deliberately padded baselines to avoid timer-noise failures.
 

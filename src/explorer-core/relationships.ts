@@ -96,3 +96,27 @@ export function validateRelationshipPaths(
   }
   return { valid: invalidPaths.length === 0, invalidPaths };
 }
+
+export function scalarFieldPaths(
+  schema: CollectionSchema,
+  snapshot?: CollectionSnapshot,
+): readonly string[] {
+  const paths = new Set<string>(['id', 'created', 'modified', 'version']);
+  for (const field of schema.fields) {
+    if (field.kind !== 'structured') paths.add(field.name);
+  }
+
+  const visit = (value: unknown, path: readonly string[], depth: number) => {
+    if (depth > 5 || value === null || value === undefined || Array.isArray(value)) return;
+    if (isScalar(value)) {
+      paths.add(path.join('.'));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) visit(child, [...path, key], depth + 1);
+  };
+  for (const item of snapshot?.items ?? []) {
+    for (const [name, value] of Object.entries(item.fields)) visit(value, [name], 1);
+  }
+  return [...paths].sort();
+}

@@ -12,6 +12,8 @@ import {
   joinRelatedItems,
   removeCollectionNode,
   renameCollectionNode,
+  scalarFieldPaths,
+  updateCollectionRelationship,
   updateNodePresentation,
   validateCollectionTree,
   validateRelationshipPaths,
@@ -36,7 +38,7 @@ function node(
       managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
     },
     presentation: {
-      visibleColumns: [],
+      visibleColumns: ['*'],
       columnWidths: {},
       sort: { fieldPath: ['modified'], direction: 'desc' },
       filters: [],
@@ -139,6 +141,38 @@ describe('relationship indexes', () => {
     );
     expect(validation).toEqual({ valid: false, invalidPaths: ['parent.legacy'] });
   });
+
+  it('discovers and validates complete nested scalar paths', () => {
+    const parent = {
+      ...graph.parents,
+      items: [
+        {
+          ...graph.parents.items[0]!,
+          fields: { profile: { owner: { zuid: '7-owner-000001' } } },
+        },
+      ],
+    };
+    const paths = scalarFieldPaths(
+      {
+        modelZuid: '6-fixture-parents',
+        label: 'Parents',
+        fields: [{ id: '12-profile0', name: 'profile', label: 'Profile', kind: 'structured' }],
+      },
+      parent,
+    );
+    expect(paths).toContain('profile.owner.zuid');
+    expect(
+      validateRelationshipPaths(
+        {
+          kind: 'custom',
+          parentField: ['profile', 'owner', 'zuid'],
+          childField: ['parentKey'],
+        },
+        paths,
+        ['parentKey'],
+      ),
+    ).toEqual({ valid: true, invalidPaths: [] });
+  });
 });
 
 describe('collection tree operations', () => {
@@ -207,5 +241,17 @@ describe('collection tree operations', () => {
     const updated = updateNodePresentation(root, root.id, presentation);
     expect(updated.presentation).toEqual(presentation);
     expect(root.presentation.freeText).toBe('');
+  });
+
+  it('repairs a relationship without replacing the collection node', () => {
+    const root = node('node-root', '6-root', [node('node-child', '6-child')]);
+    const relationship = {
+      kind: 'custom' as const,
+      parentField: ['profile', 'owner', 'zuid'],
+      childField: ['parentKey'],
+    };
+    const updated = updateCollectionRelationship(root, 'node-child', relationship);
+    expect(updated.children[0]?.relationship).toEqual(relationship);
+    expect(updated.children[0]?.id).toBe(root.children[0]?.id);
   });
 });

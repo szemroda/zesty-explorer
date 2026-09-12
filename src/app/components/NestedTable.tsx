@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, ExternalLink, PanelRightOpen } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import type {
+  CollectionField,
   CollectionNode,
   CollectionNodeId,
   ContentItem,
@@ -13,7 +14,9 @@ import type {
 import {
   filterNodeItemIds,
   pageItemIds,
+  scalarFieldPaths,
   sortItemIds,
+  validateRelationshipPaths,
   type ExplorerGraph,
 } from '../../explorer-core';
 import { snapshotQueryKey, type SnapshotLoadState } from '../../zesty-api';
@@ -85,21 +88,51 @@ function CellValue({
 function stateFor(
   node: CollectionNode,
   states: ReadonlyMap<CollectionNodeId, SharedNodeTableState>,
-  fieldNames: readonly string[],
+  columns: readonly NestedColumn[],
 ): SharedNodeTableState {
+  const saved = node.presentation.visibleColumns;
+  const usesDefaults = saved.includes('*');
   return (
     states.get(node.id) ?? {
       freeText: node.presentation.freeText,
       filters: node.presentation.filters,
       sort: node.presentation.sort,
       hiddenColumns: new Set(
-        node.presentation.visibleColumns.length === 0
-          ? []
-          : fieldNames.filter((name) => !node.presentation.visibleColumns.includes(name)),
+        columns
+          .filter((column) => (usesDefaults ? column.technical : !saved.includes(column.id)))
+          .map((column) => column.id),
       ),
       columnWidths: node.presentation.columnWidths,
     }
   );
+}
+
+interface NestedColumn {
+  readonly id: string;
+  readonly label: string;
+  readonly technical: boolean;
+  value(item: ContentItem): unknown;
+}
+
+function nestedColumns(fields: readonly CollectionField[]): readonly NestedColumn[] {
+  return [
+    ...fields.map((field) => ({
+      id: field.name,
+      label: field.label,
+      technical: false,
+      value: (item: ContentItem) => item.fields[field.name],
+    })),
+    { id: '$id', label: 'ZUID', technical: true, value: (item) => item.id },
+    { id: '$created', label: 'Created', technical: true, value: (item) => item.metadata.created },
+    {
+      id: '$modified',
+      label: 'Modified',
+      technical: true,
+      value: (item) => item.metadata.modified,
+    },
+    { id: '$version', label: 'Version', technical: true, value: (item) => item.metadata.version },
+    { id: '$raw', label: 'Raw JSON', technical: true, value: (item) => item.raw },
+  ];
 }
 
 function snapshotState(
@@ -130,17 +163,26 @@ export function NestedTable(props: NestedTableProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ItemZuid>>(new Set());
   const state = snapshotState(node, loadedView, contentState);
   const schema = loadedView.schemas.get(node.id);
-  const sharedState = stateFor(node, nodeStates, schema?.fields.map((field) => field.name) ?? []);
+  const columns = nestedColumns(schema?.fields ?? []);
+  const sharedState = stateFor(node, nodeStates, columns);
   const deferredText = useDebouncedValue(sharedState.freeText);
   const parentSchema = loadedView.schemas.get(parentNode.id);
-  const parentField = node.relationship?.parentField[0];
-  const childField = node.relationship?.kind === 'custom' ? node.relationship.childField[0] : 'id';
+  const parentState = snapshotState(parentNode, loadedView, contentState);
+  const parentSnapshot =
+    parentState?.status === 'complete' || parentState?.status === 'partial'
+      ? parentState.snapshot
+      : undefined;
+  const childSnapshot =
+    state?.status === 'complete' || state?.status === 'partial' ? state.snapshot : undefined;
   const relationshipIsStale = Boolean(
     !node.relationship ||
-    !parentField ||
-    !childField ||
-    (parentField !== 'id' && !parentSchema?.fields.some((field) => field.name === parentField)) ||
-    (childField !== 'id' && !schema?.fields.some((field) => field.name === childField)),
+    !parentSchema ||
+    !schema ||
+    !validateRelationshipPaths(
+      node.relationship,
+      parentSchema ? scalarFieldPaths(parentSchema, parentSnapshot) : [],
+      schema ? scalarFieldPaths(schema, childSnapshot) : [],
+    ).valid,
   );
 
   const sortedIds = (() => {
@@ -176,11 +218,10 @@ export function NestedTable(props: NestedTableProps) {
   }
 
   const currentSchema = schema;
-  const pageIds = pageItemIds(sortedIds, pageIndex, pageSize);
   const pageCount = Math.max(1, Math.ceil(sortedIds.length / pageSize));
-  const visibleFields = currentSchema.fields.filter(
-    (field) => !sharedState.hiddenColumns.has(field.name),
-  );
+  const currentPageIndex = Math.min(pageIndex, pageCount - 1);
+  const pageIds = pageItemIds(sortedIds, currentPageIndex, pageSize);
+  const visibleColumns = columns.filter((column) => !sharedState.hiddenColumns.has(column.id));
 
   function updateSharedState(next: SharedNodeTableState) {
     updateNodeState(node.id, next);
@@ -188,9 +229,9 @@ export function NestedTable(props: NestedTableProps) {
       freeText: next.freeText,
       filters: next.filters,
       sort: next.sort,
-      visibleColumns: currentSchema.fields
-        .map((field) => field.name)
-        .filter((name) => !next.hiddenColumns.has(name)),
+      visibleColumns: columns
+        .map((column) => column.id)
+        .filter((id) => !next.hiddenColumns.has(id)),
       columnWidths: next.columnWidths,
     });
   }
@@ -210,27 +251,27 @@ export function NestedTable(props: NestedTableProps) {
         <details className="columns-menu">
           <summary className="button button--quiet">Columns</summary>
           <div className="columns-menu__popup">
-            {currentSchema.fields.map((field) => (
-              <div className="nested-column-control" key={field.id}>
+            {columns.map((column) => (
+              <div className="nested-column-control" key={column.id}>
                 <label>
                   <input
                     type="checkbox"
-                    checked={!sharedState.hiddenColumns.has(field.name)}
+                    checked={!sharedState.hiddenColumns.has(column.id)}
                     onChange={(event) => {
                       const hiddenColumns = new Set(sharedState.hiddenColumns);
-                      if (event.target.checked) hiddenColumns.delete(field.name);
-                      else hiddenColumns.add(field.name);
+                      if (event.target.checked) hiddenColumns.delete(column.id);
+                      else hiddenColumns.add(column.id);
                       updateSharedState({ ...sharedState, hiddenColumns });
                     }}
                   />
-                  {field.label}
+                  {column.label}
                 </label>
                 <input
                   type="number"
-                  aria-label={`${field.label} column width`}
+                  aria-label={`${column.label} column width`}
                   min="90"
                   max="520"
-                  value={sharedState.columnWidths[field.name] ?? 190}
+                  value={sharedState.columnWidths[column.id] ?? 190}
                   onChange={(event) => {
                     const width = Number(event.target.value);
                     if (!Number.isFinite(width) || width < 90 || width > 520) return;
@@ -238,7 +279,7 @@ export function NestedTable(props: NestedTableProps) {
                       ...sharedState,
                       columnWidths: {
                         ...sharedState.columnWidths,
-                        [field.name]: width,
+                        [column.id]: width,
                       },
                     });
                   }}
@@ -254,11 +295,14 @@ export function NestedTable(props: NestedTableProps) {
             onChange={(event) =>
               updateSharedState({
                 ...sharedState,
-                sort: { ...sharedState.sort, fieldPath: [event.target.value] },
+                sort: { ...sharedState.sort, fieldPath: event.target.value.split('.') },
               })
             }
           >
             <option value="modified">Modified</option>
+            <option value="id">ZUID</option>
+            <option value="created">Created</option>
+            <option value="version">Version</option>
             {currentSchema.fields.map((field) => (
               <option key={field.id} value={field.name}>
                 {field.label}
@@ -306,8 +350,8 @@ export function NestedTable(props: NestedTableProps) {
               tableLayout: 'fixed',
               width:
                 96 +
-                visibleFields.reduce(
-                  (total, field) => total + (sharedState.columnWidths[field.name] ?? 190),
+                visibleColumns.reduce(
+                  (total, column) => total + (sharedState.columnWidths[column.id] ?? 190),
                   0,
                 ),
             }}
@@ -315,9 +359,9 @@ export function NestedTable(props: NestedTableProps) {
             <thead>
               <tr>
                 <th className="sticky-cell">Actions</th>
-                {visibleFields.map((field) => (
-                  <th key={field.id} style={{ width: sharedState.columnWidths[field.name] ?? 190 }}>
-                    {field.label}
+                {visibleColumns.map((column) => (
+                  <th key={column.id} style={{ width: sharedState.columnWidths[column.id] ?? 190 }}>
+                    {column.label}
                   </th>
                 ))}
               </tr>
@@ -366,14 +410,14 @@ export function NestedTable(props: NestedTableProps) {
                           </a>
                         </div>
                       </td>
-                      {visibleFields.map((field) => (
+                      {visibleColumns.map((column) => (
                         <td
-                          key={field.id}
-                          style={{ width: sharedState.columnWidths[field.name] ?? 190 }}
+                          key={column.id}
+                          style={{ width: sharedState.columnWidths[column.id] ?? 190 }}
                         >
                           <CellValue
-                            label={field.label}
-                            value={item.fields[field.name]}
+                            label={column.label}
+                            value={column.value(item)}
                             onPreview={onPreview}
                           />
                         </td>
@@ -381,7 +425,7 @@ export function NestedTable(props: NestedTableProps) {
                     </tr>
                     {isExpanded ? (
                       <tr className="nested-host-row">
-                        <td colSpan={visibleFields.length + 1}>
+                        <td colSpan={visibleColumns.length + 1}>
                           <div className="nested-stack">
                             {node.children.map((child) => (
                               <NestedTable
@@ -407,18 +451,18 @@ export function NestedTable(props: NestedTableProps) {
         <span>{sortedIds.length} related items</span>
         <button
           className="button button--quiet"
-          disabled={pageIndex === 0}
-          onClick={() => setPageIndex((page) => page - 1)}
+          disabled={currentPageIndex === 0}
+          onClick={() => setPageIndex(currentPageIndex - 1)}
         >
           Previous
         </button>
         <span>
-          Page {pageIndex + 1} of {pageCount}
+          Page {currentPageIndex + 1} of {pageCount}
         </span>
         <button
           className="button button--quiet"
-          disabled={pageIndex + 1 >= pageCount}
-          onClick={() => setPageIndex((page) => page + 1)}
+          disabled={currentPageIndex + 1 >= pageCount}
+          onClick={() => setPageIndex(currentPageIndex + 1)}
         >
           Next
         </button>

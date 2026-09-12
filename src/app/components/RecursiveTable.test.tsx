@@ -43,7 +43,7 @@ const child: CollectionNode = {
     childField: ['parentKey'],
   },
   presentation: {
-    visibleColumns: [],
+    visibleColumns: ['*'],
     columnWidths: {},
     sort: { fieldPath: ['modified'], direction: 'desc' },
     filters: [],
@@ -124,5 +124,45 @@ describe('recursive collection tables', () => {
       }),
     );
     expect(details).toHaveBeenCalledWith(generated.children.items[0], expect.any(HTMLElement));
+  });
+
+  it('keeps technical columns hidden by default and lets the user select them', () => {
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={root.reference}
+        treeRoot={root}
+        loadedView={loadedView}
+        contentState="latest"
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('checkbox', { name: 'Title' })).toBeChecked();
+    const zuid = screen.getByRole('checkbox', { name: 'ZUID' });
+    expect(zuid).not.toBeChecked();
+    fireEvent.click(zuid);
+    expect(screen.getByRole('columnheader', { name: /ZUID/i })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: generated.parents.items[0]!.id })).toBeInTheDocument();
+  });
+
+  it('preserves an explicit choice to hide every data column', () => {
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={root.reference}
+        treeRoot={{ ...root, presentation: { ...root.presentation, visibleColumns: [] } }}
+        loadedView={loadedView}
+        contentState="latest"
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Title' })).not.toBeChecked();
   });
 });

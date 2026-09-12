@@ -23,6 +23,14 @@ interface TreeEditorProps {
   ) => string | undefined;
   readonly onRename: (nodeId: CollectionNodeId, name: string) => void;
   readonly onRemove: (nodeId: CollectionNodeId) => void;
+  readonly onRelationshipChange: (
+    nodeId: CollectionNodeId,
+    relationship: RelationshipDefinition,
+  ) => void;
+}
+
+function schemaPaths(schema: CollectionSchema): readonly string[] {
+  return ['id', 'created', 'modified', 'version', ...schema.fields.map((field) => field.name)];
 }
 
 function AddRelationship({
@@ -53,6 +61,7 @@ function AddRelationship({
     }
 
     let relationship: RelationshipDefinition;
+    let defaultName: string = parsed.value.modelZuid;
     if (mode === 'native' && nativeFields.length > 0) {
       const selected = nativeFields.find((field) => field.name === nativeField) ?? nativeFields[0];
       if (!selected || (nativeFields.length > 1 && !nativeField)) {
@@ -64,6 +73,7 @@ function AddRelationship({
         parentField: [selected.name],
         targetModelZuid: parsed.value.modelZuid,
       };
+      defaultName = selected.label;
     } else {
       if (!parentPath.trim() || !childPath.trim()) {
         setError('Choose a parent field path and enter a child field path.');
@@ -76,7 +86,7 @@ function AddRelationship({
       };
     }
 
-    const problem = onAdd(parent.id, parsed.value, name || parsed.value.modelZuid, relationship);
+    const problem = onAdd(parent.id, parsed.value, name || defaultName, relationship);
     if (problem) {
       setError(problem);
       return;
@@ -166,17 +176,17 @@ function AddRelationship({
               <div className="field-pair">
                 <label className="field-label">
                   Parent field path
-                  <select
+                  <input
+                    list={`parent-paths-${parent.id}`}
                     value={parentPath}
                     onChange={(event) => setParentPath(event.target.value)}
-                  >
-                    <option value="">Choose a field</option>
-                    {schema.fields.map((field) => (
-                      <option key={field.id} value={field.name}>
-                        {field.label}
-                      </option>
+                    placeholder="e.g. category.zuid"
+                  />
+                  <datalist id={`parent-paths-${parent.id}`}>
+                    {schemaPaths(schema).map((path) => (
+                      <option key={path} value={path} />
                     ))}
-                  </select>
+                  </datalist>
                 </label>
                 <label className="field-label">
                   Child field path
@@ -200,6 +210,116 @@ function AddRelationship({
   );
 }
 
+function EditRelationship({
+  node,
+  parentSchema,
+  childSchema,
+  onChange,
+}: {
+  readonly node: CollectionNode;
+  readonly parentSchema: CollectionSchema;
+  readonly childSchema?: CollectionSchema;
+  readonly onChange: TreeEditorProps['onRelationshipChange'];
+}) {
+  const relationship = node.relationship;
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'native' | 'custom'>(relationship?.kind ?? 'custom');
+  const [parentPath, setParentPath] = useState(relationship?.parentField.join('.') ?? '');
+  const [childPath, setChildPath] = useState(
+    relationship?.kind === 'custom' ? relationship.childField.join('.') : 'id',
+  );
+  const [error, setError] = useState<string>();
+  const nativeFields = findNativeRelationships(parentSchema, node.reference.modelZuid);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!parentPath.trim() || (mode === 'custom' && !childPath.trim())) {
+      setError('Choose both relationship field paths.');
+      return;
+    }
+    const next: RelationshipDefinition =
+      mode === 'native'
+        ? {
+            kind: 'native',
+            parentField: parentPath.split('.').filter(Boolean),
+            targetModelZuid: node.reference.modelZuid,
+          }
+        : {
+            kind: 'custom',
+            parentField: parentPath.split('.').filter(Boolean),
+            childField: childPath.split('.').filter(Boolean),
+          };
+    onChange(node.id, next);
+    setError(undefined);
+    setOpen(false);
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger className="tree-icon" aria-label={`Edit relationship for ${node.name}`}>
+        <Pencil size={12} />
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="dialog-backdrop" />
+        <Dialog.Popup className="dialog-popup">
+          <div className="dialog-heading">
+            <div>
+              <p className="eyebrow">Relationship</p>
+              <Dialog.Title>Repair {node.name}</Dialog.Title>
+            </div>
+            <Dialog.Close className="icon-button" aria-label="Close relationship editor">
+              <X size={17} />
+            </Dialog.Close>
+          </div>
+          <form onSubmit={submit}>
+            <label className="field-label">
+              Relationship type
+              <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+                {nativeFields.length > 0 ? (
+                  <option value="native">Native relationship</option>
+                ) : null}
+                <option value="custom">Custom equality</option>
+              </select>
+            </label>
+            <label className="field-label">
+              Parent field path
+              <input
+                list={`edit-parent-paths-${node.id}`}
+                value={parentPath}
+                onChange={(event) => setParentPath(event.target.value)}
+              />
+              <datalist id={`edit-parent-paths-${node.id}`}>
+                {schemaPaths(parentSchema).map((path) => (
+                  <option key={path} value={path} />
+                ))}
+              </datalist>
+            </label>
+            {mode === 'custom' ? (
+              <label className="field-label">
+                Child field path
+                <input
+                  list={`edit-child-paths-${node.id}`}
+                  value={childPath}
+                  onChange={(event) => setChildPath(event.target.value)}
+                />
+                <datalist id={`edit-child-paths-${node.id}`}>
+                  {childSchema
+                    ? schemaPaths(childSchema).map((path) => <option key={path} value={path} />)
+                    : null}
+                </datalist>
+              </label>
+            ) : null}
+            {error ? <p className="error-message">{error}</p> : null}
+            <button className="button button--primary" type="submit">
+              Save relationship
+            </button>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function TreeNodeRow({
   node,
   root,
@@ -207,6 +327,8 @@ function TreeNodeRow({
   onRemove,
   schemas,
   onAdd,
+  parent,
+  onRelationshipChange,
 }: {
   readonly node: CollectionNode;
   readonly root: CollectionNode;
@@ -214,6 +336,8 @@ function TreeNodeRow({
   readonly onRemove: TreeEditorProps['onRemove'];
   readonly schemas: TreeEditorProps['schemas'];
   readonly onAdd: TreeEditorProps['onAdd'];
+  readonly parent?: CollectionNode;
+  readonly onRelationshipChange: TreeEditorProps['onRelationshipChange'];
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(node.name);
@@ -248,6 +372,14 @@ function TreeNodeRow({
         >
           <Pencil size={12} />
         </button>
+        {parent && schemas.get(parent.id) ? (
+          <EditRelationship
+            node={node}
+            parentSchema={schemas.get(parent.id)!}
+            {...(schemas.get(node.id) ? { childSchema: schemas.get(node.id)! } : {})}
+            onChange={onRelationshipChange}
+          />
+        ) : null}
         {node.id !== root.id ? (
           <button className="tree-icon" aria-label={`Remove ${node.name}`} onClick={remove}>
             <Trash2 size={12} />
@@ -268,6 +400,8 @@ function TreeNodeRow({
               onRemove={onRemove}
               schemas={schemas}
               onAdd={onAdd}
+              parent={node}
+              onRelationshipChange={onRelationshipChange}
             />
           ))}
         </ul>
@@ -283,6 +417,7 @@ export function TreeEditor({
   onAdd,
   onRename,
   onRemove,
+  onRelationshipChange,
 }: TreeEditorProps) {
   const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
   return (
@@ -295,6 +430,7 @@ export function TreeEditor({
           onRemove={onRemove}
           schemas={availableSchemas}
           onAdd={onAdd}
+          onRelationshipChange={onRelationshipChange}
         />
       </ul>
     </div>

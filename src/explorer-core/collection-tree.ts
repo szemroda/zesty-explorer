@@ -1,4 +1,9 @@
-import type { CollectionNode, CollectionNodeId, NodePresentation } from '../domain';
+import type {
+  CollectionNode,
+  CollectionNodeId,
+  NodePresentation,
+  RelationshipDefinition,
+} from '../domain';
 
 export type TreeOperationResult =
   | { readonly ok: true; readonly root: CollectionNode }
@@ -107,6 +112,22 @@ export function updateNodePresentation(
   return {
     ...root,
     children: root.children.map((child) => updateNodePresentation(child, nodeId, presentation)),
+  };
+}
+
+export function updateCollectionRelationship(
+  root: CollectionNode,
+  nodeId: CollectionNodeId,
+  relationship: RelationshipDefinition,
+): CollectionNode {
+  if (root.id === nodeId) return root;
+  return {
+    ...root,
+    children: root.children.map((child) =>
+      child.id === nodeId
+        ? { ...child, relationship }
+        : updateCollectionRelationship(child, nodeId, relationship),
+    ),
   };
 }
 

@@ -19,6 +19,7 @@ import {
   removeCollectionNode,
   renameCollectionNode,
   subtreeNodeNames,
+  updateCollectionRelationship,
   updateNodePresentation,
 } from '../explorer-core';
 import { ViewCodec, type ViewDecodeResult } from '../view-codec';
@@ -270,7 +271,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         name: parsed.value.modelZuid,
         reference: parsed.value,
         presentation: {
-          visibleColumns: [],
+          visibleColumns: ['*'],
           columnWidths: {},
           sort: { fieldPath: ['modified'], direction: 'desc' },
           filters: [],
@@ -432,6 +433,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               }
               onRemove={(nodeId) =>
                 setTreeRoot((root) => (root ? removeCollectionNode(root, nodeId) : root))
+              }
+              onRelationshipChange={(nodeId, relationship) =>
+                setTreeRoot((root) =>
+                  root ? updateCollectionRelationship(root, nodeId, relationship) : root,
+                )
               }
             />
           ) : reference ? (

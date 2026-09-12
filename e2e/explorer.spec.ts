@@ -210,7 +210,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
 test('creates native and custom roles, expands related rows, and preserves details focus', async ({
   page,
 }) => {
-  await installFakeApi(page);
+  const state = await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
 
@@ -218,10 +218,26 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Custom children');
   await page.getByLabel('Relationship type').selectOption('custom');
-  await page.getByLabel('Parent field path').selectOption('rootKey');
+  await page.getByLabel('Parent field path').fill('rootKey');
   await page.getByLabel('Child field path').fill('parentKey');
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Custom children', { exact: true })).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        state.requests.filter(
+          (request) => request.startsWith('GET ') && request.includes('6-childmodel'),
+        ).length,
+    )
+    .toBe(2);
+
+  await page.getByText('Columns', { exact: true }).first().click();
+  await page.getByRole('checkbox', { name: 'ZUID' }).first().check();
+  await expect(page.getByRole('columnheader', { name: 'ZUID' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit relationship for Custom children' }).click();
+  await page.getByLabel('Parent field path').fill('legacy.path');
+  await page.getByRole('button', { name: 'Save relationship' }).click();
 
   const expand = page.getByRole('button', { name: 'Expand relationships for 7-root-000000' });
   await expand.click();
@@ -229,6 +245,11 @@ test('creates native and custom roles, expands related rows, and preserves detai
     page.getByRole('region', { name: 'Children related items', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Custom children related items' })).toBeVisible();
+  await expect(page.getByText(/field path that is no longer/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Edit relationship for Custom children' }).click();
+  await page.getByLabel('Parent field path').fill('rootKey');
+  await page.getByRole('button', { name: 'Save relationship' }).click();
+  await expect(page.getByText(/field path that is no longer/i)).toHaveCount(0);
   await expect(page.getByRole('table').first()).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'Open First story in Zesty Manager' }),
@@ -237,6 +258,9 @@ test('creates native and custom roles, expands related rows, and preserves detai
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
+  await children.getByLabel('Filter Children').fill('no matching item');
+  await expect(children.getByText('Page 1 of 1')).toBeVisible();
+  await children.getByLabel('Filter Children').fill('');
 
   const preview = page.getByRole('button', { name: 'Preview full Title' }).first();
   await preview.focus();
@@ -262,7 +286,10 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await expect(page.getByText('Custom children', { exact: true })).toHaveCount(0);
 });
 
-test('uses descendant view filters and restores a copied non-secret link', async ({ page }) => {
+test('uses descendant filters and restores a non-secret link in another tab', async ({
+  page,
+  context,
+}) => {
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
@@ -278,9 +305,15 @@ test('uses descendant view filters and restores a copied non-secret link', async
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain('#view=');
   expect(copied).not.toContain('synthetic-session-token');
-  await page.reload();
-  await expect(page.getByText('1 items')).toBeVisible();
-  await expect(page.getByText(/active · true/)).toBeVisible();
+  const restored = await context.newPage();
+  await installFakeApi(restored);
+  await restored.goto(copied);
+  await expect(restored.getByRole('heading', { name: 'Replace your session token' })).toBeVisible();
+  await restored.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await restored.getByRole('button', { name: 'Open collection' }).click();
+  await expect(restored.getByText('1 items')).toBeVisible();
+  await expect(restored.getByText(/active · true/)).toBeVisible();
+  await restored.close();
 });
 
 test('recovers corrupt links and confirms root replacement and reset', async ({ page }) => {
