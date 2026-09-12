@@ -63,22 +63,26 @@ const features = tableFeatures({
   paginatedRowModel: createPaginatedRowModel(),
 });
 const columnHelper = createColumnHelper<typeof features, ContentItem>();
-const technicalColumnIds = ['$id', '$created', '$modified', '$version', '$raw'] as const;
-const technicalColumnLabels: Readonly<Record<(typeof technicalColumnIds)[number], string>> = {
-  $id: 'ZUID',
-  $created: 'Created',
-  $modified: 'Modified',
-  $version: 'Version',
-  $raw: 'Raw JSON',
-};
+const fixedTechnicalColumnIds = ['$id', '$created', '$modified', '$version', '$raw'] as const;
 
 function sortColumnId(fieldPath: readonly string[]): string {
   const path = fieldPath.join('.');
+  if (fieldPath[0] === 'metadata' && fieldPath[1]) return `$meta.${fieldPath.slice(1).join('.')}`;
   return ['id', 'created', 'modified', 'version'].includes(path) ? `$${path}` : path;
 }
 
 function sortFieldPath(columnId: string): readonly string[] {
+  if (columnId.startsWith('$meta.')) return ['metadata', columnId.slice('$meta.'.length)];
   return columnId.startsWith('$') ? [columnId.slice(1)] : columnId.split('.');
+}
+
+function extraMetadataKeys(snapshot: CollectionSnapshot): readonly string[] {
+  const fixed = new Set(['created', 'modified', 'version']);
+  return [
+    ...new Set(
+      snapshot.items.flatMap((item) => Object.keys(item.metadata).filter((key) => !fixed.has(key))),
+    ),
+  ].sort();
 }
 
 function displayValue(value: unknown): string {
@@ -119,6 +123,11 @@ export function RootTable({
   );
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
   const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
+  const additionalMetadataKeys = useMemo(() => extraMetadataKeys(snapshot), [snapshot]);
+  const technicalColumnIds = useMemo(
+    () => [...fixedTechnicalColumnIds, ...additionalMetadataKeys.map((key) => `$meta.${key}`)],
+    [additionalMetadataKeys],
+  );
   const [sorting, setSorting] = useState<SortingState>([
     {
       id: sortColumnId(treeRoot.presentation.sort.fieldPath),
@@ -314,6 +323,16 @@ export function RootTable({
             <CellValue label="Version" value={getValue()} onPreview={setPreviewValue} />
           ),
         }),
+        ...additionalMetadataKeys.map((key) =>
+          columnHelper.accessor((item) => item.metadata[key], {
+            id: `$meta.${key}`,
+            header: key,
+            size: 180,
+            cell: ({ getValue }) => (
+              <CellValue label={key} value={getValue()} onPreview={setPreviewValue} />
+            ),
+          }),
+        ),
         columnHelper.accessor((item) => item.raw, {
           id: '$raw',
           header: 'Raw JSON',
@@ -324,7 +343,15 @@ export function RootTable({
           ),
         }),
       ]),
-    [expanded, onOpenDetails, reference, schema.fields, setPreviewValue, treeRoot.children.length],
+    [
+      additionalMetadataKeys,
+      expanded,
+      onOpenDetails,
+      reference,
+      schema.fields,
+      setPreviewValue,
+      treeRoot.children.length,
+    ],
   );
 
   const table = useTable({
@@ -352,6 +379,7 @@ export function RootTable({
     },
     onPaginationChange: setPagination,
     manualSorting: true,
+    enableSortingRemoval: false,
     defaultColumn: { size: 190, minSize: 90, maxSize: 520 },
     columnResizeMode: 'onChange',
   });
@@ -401,9 +429,16 @@ export function RootTable({
                       checked={column.getIsVisible()}
                       onChange={column.getToggleVisibilityHandler()}
                     />
-                    {technicalColumnLabels[column.id as keyof typeof technicalColumnLabels] ??
-                      schema.fields.find((field) => field.name === column.id)?.label ??
-                      column.id}
+                    {column.id === '$id'
+                      ? 'ZUID'
+                      : column.id === '$raw'
+                        ? 'Raw JSON'
+                        : column.id.startsWith('$meta.')
+                          ? column.id.slice('$meta.'.length)
+                          : column.id.startsWith('$')
+                            ? `${column.id.slice(1, 2).toUpperCase()}${column.id.slice(2)}`
+                            : (schema.fields.find((field) => field.name === column.id)?.label ??
+                              column.id)}
                   </label>
                 ))}
             </div>

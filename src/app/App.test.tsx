@@ -92,6 +92,7 @@ describe('root collection browser', () => {
     const htmlCell = screen.getByRole('cell', { name: 'First story' });
     expect(htmlCell).toBeInTheDocument();
     expect(htmlCell.querySelector('strong')).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'workflowStatus' })).not.toBeChecked();
     expect(screen.getByRole('dialog', { name: '7-000000-aaaaaa' })).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /open first story in zesty manager/i }),
@@ -156,7 +157,7 @@ describe('root collection browser', () => {
       null,
       '',
       ViewCodec.encode({
-        version: 1,
+        version: 2,
         root,
         contentState: 'published',
         viewFilters: [],
@@ -221,5 +222,101 @@ describe('root collection browser', () => {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('stage-token');
+  });
+
+  it('rechecks permissions when a token is replaced for the same deployment', async () => {
+    const usedTokens: string[] = [];
+    const testApi = api((_reference, _state, sessionToken) => {
+      usedTokens.push(sessionToken);
+      return Effect.succeed(snapshot);
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
+    await screen.findByRole('heading', { name: 'Stories' });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session token' }));
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
+    await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
+  });
+
+  it('resumes descendant loading after a nested authentication failure', async () => {
+    let childAttempts = 0;
+    const root = {
+      id: 'node-root',
+      name: 'Stories',
+      reference: {
+        instanceZuid: '8-abc123',
+        modelZuid: '6-model123',
+        deployment: 'production',
+        area: 'content',
+        apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+        managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+      },
+      presentation: {
+        visibleColumns: ['*'],
+        columnWidths: {},
+        sort: { fieldPath: ['modified'], direction: 'desc' },
+        filters: [],
+        freeText: '',
+      },
+      children: [
+        {
+          id: 'node-child',
+          name: 'Related stories',
+          reference: {
+            instanceZuid: '8-abc123',
+            modelZuid: '6-child123',
+            deployment: 'production',
+            area: 'content',
+            apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+            managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+          },
+          relationship: {
+            kind: 'custom',
+            parentField: ['title'],
+            childField: ['title'],
+          },
+          presentation: {
+            visibleColumns: ['*'],
+            columnWidths: {},
+            sort: { fieldPath: ['modified'], direction: 'desc' },
+            filters: [],
+            freeText: '',
+          },
+          children: [],
+        },
+      ],
+    } as const;
+    window.history.replaceState(
+      null,
+      '',
+      ViewCodec.encode({
+        version: 2,
+        root,
+        contentState: 'latest',
+        viewFilters: [],
+        globalFreeText: '',
+      }).fragment,
+    );
+    const testApi: ZestyApi = {
+      loadCollectionSchema: (reference) =>
+        Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),
+      loadCollectionSnapshot: (reference) => {
+        if (reference.modelZuid !== '6-child123') return Effect.succeed(snapshot);
+        childAttempts += 1;
+        return childAttempts === 1
+          ? Effect.fail({
+              kind: 'authentication',
+              status: 401,
+              message: 'Expired',
+            })
+          : Effect.succeed({ ...snapshot, modelZuid: '6-child123' });
+      },
+    };
+    render(<App api={testApi} tokenStore={storedTokenStore()} />);
+    await screen.findByRole('heading', { name: 'Replace your session token' });
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'replacement-token');
+    await waitFor(() => expect(childAttempts).toBe(2));
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });
 });

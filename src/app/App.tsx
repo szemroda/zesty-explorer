@@ -86,6 +86,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
   );
   const [tokenDeployment, setTokenDeployment] = useState(initial.view?.root.reference.deployment);
+  const [authEpoch, setAuthEpoch] = useState(0);
   const [showToken, setShowToken] = useState(false);
   const [collectionInput, setCollectionInput] = useState(() =>
     initial.view ? collectionUrl(initial.view.root.reference) : '',
@@ -112,7 +113,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const encodedView = useMemo(() => {
     if (!treeRoot || viewDecodeError) return undefined;
     return ViewCodec.encode({
-      version: 1,
+      version: 2,
       root: treeRoot,
       contentState,
       viewFilters,
@@ -138,7 +139,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const requestReady = Boolean(treeRoot && token && !tokenRequired);
   const rootQuery = useQuery<LoadedCollection, Error>({
     queryKey: treeRoot
-      ? ['collection', snapshotQueryKey(treeRoot.reference, contentState), 10_000]
+      ? ['collection', authEpoch, snapshotQueryKey(treeRoot.reference, contentState), 10_000]
       : ['collection', 'closed'],
     enabled: requestReady,
     retry: false,
@@ -156,7 +157,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const query = useQuery<LoadedView, Error>({
     queryKey: treeRoot
-      ? ['view', contentState, ...viewLoadKey(treeRoot, contentState)]
+      ? [
+          'view',
+          authEpoch,
+          rootQuery.dataUpdatedAt,
+          contentState,
+          ...viewLoadKey(treeRoot, contentState),
+        ]
       : ['view', 'closed'],
     enabled: requestReady && Boolean(rootQuery.data),
     retry: false,
@@ -167,7 +174,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       }
       return loadView(treeRoot, contentState, rootQuery.data, (node, itemLimit) =>
         queryClient.fetchQuery({
-          queryKey: ['collection', snapshotQueryKey(node.reference, contentState), itemLimit],
+          queryKey: [
+            'collection',
+            authEpoch,
+            snapshotQueryKey(node.reference, contentState),
+            itemLimit,
+          ],
           staleTime: Number.POSITIVE_INFINITY,
           queryFn: ({ signal: collectionSignal }) =>
             loadCollection(
@@ -220,6 +232,23 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const rootSnapshot = rootQuery.data?.snapshot;
   const rootSchema = rootQuery.data?.schema;
+  const descendantResultsPending = Boolean(
+    treeRoot?.children.length &&
+    query.isFetching &&
+    (globalFreeText ||
+      treeRoot.presentation.freeText ||
+      viewFilters.some((filter) => filter.nodePath.length > 0) ||
+      treeRoot.presentation.filters.some((filter) => filter.nodePath.length > 0)),
+  );
+  const viewIsIncomplete = [...(loadedView?.snapshots.snapshots.values() ?? [])].some(
+    (state) =>
+      state.status === 'partial' ||
+      (state.status === 'failed' && state.error.kind === 'data-limit'),
+  );
+
+  async function refreshCollections() {
+    await queryClient.refetchQueries({ queryKey: ['collection', authEpoch], type: 'all' });
+  }
 
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -256,6 +285,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
     tokenStore.set(parsed.value.deployment, token);
     setTokenDeployment(parsed.value.deployment);
+    setAuthEpoch((current) => current + 1);
     setReference(parsed.value);
     setTreeRoot((current) => {
       if (
@@ -381,10 +411,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 />
                 Published only
               </label>
-              <button
-                className="button button--quiet"
-                onClick={() => void queryClient.invalidateQueries()}
-              >
+              <button className="button button--quiet" onClick={() => void refreshCollections()}>
                 <RefreshCw size={14} aria-hidden="true" /> Refresh
               </button>
               <button className="button button--quiet" onClick={() => void copyViewLink()}>
@@ -593,34 +620,34 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onChange={setViewFilters}
                 />
               </section>
-              {query.isFetching &&
-              (viewFilters.some((filter) => filter.nodePath.length > 0) || globalFreeText) ? (
+              {descendantResultsPending ? (
                 <p className="partial-warning" role="status">
-                  Related data is loading. Descendant-dependent results are not final yet.
+                  Related data is loading. Descendant-dependent results will appear when it is
+                  ready.
                 </p>
               ) : null}
-              {[...loadedView.snapshots.snapshots.values()].some(
-                (state) => state.status === 'partial',
-              ) ? (
+              {viewIsIncomplete ? (
                 <p className="partial-warning" role="status">
                   This view contains incomplete collection data. Related results and filters may be
                   incomplete.
                 </p>
               ) : null}
-              <RootTable
-                key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
-                schema={rootSchema}
-                snapshot={rootSnapshot}
-                reference={treeRoot.reference}
-                treeRoot={treeRoot}
-                loadedView={loadedView}
-                contentState={contentState}
-                globalFreeText={globalFreeText}
-                viewFilters={viewFilters}
-                onOpenDetails={openDetails}
-                onRetry={() => void queryClient.invalidateQueries()}
-                onPresentationChange={changePresentation}
-              />
+              {!descendantResultsPending ? (
+                <RootTable
+                  key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                  schema={rootSchema}
+                  snapshot={rootSnapshot}
+                  reference={treeRoot.reference}
+                  treeRoot={treeRoot}
+                  loadedView={loadedView}
+                  contentState={contentState}
+                  globalFreeText={globalFreeText}
+                  viewFilters={viewFilters}
+                  onOpenDetails={openDetails}
+                  onRetry={() => void refreshCollections()}
+                  onPresentationChange={changePresentation}
+                />
+              ) : null}
             </>
           ) : null}
         </section>

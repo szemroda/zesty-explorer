@@ -114,7 +114,16 @@ interface NestedColumn {
   value(item: ContentItem): unknown;
 }
 
-function nestedColumns(fields: readonly CollectionField[]): readonly NestedColumn[] {
+function itemColumns(
+  fields: readonly CollectionField[],
+  items: readonly ContentItem[],
+): readonly NestedColumn[] {
+  const fixedMetadata = new Set(['created', 'modified', 'version']);
+  const extraMetadata = [
+    ...new Set(
+      items.flatMap((item) => Object.keys(item.metadata).filter((key) => !fixedMetadata.has(key))),
+    ),
+  ].sort();
   return [
     ...fields.map((field) => ({
       id: field.name,
@@ -131,6 +140,12 @@ function nestedColumns(fields: readonly CollectionField[]): readonly NestedColum
       value: (item) => item.metadata.modified,
     },
     { id: '$version', label: 'Version', technical: true, value: (item) => item.metadata.version },
+    ...extraMetadata.map((key) => ({
+      id: `$meta.${key}`,
+      label: key,
+      technical: true,
+      value: (item: ContentItem) => item.metadata[key],
+    })),
     { id: '$raw', label: 'Raw JSON', technical: true, value: (item) => item.raw },
   ];
 }
@@ -163,7 +178,9 @@ export function NestedTable(props: NestedTableProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ItemZuid>>(new Set());
   const state = snapshotState(node, loadedView, contentState);
   const schema = loadedView.schemas.get(node.id);
-  const columns = nestedColumns(schema?.fields ?? []);
+  const loadedItems =
+    state?.status === 'complete' || state?.status === 'partial' ? state.snapshot.items : [];
+  const columns = itemColumns(schema?.fields ?? [], loadedItems);
   const sharedState = stateFor(node, nodeStates, columns);
   const deferredText = useDebouncedValue(sharedState.freeText);
   const parentSchema = loadedView.schemas.get(parentNode.id);
@@ -303,6 +320,13 @@ export function NestedTable(props: NestedTableProps) {
             <option value="id">ZUID</option>
             <option value="created">Created</option>
             <option value="version">Version</option>
+            {columns
+              .filter((column) => column.id.startsWith('$meta.'))
+              .map((column) => (
+                <option key={column.id} value={`metadata.${column.id.slice('$meta.'.length)}`}>
+                  {column.label}
+                </option>
+              ))}
             {currentSchema.fields.map((field) => (
               <option key={field.id} value={field.name}>
                 {field.label}

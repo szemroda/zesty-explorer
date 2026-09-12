@@ -33,8 +33,6 @@ const CollectionPageSchema = Schema.Struct({
   }),
 });
 
-const metadataKeys = new Set(['zuid', 'created', 'modified', 'version']);
-
 function normalizeItem(raw: Readonly<Record<string, unknown>>): ContentItem {
   const decodedMetadata = Schema.decodeUnknownSync(ItemMetadataSchema)(raw.meta);
   const fields: Record<string, unknown> = {};
@@ -43,8 +41,10 @@ function normalizeItem(raw: Readonly<Record<string, unknown>>): ContentItem {
     if (name !== 'meta') fields[name] = value;
   }
 
+  const rawMetadata =
+    typeof raw.meta === 'object' && raw.meta !== null && !Array.isArray(raw.meta) ? raw.meta : {};
   const metadata = Object.fromEntries(
-    Object.entries(decodedMetadata).filter(([name]) => name !== 'zuid' && metadataKeys.has(name)),
+    Object.entries(rawMetadata).filter(([name]) => name !== 'zuid'),
   );
 
   return {

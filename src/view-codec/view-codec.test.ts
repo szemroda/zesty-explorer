@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gzipSync, strToU8 } from 'fflate';
 import type { CollectionNode, PersistedView } from '../domain';
+import { v1EmptyColumnsFragment } from './fixtures/v1-empty-columns-fragment';
 import { v1Fragment } from './fixtures/v1-fragment';
 import { createSessionTokenStore, ViewCodec } from './index';
 
@@ -26,7 +27,7 @@ const root = {
 } as CollectionNode;
 
 const view: PersistedView = {
-  version: 1,
+  version: 2,
   root,
   contentState: 'latest',
   viewFilters: [],
@@ -52,6 +53,14 @@ describe('ViewCodec', () => {
     expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, view });
   });
 
+  it('migrates version-one default columns without losing their meaning', () => {
+    const decoded = ViewCodec.decode(v1EmptyColumnsFragment);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.view.version).toBe(2);
+    expect(decoded.view.root.presentation.visibleColumns).toEqual(['*']);
+  });
+
   it('preserves corrupt raw data for recovery', () => {
     expect(ViewCodec.decode('#view=not-valid')).toEqual({
       ok: false,
@@ -63,6 +72,8 @@ describe('ViewCodec', () => {
   it('rejects oversized encoded and decompressed payloads', () => {
     expect(ViewCodec.decode(`#view=${'a'.repeat(100_001)}`).ok).toBe(false);
     const compressedBomb = gzipSync(strToU8('a'.repeat(1_000_001)), { mtime: 0 });
+    compressedBomb.fill(0, compressedBomb.length - 4);
+    compressedBomb[compressedBomb.length - 4] = 1;
     expect(ViewCodec.decode(`#view=${base64Url(compressedBomb)}`).ok).toBe(false);
   });
 

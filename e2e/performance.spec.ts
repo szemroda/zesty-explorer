@@ -176,8 +176,13 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   const scoreSort = page.getByRole('button', { name: 'Score' });
   await nextPaintAfterClick(scoreSort);
   const sortSamples: number[] = [];
-  for (let index = 0; index < 5; index += 1) sortSamples.push(await nextPaintAfterClick(scoreSort));
-  const sortTiming = { p50: percentile(sortSamples, 0.5), p95: percentile(sortSamples, 0.95) };
+  for (let index = 0; index < 20; index += 1)
+    sortSamples.push(await nextPaintAfterClick(scoreSort));
+  const sortTiming = {
+    p50: percentile(sortSamples, 0.5),
+    p95: percentile(sortSamples, 0.95),
+    samples: sortSamples,
+  };
 
   await page.getByRole('button', { name: 'Add related collection' }).click();
   await page
@@ -243,7 +248,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   expect(percentile(typingSamples, 0.95)).toBeLessThan(100);
   expect(percentile(typingSamples, 0.95)).toBeLessThan(12 * 2);
   expect(sortTiming.p50).toBeLessThan(250);
-  expect(sortTiming.p95).toBeLessThan(250 * 2);
+  expect(sortTiming.p95).toBeLessThan(250);
   expect(expansionTiming.p95).toBeLessThan(100);
   expect(expansionTiming.p95).toBeLessThan(40 * 2);
   expect(await page.locator('tbody > tr').count()).toBeLessThanOrEqual(100);

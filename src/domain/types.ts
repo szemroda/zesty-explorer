@@ -124,7 +124,7 @@ export interface CollectionNode {
 }
 
 export interface PersistedView {
-  readonly version: 1;
+  readonly version: 2;
   readonly root: CollectionNode;
   readonly contentState: ContentState;
   readonly viewFilters: readonly ViewFilter[];

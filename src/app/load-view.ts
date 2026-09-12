@@ -94,10 +94,35 @@ export function rootLoadedView(
   };
 }
 
+function emptyPartialSnapshot(node: CollectionNode, state: ContentState): CollectionSnapshot {
+  return {
+    id: `snapshot-${node.reference.instanceZuid}-${node.reference.modelZuid}-${state}-en-US`,
+    instanceZuid: node.reference.instanceZuid,
+    modelZuid: node.reference.modelZuid,
+    state,
+    language: 'en-US',
+    items: [],
+    itemsById: new Map(),
+    partial: true,
+  };
+}
+
 type CachedCollectionLoader = (
   node: CollectionNode,
   itemLimit: number,
 ) => Promise<LoadedCollection>;
+
+const graphCache = new WeakMap<LoadedView, Map<string, ExplorerGraph>>();
+
+function relationshipGraphKey(root: CollectionNode, state: ContentState): string {
+  const describe = (node: CollectionNode): unknown => ({
+    id: node.id,
+    reference: snapshotQueryKey(node.reference, state),
+    relationship: node.relationship,
+    children: node.children.map(describe),
+  });
+  return JSON.stringify(describe(root));
+}
 
 export async function loadView(
   root: CollectionNode,
@@ -119,14 +144,17 @@ export async function loadView(
   for (const node of uniqueDescendants.values()) {
     const key = snapshotQueryKey(node.reference, state);
     if (totalItems >= 50_000) {
-      snapshots.set(key, {
-        status: 'failed',
-        error: {
-          kind: 'data-limit',
-          scope: 'view',
-          message: 'The view reached its 50,000 content-item limit.',
-        },
-      });
+      const error: ExplorerError = {
+        kind: 'data-limit',
+        scope: 'view',
+        message: 'The view reached its 50,000 content-item limit.',
+      };
+      snapshots.set(key, { status: 'partial', snapshot: emptyPartialSnapshot(node, state) });
+      for (const matchingNode of nodes.filter(
+        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+      )) {
+        schemaErrors.set(matchingNode.id, error);
+      }
       continue;
     }
 
@@ -166,6 +194,10 @@ export function buildLoadedViewGraph(
   loaded: LoadedView,
   state: ContentState,
 ): ExplorerGraph {
+  const key = relationshipGraphKey(root, state);
+  const cached = graphCache.get(loaded)?.get(key);
+  if (cached) return cached;
+
   const nodes = flattenCollectionNodes(root);
   const snapshots = new Map<CollectionNodeId, CollectionSnapshot>();
   const childrenByNode = new Map<CollectionNodeId, readonly CollectionNodeId[]>();
@@ -203,10 +235,14 @@ export function buildLoadedViewGraph(
   };
   visit(root);
 
-  return createExplorerGraph({
+  const graph = createExplorerGraph({
     rootNodeId: root.id,
     snapshots,
     childrenByNode,
     relationshipsByChildNode,
   });
+  const entries = graphCache.get(loaded) ?? new Map<string, ExplorerGraph>();
+  entries.set(key, graph);
+  graphCache.set(loaded, entries);
+  return graph;
 }

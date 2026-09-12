@@ -28,14 +28,14 @@ The 10,000-item computation target of 250 ms and the 50,000-item target of one s
 
 The calibrated 10,000-item production run reported:
 
-| Interaction                            |   p50 |    p95 |
-| -------------------------------------- | ----: | -----: |
-| Debounced filter, including DOM update | 60.60 |  86.50 |
-| Key event to next paint                | 11.40 |  11.80 |
-| Sort to next paint                     | 32.10 | 312.20 |
-| Loaded expansion to next paint         | 30.60 |  33.70 |
+| Interaction                            |   p50 |   p95 |
+| -------------------------------------- | ----: | ----: |
+| Debounced filter, including DOM update | 59.30 | 70.50 |
+| Key event to next paint                | 12.10 | 13.30 |
+| Sort to next paint                     | 20.60 | 27.50 |
+| Loaded expansion to next paint         | 30.10 | 32.30 |
 
-The table mounted 100 rows, matching the selected page rather than the 10,000-item snapshot. Chromium reported 35.6 MiB used JavaScript heap after the run. No interaction long task remained after initial loading in this production sample.
+The table mounted 100 rows, matching the selected page rather than the 10,000-item snapshot. Chromium reported 29.8 MiB used JavaScript heap after the run. Sorting was sampled across 20 alternating ascending and descending updates so the p95 gate covers repeated use. No interaction long task remained after initial loading in this production sample.
 
 The checked-in tests store per-operation local p95 baselines and fail above twice those values. The browser suite uses the same two-times rule for settled filtering, typing, warmed sorting, and expansion, while also enforcing the absolute product targets. Small sub-millisecond operations have deliberately padded baselines to avoid timer-noise failures.
 

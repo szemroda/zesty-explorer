@@ -88,7 +88,11 @@ describe('view loading', () => {
     expect(loaded.snapshots.totalItems).toBe(50_000);
     expect(
       loaded.snapshots.snapshots.get('8-fixture-instance:production:6-skipped:latest:en-US'),
-    ).toMatchObject({ status: 'failed', error: { kind: 'data-limit' } });
+    ).toMatchObject({ status: 'partial', snapshot: { partial: true, items: [] } });
+    expect(loaded.schemaErrors.get(skipped.id)).toMatchObject({
+      kind: 'data-limit',
+      scope: 'view',
+    });
   });
 
   it('interrupts Effect work when its query signal is aborted', async () => {

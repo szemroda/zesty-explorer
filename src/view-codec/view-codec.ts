@@ -1,5 +1,5 @@
 import { Either, Schema } from 'effect';
-import { gzipSync, gunzipSync, strFromU8, strToU8 } from 'fflate';
+import { Gunzip, gzipSync, strFromU8, strToU8 } from 'fflate';
 import { parseCollectionReference } from '../collection-reference';
 import type {
   CollectionNode,
@@ -11,7 +11,7 @@ import type {
 import { validateCollectionTree } from '../explorer-core/collection-tree';
 
 const VersionedViewSchema = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Union(Schema.Literal(1), Schema.Literal(2)),
   root: Schema.Unknown,
   contentState: Schema.Union(Schema.Literal('latest'), Schema.Literal('published')),
   viewFilters: Schema.Array(Schema.Unknown),
@@ -186,18 +186,28 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function declaredGzipSize(bytes: Uint8Array): number {
+function gunzipBounded(bytes: Uint8Array): Uint8Array {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
     throw new Error('View payload is not gzip data.');
   }
-  const offset = bytes.length - 4;
-  return (
-    ((bytes[offset] ?? 0) |
-      ((bytes[offset + 1] ?? 0) << 8) |
-      ((bytes[offset + 2] ?? 0) << 16) |
-      ((bytes[offset + 3] ?? 0) << 24)) >>>
-    0
-  );
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  const stream = new Gunzip((chunk) => {
+    length += chunk.length;
+    if (length > maximumDecodedLength) throw new Error('Decoded view payload is too large.');
+    chunks.push(chunk);
+  });
+  for (let offset = 0; offset < bytes.length; offset += 256) {
+    const end = Math.min(bytes.length, offset + 256);
+    stream.push(bytes.subarray(offset, end), end === bytes.length);
+  }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
 }
 
 function validateDecodedView(value: unknown): PersistedView | undefined {
@@ -209,13 +219,27 @@ function validateDecodedView(value: unknown): PersistedView | undefined {
   ) {
     return undefined;
   }
-  if (!validateCollectionTree(decoded.right.root).ok) return undefined;
+  const root =
+    decoded.right.version === 1 ? migrateVersionOneNode(decoded.right.root) : decoded.right.root;
+  if (!validateCollectionTree(root).ok) return undefined;
   return {
-    version: 1,
-    root: decoded.right.root,
+    version: 2,
+    root,
     contentState: decoded.right.contentState,
     viewFilters: decoded.right.viewFilters,
     globalFreeText: decoded.right.globalFreeText,
+  };
+}
+
+function migrateVersionOneNode(node: CollectionNode): CollectionNode {
+  return {
+    ...node,
+    presentation: {
+      ...node.presentation,
+      visibleColumns:
+        node.presentation.visibleColumns.length === 0 ? ['*'] : node.presentation.visibleColumns,
+    },
+    children: node.children.map(migrateVersionOneNode),
   };
 }
 
@@ -235,12 +259,7 @@ export const ViewCodec = {
     try {
       if (raw.length > maximumEncodedLength) throw new Error('View payload is too large.');
       const compressed = base64UrlToBytes(raw);
-      if (declaredGzipSize(compressed) > maximumDecodedLength) {
-        throw new Error('Decoded view payload is too large.');
-      }
-      const bytes = gunzipSync(compressed);
-      if (bytes.length > maximumDecodedLength)
-        throw new Error('Decoded view payload is too large.');
+      const bytes = gunzipBounded(compressed);
       const json = strFromU8(bytes);
       const parsed: unknown = JSON.parse(json);
       const view = validateDecodedView(parsed);

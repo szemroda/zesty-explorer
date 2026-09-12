@@ -26,6 +26,7 @@ describe('collection snapshot contracts', () => {
         created: '2026-01-01T12:00:00.000Z',
         modified: '2026-02-01T12:00:00.000Z',
         version: 2,
+        workflowStatus: 'ready',
       },
       raw: fixtureCollectionPage.data[0],
     });

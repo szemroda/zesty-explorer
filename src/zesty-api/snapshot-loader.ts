@@ -86,6 +86,19 @@ function loadedState(snapshot: CollectionSnapshot): SnapshotLoadState {
   return snapshot.partial ? { status: 'partial', snapshot } : { status: 'complete', snapshot };
 }
 
+function emptyPartialSnapshot(node: CollectionNode, state: ContentState): CollectionSnapshot {
+  return {
+    id: `snapshot-${node.reference.instanceZuid}-${node.reference.modelZuid}-${state}-en-US`,
+    instanceZuid: node.reference.instanceZuid,
+    modelZuid: node.reference.modelZuid,
+    state,
+    language: 'en-US',
+    items: [],
+    itemsById: new Map(),
+    partial: true,
+  };
+}
+
 export function createSnapshotPlan(
   root: CollectionNode,
   state: ContentState,
@@ -122,13 +135,11 @@ export function createSnapshotLoader(
 
         const descendants = uniqueNodes(flattenDescendants(root), state);
         if (totalItems >= viewLimit) {
-          const error: ExplorerError = {
-            kind: 'data-limit',
-            scope: 'view',
-            message: 'The view reached its 50,000 content-item limit.',
-          };
           descendants.forEach((node) =>
-            snapshots.set(snapshotQueryKey(node.reference, state), { status: 'failed', error }),
+            snapshots.set(snapshotQueryKey(node.reference, state), {
+              status: 'partial',
+              snapshot: emptyPartialSnapshot(node, state),
+            }),
           );
           return { snapshots, totalItems };
         }
@@ -137,12 +148,8 @@ export function createSnapshotLoader(
           const key = snapshotQueryKey(node.reference, state);
           if (totalItems >= viewLimit) {
             snapshots.set(key, {
-              status: 'failed',
-              error: {
-                kind: 'data-limit',
-                scope: 'view',
-                message: 'The view reached its 50,000 content-item limit.',
-              },
+              status: 'partial',
+              snapshot: emptyPartialSnapshot(node, state),
             });
             continue;
           }
