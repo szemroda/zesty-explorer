@@ -54,6 +54,7 @@ describe('CollectionReferenceParser', () => {
     'https://8-abc123.manager.zesty.io/content/7-item123',
     'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/7-item123',
     'javascript:alert(1)',
+    'https://8-abc123.manager.zesty.io/content/6-model123/%E0%A4%A',
   ])('rejects %s without returning a request target', (input) => {
     const parsed = parseCollectionReference(input);
     expect(parsed.ok).toBe(false);

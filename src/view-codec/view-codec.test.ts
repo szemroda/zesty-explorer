@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { gzipSync, strToU8 } from 'fflate';
 import type { CollectionNode, PersistedView } from '../domain';
 import { v1Fragment } from './fixtures/v1-fragment';
 import { createSessionTokenStore, ViewCodec } from './index';
@@ -32,6 +33,12 @@ const view: PersistedView = {
   globalFreeText: '',
 };
 
+function base64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
 describe('ViewCodec', () => {
   it('round-trips canonically and reports fragment length', () => {
     const encoded = ViewCodec.encode(view);
@@ -51,6 +58,12 @@ describe('ViewCodec', () => {
       raw: 'not-valid',
       reason: 'The shared view is invalid or truncated.',
     });
+  });
+
+  it('rejects oversized encoded and decompressed payloads', () => {
+    expect(ViewCodec.decode(`#view=${'a'.repeat(100_001)}`).ok).toBe(false);
+    const compressedBomb = gzipSync(strToU8('a'.repeat(1_000_001)), { mtime: 0 });
+    expect(ViewCodec.decode(`#view=${base64Url(compressedBomb)}`).ok).toBe(false);
   });
 
   it('rejects unsafe hosts and invalid nested state after decompression', () => {

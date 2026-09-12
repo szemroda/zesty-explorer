@@ -1,22 +1,34 @@
 import { Either, Schema } from 'effect';
 import type { CollectionPage, ContentItem, ExplorerError, ItemZuid } from './types';
 
+const ItemZuidSchema = Schema.String.pipe(
+  Schema.filter((value) => /^7-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
+    message: () => 'Content item ZUID is invalid',
+  }),
+);
+
 const ItemMetadataSchema = Schema.Struct({
-  zuid: Schema.String,
+  zuid: ItemZuidSchema,
   created: Schema.String,
   modified: Schema.String,
   version: Schema.Number,
 });
 
 const RawItemSchema = Schema.Record({ key: Schema.String, value: Schema.Unknown }).pipe(
-  Schema.filter((item) => 'meta' in item, { message: () => 'Content item metadata is missing' }),
+  Schema.filter(
+    (item) =>
+      'meta' in item && Either.isRight(Schema.decodeUnknownEither(ItemMetadataSchema)(item.meta)),
+    { message: () => 'Content item metadata is missing or invalid' },
+  ),
 );
 
 const CollectionPageSchema = Schema.Struct({
   data: Schema.Array(RawItemSchema),
   _meta: Schema.Struct({
     totalResults: Schema.Number,
-    page: Schema.Number,
+    page: Schema.optional(Schema.Number),
+    start: Schema.optional(Schema.Number),
+    offset: Schema.optional(Schema.Number),
     limit: Schema.Number,
   }),
 });
@@ -48,7 +60,9 @@ export function decodeCollectionPage(input: unknown): Either.Either<CollectionPa
     Either.map((page) => ({
       items: page.data.map(normalizeItem),
       totalResults: page._meta.totalResults,
-      page: page._meta.page,
+      page:
+        page._meta.page ??
+        Math.floor((page._meta.start ?? page._meta.offset ?? 0) / page._meta.limit) + 1,
       limit: page._meta.limit,
     })),
     Either.mapLeft((): ExplorerError => ({

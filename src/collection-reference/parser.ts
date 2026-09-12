@@ -136,7 +136,12 @@ export function parseCollectionReference(input: string): CollectionReferencePars
     return failure('blocked-host', 'This host is not an allowed Zesty deployment host.');
   }
 
-  const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  let segments: readonly string[];
+  try {
+    segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return failure('invalid-input', 'The collection URL contains invalid path encoding.');
+  }
   const path = host.source === 'api' ? parseApiPath(segments) : parseManagerPath(segments);
   if (!path) {
     return failure('invalid-input', 'The URL does not identify a supported Zesty collection.');

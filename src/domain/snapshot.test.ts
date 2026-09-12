@@ -39,6 +39,29 @@ describe('collection snapshot contracts', () => {
     expect(decoded.left.kind).toBe('decoding');
   });
 
+  it('accepts the official collection metadata shape without a page field', () => {
+    const decoded = decodeCollectionPage({
+      ...fixtureCollectionPage,
+      _meta: { totalResults: 202, start: 100, offset: 100, limit: 100 },
+    });
+    expect(Either.isRight(decoded)).toBe(true);
+    if (Either.isLeft(decoded)) return;
+    expect(decoded.right.page).toBe(2);
+  });
+
+  it('rejects malformed item ZUIDs before branding them', () => {
+    const decoded = decodeCollectionPage({
+      ...fixtureCollectionPage,
+      data: [
+        {
+          ...fixtureCollectionPage.data[0],
+          meta: { ...fixtureCollectionPage.data[0].meta, zuid: 'wrong' },
+        },
+      ],
+    });
+    expect(Either.isLeft(decoded)).toBe(true);
+  });
+
   it('generates deterministic relationship graphs at requested sizes', () => {
     const first = generateRelationshipGraph(1_000, 17);
     const second = generateRelationshipGraph(1_000, 17);

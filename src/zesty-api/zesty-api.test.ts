@@ -79,6 +79,20 @@ describe('ZestyApi', () => {
     ]);
   });
 
+  it('rejects malformed schema ZUIDs before branding them', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: { data: [{ ZUID: 'wrong', name: 'title', label: 'Title', datatype: 'text' }] },
+      }),
+    );
+    const exit = await Effect.runPromiseExit(
+      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+
   it('loads all pages, applies published state, and normalizes once', async () => {
     const secondPage = {
       data: [

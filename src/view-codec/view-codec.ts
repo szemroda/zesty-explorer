@@ -1,5 +1,5 @@
 import { Either, Schema } from 'effect';
-import { compressSync, decompressSync, strFromU8, strToU8 } from 'fflate';
+import { gzipSync, gunzipSync, strFromU8, strToU8 } from 'fflate';
 import { parseCollectionReference } from '../collection-reference';
 import type {
   CollectionNode,
@@ -32,6 +32,8 @@ const forbiddenKeys = new Set([
   'loading',
   'requestState',
 ]);
+const maximumEncodedLength = 100_000;
+const maximumDecodedLength = 1_000_000;
 
 export type ViewDecodeResult =
   | { readonly ok: true; readonly view: PersistedView }
@@ -184,6 +186,20 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+function declaredGzipSize(bytes: Uint8Array): number {
+  if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
+    throw new Error('View payload is not gzip data.');
+  }
+  const offset = bytes.length - 4;
+  return (
+    ((bytes[offset] ?? 0) |
+      ((bytes[offset + 1] ?? 0) << 8) |
+      ((bytes[offset + 2] ?? 0) << 16) |
+      ((bytes[offset + 3] ?? 0) << 24)) >>>
+    0
+  );
+}
+
 function validateDecodedView(value: unknown): PersistedView | undefined {
   const decoded = Schema.decodeUnknownEither(VersionedViewSchema)(value);
   if (
@@ -209,7 +225,7 @@ export const ViewCodec = {
     const validated = validateDecodedView(view);
     if (!validated) throw new Error('Only valid, settled non-secret view state may be encoded.');
     const json = JSON.stringify(canonicalize(validated));
-    const payload = bytesToBase64Url(compressSync(strToU8(json), { level: 9 }));
+    const payload = bytesToBase64Url(gzipSync(strToU8(json), { level: 9, mtime: 0 }));
     const fragment = `#view=${payload}`;
     return { fragment, length: fragment.length };
   },
@@ -217,7 +233,15 @@ export const ViewCodec = {
   decode(fragment: string): ViewDecodeResult {
     const raw = fragment.replace(/^#?view=/, '');
     try {
-      const json = strFromU8(decompressSync(base64UrlToBytes(raw)));
+      if (raw.length > maximumEncodedLength) throw new Error('View payload is too large.');
+      const compressed = base64UrlToBytes(raw);
+      if (declaredGzipSize(compressed) > maximumDecodedLength) {
+        throw new Error('Decoded view payload is too large.');
+      }
+      const bytes = gunzipSync(compressed);
+      if (bytes.length > maximumDecodedLength)
+        throw new Error('Decoded view payload is too large.');
+      const json = strFromU8(bytes);
       const parsed: unknown = JSON.parse(json);
       const view = validateDecodedView(parsed);
       if (!view) throw new Error('Invalid view');

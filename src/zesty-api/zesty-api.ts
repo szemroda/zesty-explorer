@@ -19,12 +19,23 @@ import type {
   ZestyTransportResponse,
 } from './types';
 
+const FieldZuidSchema = Schema.String.pipe(
+  Schema.filter((value) => /^12-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
+    message: () => 'Field ZUID is invalid',
+  }),
+);
+const ModelZuidSchema = Schema.String.pipe(
+  Schema.filter((value) => /^6-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
+    message: () => 'Related model ZUID is invalid',
+  }),
+);
+
 const RawFieldSchema = Schema.Struct({
-  ZUID: Schema.String,
+  ZUID: FieldZuidSchema,
   name: Schema.String,
   label: Schema.String,
   datatype: Schema.String,
-  relatedModelZUID: Schema.optional(Schema.String),
+  relatedModelZUID: Schema.optional(ModelZuidSchema),
   options: Schema.optional(
     Schema.Array(Schema.Union(Schema.String, Schema.Number, Schema.Boolean)),
   ),
