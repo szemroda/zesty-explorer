@@ -61,7 +61,7 @@ function AddRelationship({
     }
 
     let relationship: RelationshipDefinition;
-    let defaultName: string = parsed.value.modelZuid;
+    let defaultName: string;
     if (mode === 'native' && nativeFields.length > 0) {
       const selected = nativeFields.find((field) => field.name === nativeField) ?? nativeFields[0];
       if (!selected || (nativeFields.length > 1 && !nativeField)) {
@@ -84,6 +84,9 @@ function AddRelationship({
         parentField: parentPath.split('.').filter(Boolean),
         childField: childPath.split('.').filter(Boolean),
       };
+      defaultName =
+        schema.fields.find((field) => field.name === relationship.parentField[0])?.label ??
+        parsed.value.modelZuid;
     }
 
     const problem = onAdd(parent.id, parsed.value, name || defaultName, relationship);

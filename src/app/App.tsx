@@ -161,7 +161,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     enabled: requestReady && Boolean(rootQuery.data),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
-    placeholderData: (previous) => previous,
     queryFn: async ({ signal }) => {
       if (!treeRoot || !token || !rootQuery.data) {
         throw new Error('Collection request is not ready.');
