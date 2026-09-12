@@ -80,7 +80,7 @@ describe('snapshot loading coordinator', () => {
 
     expect(events[0]).toBe('start:6-root');
     expect(events.indexOf('end:6-root')).toBeLessThan(events.indexOf('start:6-child-one'));
-    expect(maxActive).toBe(3);
+    expect(maxActive).toBeLessThanOrEqual(3);
     expect(events.filter((event) => event === 'start:6-child-one')).toHaveLength(1);
     expect(result.snapshots.size).toBe(5);
   });
@@ -107,9 +107,13 @@ describe('snapshot loading coordinator', () => {
   });
 
   it('enforces the whole-view limit on returned snapshots', async () => {
+    const requestedLimits: number[] = [];
     const api: ZestyApi = {
       loadCollectionSchema: () => Effect.die('unused'),
-      loadCollectionSnapshot: (reference) => Effect.succeed(snapshot(reference.modelZuid, 5)),
+      loadCollectionSnapshot: (reference, _state, _token, itemLimit) => {
+        requestedLimits.push(itemLimit ?? 10_000);
+        return Effect.succeed(snapshot(reference.modelZuid, 5));
+      },
     };
     const root = node('node-root', '6-root', [node('node-child', '6-child')]);
     const result = await Effect.runPromise(
@@ -118,6 +122,7 @@ describe('snapshot loading coordinator', () => {
     const child = result.snapshots.get(snapshotQueryKey(root.children[0]!.reference, 'latest'));
 
     expect(result.totalItems).toBe(7);
+    expect(requestedLimits).toEqual([7, 2]);
     expect(child).toMatchObject({ status: 'partial' });
     if (child?.status === 'partial') expect(child.snapshot.items).toHaveLength(2);
   });

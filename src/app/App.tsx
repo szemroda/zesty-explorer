@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Eye, EyeOff, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
@@ -33,7 +33,15 @@ import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
-import { loadView, viewLoadKey, ViewLoadError } from './load-view';
+import {
+  loadCollection,
+  loadView,
+  rootLoadedView,
+  viewLoadKey,
+  ViewLoadError,
+  type LoadedCollection,
+  type LoadedView,
+} from './load-view';
 import { describeExplorerError } from './error-message';
 
 interface AppProps {
@@ -55,10 +63,6 @@ class ExplorerQueryError extends Error {
   }
 }
 
-function isExplorerError(value: unknown): value is ExplorerError {
-  return Boolean(value && typeof value === 'object' && 'kind' in value && 'message' in value);
-}
-
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
 
 function initialSharedView(): {
@@ -75,10 +79,12 @@ function collectionUrl(reference: CollectionReference): string {
 }
 
 function Explorer({ api, tokenStore }: ExplorerProps) {
+  const queryClient = useQueryClient();
   const [initial] = useState(initialSharedView);
   const [token, setToken] = useState(() =>
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
   );
+  const [tokenDeployment, setTokenDeployment] = useState(initial.view?.root.reference.deployment);
   const [showToken, setShowToken] = useState(false);
   const [collectionInput, setCollectionInput] = useState(() =>
     initial.view ? collectionUrl(initial.view.root.reference) : '',
@@ -128,28 +134,66 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     if (encodedView) window.history.replaceState(null, '', encodedView.fragment);
   }, [encodedView, treeRoot, viewDecodeError]);
 
-  const query = useQuery({
+  const requestReady = Boolean(treeRoot && token && !tokenRequired);
+  const rootQuery = useQuery<LoadedCollection, Error>({
     queryKey: treeRoot
-      ? ['view', contentState, ...viewLoadKey(treeRoot, contentState)]
-      : ['view', 'closed'],
-    enabled: Boolean(treeRoot && token && !tokenRequired),
+      ? ['collection', snapshotQueryKey(treeRoot.reference, contentState), 10_000]
+      : ['collection', 'closed'],
+    enabled: requestReady,
     retry: false,
-    placeholderData: (previous) => previous,
-    queryFn: async () => {
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: async ({ signal }) => {
       if (!treeRoot || !token) throw new Error('Collection request is not ready.');
       try {
-        return await loadView(api, treeRoot, contentState, token);
+        return await loadCollection(api, treeRoot, contentState, token, 10_000, signal);
       } catch (error) {
         if (error instanceof ViewLoadError) throw new ExplorerQueryError(error.failure);
-        if (isExplorerError(error)) throw new ExplorerQueryError(error);
         throw error;
       }
     },
   });
 
-  const queryError = query.error instanceof ExplorerQueryError ? query.error : null;
+  const query = useQuery<LoadedView, Error>({
+    queryKey: treeRoot
+      ? ['view', contentState, ...viewLoadKey(treeRoot, contentState)]
+      : ['view', 'closed'],
+    enabled: requestReady && Boolean(rootQuery.data),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    placeholderData: (previous) => previous,
+    queryFn: async ({ signal }) => {
+      if (!treeRoot || !token || !rootQuery.data) {
+        throw new Error('Collection request is not ready.');
+      }
+      return loadView(treeRoot, contentState, rootQuery.data, (node, itemLimit) =>
+        queryClient.fetchQuery({
+          queryKey: ['collection', snapshotQueryKey(node.reference, contentState), itemLimit],
+          staleTime: Number.POSITIVE_INFINITY,
+          queryFn: ({ signal: collectionSignal }) =>
+            loadCollection(
+              api,
+              node,
+              contentState,
+              token,
+              itemLimit,
+              AbortSignal.any([signal, collectionSignal]),
+            ),
+        }),
+      );
+    },
+  });
+
+  const loadedView = useMemo(
+    () =>
+      query.data ??
+      (treeRoot && rootQuery.data
+        ? rootLoadedView(treeRoot, contentState, rootQuery.data)
+        : undefined),
+    [contentState, query.data, rootQuery.data, treeRoot],
+  );
+  const queryError = rootQuery.error instanceof ExplorerQueryError ? rootQuery.error : null;
   const queryErrorMessage = queryError ? describeExplorerError(queryError.failure) : undefined;
-  const nestedAuthenticationError = [...(query.data?.snapshots.snapshots.values() ?? [])].find(
+  const nestedAuthenticationError = [...(loadedView?.snapshots.snapshots.values() ?? [])].find(
     (state) => state.status === 'failed' && state.error.kind === 'authentication',
   );
   const authenticationFailed =
@@ -165,24 +209,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [authenticationFailed, reference, tokenStore]);
 
   const selectedItem = useMemo(() => {
-    if (!selectedItemId || !query.data) return undefined;
-    for (const state of query.data.snapshots.snapshots.values()) {
+    if (!selectedItemId || !loadedView) return undefined;
+    for (const state of loadedView.snapshots.snapshots.values()) {
       if (state.status !== 'complete' && state.status !== 'partial') continue;
       const item = state.snapshot.itemsById.get(selectedItemId as ContentItem['id']);
       if (item) return item;
     }
     return undefined;
-  }, [query.data, selectedItemId]);
+  }, [loadedView, selectedItemId]);
 
-  const rootSnapshotState =
-    treeRoot && query.data
-      ? query.data.snapshots.snapshots.get(snapshotQueryKey(treeRoot.reference, contentState))
-      : undefined;
-  const rootSnapshot =
-    rootSnapshotState?.status === 'complete' || rootSnapshotState?.status === 'partial'
-      ? rootSnapshotState.snapshot
-      : undefined;
-  const rootSchema = treeRoot ? query.data?.schemas.get(treeRoot.id) : undefined;
+  const rootSnapshot = rootQuery.data?.snapshot;
+  const rootSchema = rootQuery.data?.schema;
 
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,7 +228,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setInputError(parsed.error.message);
       return;
     }
-    if (!token.trim()) {
+    if (!token.trim() || tokenDeployment !== parsed.value.deployment) {
       setInputError('Enter the Zesty session token for this deployment.');
       return;
     }
@@ -206,7 +243,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       replacingRoot &&
       treeRoot &&
       !window.confirm(
-        `Replace the current root and discard ${subtreeNodeNames(treeRoot, treeRoot.id).length} collection nodes and their saved settings?`,
+        `Replace the current root and remove these nodes: ${subtreeNodeNames(treeRoot, treeRoot.id).join(', ')}. Saved filters, columns, widths, sorts, and relationships will also be removed.`,
       )
     ) {
       return;
@@ -218,6 +255,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     }
 
     tokenStore.set(parsed.value.deployment, token);
+    setTokenDeployment(parsed.value.deployment);
     setReference(parsed.value);
     setTreeRoot((current) => {
       if (
@@ -256,6 +294,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     }
     tokenStore.clear(reference.deployment);
     setToken('');
+    setTokenDeployment(reference.deployment);
     setTokenRequired(true);
   }
 
@@ -342,7 +381,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 />
                 Published only
               </label>
-              <button className="button button--quiet" onClick={() => void query.refetch()}>
+              <button
+                className="button button--quiet"
+                onClick={() => void queryClient.invalidateQueries()}
+              >
                 <RefreshCw size={14} aria-hidden="true" /> Refresh
               </button>
               <button className="button button--quiet" onClick={() => void copyViewLink()}>
@@ -373,17 +415,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       <div className="workspace">
         <aside className="tree-panel" aria-label="Collection tree">
           <p className="eyebrow">View</p>
-          {treeRoot && query.data?.schemas.get(treeRoot.id) ? (
+          {treeRoot && loadedView?.schemas.get(treeRoot.id) ? (
             <TreeEditor
               root={{
                 ...treeRoot,
                 name:
                   treeRoot.name === treeRoot.reference.modelZuid
-                    ? query.data.schemas.get(treeRoot.id)!.label
+                    ? loadedView.schemas.get(treeRoot.id)!.label
                     : treeRoot.name,
               }}
-              rootSchema={query.data.schemas.get(treeRoot.id)!}
-              schemas={query.data.schemas}
+              rootSchema={loadedView.schemas.get(treeRoot.id)!}
+              schemas={loadedView.schemas}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
@@ -453,7 +495,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   type={showToken ? 'text' : 'password'}
                   value={token}
                   autoComplete="off"
-                  onChange={(event) => setToken(event.target.value)}
+                  onChange={(event) => {
+                    setToken(event.target.value);
+                    const parsed = parseCollectionReference(collectionInput);
+                    if (parsed.ok) setTokenDeployment(parsed.value.deployment);
+                  }}
                 />
                 <button
                   type="button"
@@ -478,7 +524,18 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 type="url"
                 value={collectionInput}
                 placeholder="https://8-….manager.zesty.io/content/6-…"
-                onChange={(event) => setCollectionInput(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCollectionInput(value);
+                  const parsed = parseCollectionReference(value);
+                  if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
+                  if (!tokenDeployment) {
+                    setTokenDeployment(parsed.value.deployment);
+                    return;
+                  }
+                  setToken(tokenStore.read(parsed.value.deployment) ?? '');
+                  setTokenDeployment(parsed.value.deployment);
+                }}
               />
               <p className="help-text">
                 Paste a Content or Blocks URL from Zesty Manager, or a full Instances API collection
@@ -500,10 +557,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </form>
           ) : null}
 
-          {!showStart && query.isPending ? (
+          {!showStart && rootQuery.isPending ? (
             <div className="state-card">Loading collection…</div>
           ) : null}
-          {!showStart && query.isFetching && (!rootSnapshot || !rootSchema) ? (
+          {!showStart && rootQuery.isFetching && (!rootSnapshot || !rootSchema) ? (
             <div className="state-card">Loading the current root collection…</div>
           ) : null}
           {!showStart && queryError ? (
@@ -511,12 +568,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               <h2>Collection could not load</h2>
               <p>{queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}</p>
               {queryErrorMessage ? <p>{queryErrorMessage.recovery}</p> : null}
-              <button className="button" onClick={() => void query.refetch()}>
+              <button className="button" onClick={() => void rootQuery.refetch()}>
                 Retry
               </button>
             </div>
           ) : null}
-          {!showStart && query.data && treeRoot && rootSnapshot && rootSchema ? (
+          {!showStart && loadedView && treeRoot && rootSnapshot && rootSchema ? (
             <>
               <section className="view-filters" aria-label="View filters">
                 <div>
@@ -526,7 +583,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <FilterBuilder
                   label="View filter"
                   root={treeRoot}
-                  schemas={query.data.schemas}
+                  schemas={loadedView.schemas}
                   filters={viewFilters}
                   onChange={setViewFilters}
                 />
@@ -537,7 +594,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   Related data is loading. Descendant-dependent results are not final yet.
                 </p>
               ) : null}
-              {[...query.data.snapshots.snapshots.values()].some(
+              {[...loadedView.snapshots.snapshots.values()].some(
                 (state) => state.status === 'partial',
               ) ? (
                 <p className="partial-warning" role="status">
@@ -551,12 +608,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 snapshot={rootSnapshot}
                 reference={treeRoot.reference}
                 treeRoot={treeRoot}
-                loadedView={query.data}
+                loadedView={loadedView}
                 contentState={contentState}
                 globalFreeText={globalFreeText}
                 viewFilters={viewFilters}
                 onOpenDetails={openDetails}
-                onRetry={() => void query.refetch()}
+                onRetry={() => void queryClient.invalidateQueries()}
                 onPresentationChange={changePresentation}
               />
             </>

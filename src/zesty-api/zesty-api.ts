@@ -206,18 +206,25 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       );
     },
 
-    loadCollectionSnapshot: (reference, state, sessionToken) =>
+    loadCollectionSnapshot: (reference, state, sessionToken, itemLimit) =>
       Effect.gen(function* () {
         const items: ContentItem[] = [];
         let page = 1;
         let totalResults = Number.POSITIVE_INFINITY;
+        const effectiveLimit = Math.min(
+          resolved.collectionLimit,
+          Math.max(0, itemLimit ?? resolved.collectionLimit),
+        );
 
-        while (items.length < totalResults && items.length < resolved.collectionLimit) {
+        while (items.length < totalResults && items.length < effectiveLimit) {
           const url = new URL(
             `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items`,
           );
           url.searchParams.set('lang', 'en-US');
-          url.searchParams.set('limit', String(resolved.pageSize));
+          url.searchParams.set(
+            'limit',
+            String(Math.min(resolved.pageSize, effectiveLimit - items.length)),
+          );
           url.searchParams.set('page', String(page));
           if (state === 'published') url.searchParams.set('_active', 'true');
 
@@ -226,7 +233,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
           if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
 
           totalResults = decoded.right.totalResults;
-          const remaining = resolved.collectionLimit - items.length;
+          const remaining = effectiveLimit - items.length;
           items.push(...decoded.right.items.slice(0, remaining));
           if (decoded.right.items.length === 0) break;
           page += 1;

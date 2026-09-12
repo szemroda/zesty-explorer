@@ -36,6 +36,7 @@ export interface ZestyApi {
     reference: CollectionReference,
     state: ContentState,
     sessionToken: string,
+    itemLimit?: number,
   ): Effect.Effect<CollectionSnapshot, ExplorerError>;
 }
 

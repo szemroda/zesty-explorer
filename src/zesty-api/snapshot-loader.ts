@@ -29,7 +29,6 @@ export interface SnapshotLoader {
 }
 
 interface SnapshotLoaderOptions {
-  readonly concurrency?: number;
   readonly viewLimit?: number;
 }
 
@@ -105,14 +104,18 @@ export function createSnapshotLoader(
   api: ZestyApi,
   options: SnapshotLoaderOptions = {},
 ): SnapshotLoader {
-  const concurrency = options.concurrency ?? 3;
   const viewLimit = options.viewLimit ?? 50_000;
 
   return {
     load: (root, state, sessionToken) =>
       Effect.gen(function* () {
         const snapshots = new Map<string, SnapshotLoadState>();
-        const rootSnapshot = yield* api.loadCollectionSnapshot(root.reference, state, sessionToken);
+        const rootSnapshot = yield* api.loadCollectionSnapshot(
+          root.reference,
+          state,
+          sessionToken,
+          viewLimit,
+        );
         const limitedRoot = limitSnapshot(rootSnapshot, viewLimit);
         snapshots.set(snapshotQueryKey(root.reference, state), loadedState(limitedRoot.snapshot));
         let totalItems = limitedRoot.count;
@@ -130,18 +133,22 @@ export function createSnapshotLoader(
           return { snapshots, totalItems };
         }
 
-        const results = yield* Effect.all(
-          descendants.map((node) =>
-            api.loadCollectionSnapshot(node.reference, state, sessionToken).pipe(
-              Effect.either,
-              Effect.map((result) => ({ node, result })),
-            ),
-          ),
-          { concurrency },
-        );
-
-        for (const { node, result } of results) {
+        for (const node of descendants) {
           const key = snapshotQueryKey(node.reference, state);
+          if (totalItems >= viewLimit) {
+            snapshots.set(key, {
+              status: 'failed',
+              error: {
+                kind: 'data-limit',
+                scope: 'view',
+                message: 'The view reached its 50,000 content-item limit.',
+              },
+            });
+            continue;
+          }
+          const result = yield* api
+            .loadCollectionSnapshot(node.reference, state, sessionToken, viewLimit - totalItems)
+            .pipe(Effect.either);
           if (Either.isLeft(result)) {
             snapshots.set(key, { status: 'failed', error: result.left });
             continue;

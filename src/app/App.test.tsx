@@ -202,4 +202,24 @@ describe('root collection browser', () => {
     });
     expect(replaceState).toHaveBeenCalled();
   });
+
+  it('never carries a session token into a different deployment', async () => {
+    const tokens = new Map([
+      ['production', 'production-token'],
+      ['stage', 'stage-token'],
+    ]);
+    const store: SessionTokenStore = {
+      read: (deployment) => tokens.get(deployment) ?? null,
+      set: (deployment, value) => tokens.set(deployment, value),
+      clear: (deployment) => tokens.delete(deployment),
+    };
+    render(<App api={api()} tokenStore={store} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'production-token');
+    await screen.findByRole('heading', { name: 'Stories' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace root' }));
+    fireEvent.change(screen.getByLabelText('Root collection URL'), {
+      target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
+    });
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('stage-token');
+  });
 });

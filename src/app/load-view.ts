@@ -14,12 +14,12 @@ import {
   joinRelatedItems,
   type ExplorerGraph,
 } from '../explorer-core';
-import {
-  createSnapshotLoader,
-  snapshotQueryKey,
-  type SnapshotLoadResult,
-  type ZestyApi,
-} from '../zesty-api';
+import { snapshotQueryKey, type SnapshotLoadResult, type ZestyApi } from '../zesty-api';
+
+export interface LoadedCollection {
+  readonly schema: CollectionSchema;
+  readonly snapshot: CollectionSnapshot;
+}
 
 export interface LoadedView {
   readonly snapshots: SnapshotLoadResult;
@@ -50,52 +50,115 @@ export function viewLoadKey(root: CollectionNode, state: ContentState): readonly
   );
 }
 
-export async function loadView(
+export async function loadCollection(
   api: ZestyApi,
-  root: CollectionNode,
+  node: CollectionNode,
   state: ContentState,
   sessionToken: string,
-): Promise<LoadedView> {
-  const rootSchemaResult = await Effect.runPromise(
-    Effect.either(api.loadCollectionSchema(root.reference, sessionToken)),
-  );
-  if (Either.isLeft(rootSchemaResult)) throw new ViewLoadError(rootSchemaResult.left);
+  itemLimit: number,
+  signal?: AbortSignal,
+): Promise<LoadedCollection> {
+  const program = Effect.all(
+    [
+      api.loadCollectionSchema(node.reference, sessionToken),
+      api.loadCollectionSnapshot(node.reference, state, sessionToken, itemLimit),
+    ] as const,
+    { concurrency: 2 },
+  ).pipe(Effect.either);
+  const result = signal
+    ? await Effect.runPromise(program, { signal })
+    : await Effect.runPromise(program);
+  if (Either.isLeft(result)) throw new ViewLoadError(result.left);
+  return { schema: result.right[0], snapshot: result.right[1] };
+}
 
+export function rootLoadedView(
+  root: CollectionNode,
+  state: ContentState,
+  loaded: LoadedCollection,
+): LoadedView {
+  return {
+    snapshots: {
+      snapshots: new Map([
+        [
+          snapshotQueryKey(root.reference, state),
+          loaded.snapshot.partial
+            ? { status: 'partial', snapshot: loaded.snapshot }
+            : { status: 'complete', snapshot: loaded.snapshot },
+        ],
+      ]),
+      totalItems: loaded.snapshot.items.length,
+    },
+    schemas: new Map([[root.id, loaded.schema]]),
+    schemaErrors: new Map(),
+  };
+}
+
+type CachedCollectionLoader = (
+  node: CollectionNode,
+  itemLimit: number,
+) => Promise<LoadedCollection>;
+
+export async function loadView(
+  root: CollectionNode,
+  state: ContentState,
+  loadedRoot: LoadedCollection,
+  loadCachedCollection: CachedCollectionLoader,
+): Promise<LoadedView> {
   const nodes = flattenCollectionNodes(root);
+  const snapshots = new Map(rootLoadedView(root, state, loadedRoot).snapshots.snapshots);
+  const schemas = new Map<CollectionNodeId, CollectionSchema>([[root.id, loadedRoot.schema]]);
+  const schemaErrors = new Map<CollectionNodeId, ExplorerError>();
   const uniqueDescendants = new Map<string, CollectionNode>();
   for (const node of nodes.slice(1)) {
     const key = snapshotQueryKey(node.reference, state);
     if (!uniqueDescendants.has(key)) uniqueDescendants.set(key, node);
   }
 
-  const [snapshotResult, schemaResults] = await Promise.all([
-    Effect.runPromise(Effect.either(createSnapshotLoader(api).load(root, state, sessionToken))),
-    Effect.runPromise(
-      Effect.all(
-        [...uniqueDescendants.values()].map((node) =>
-          api.loadCollectionSchema(node.reference, sessionToken).pipe(
-            Effect.either,
-            Effect.map((result) => ({ node, result })),
-          ),
-        ),
-        { concurrency: 3 },
-      ),
-    ),
-  ]);
-  if (Either.isLeft(snapshotResult)) throw new ViewLoadError(snapshotResult.left);
+  let totalItems = loadedRoot.snapshot.items.length;
+  for (const node of uniqueDescendants.values()) {
+    const key = snapshotQueryKey(node.reference, state);
+    if (totalItems >= 50_000) {
+      snapshots.set(key, {
+        status: 'failed',
+        error: {
+          kind: 'data-limit',
+          scope: 'view',
+          message: 'The view reached its 50,000 content-item limit.',
+        },
+      });
+      continue;
+    }
 
-  const schemas = new Map<CollectionNodeId, CollectionSchema>([[root.id, rootSchemaResult.right]]);
-  const schemaErrors = new Map<CollectionNodeId, ExplorerError>();
-  for (const { node, result } of schemaResults) {
-    for (const matchingNode of nodes.filter(
-      (candidate) =>
-        snapshotQueryKey(candidate.reference, state) === snapshotQueryKey(node.reference, state),
-    )) {
-      if (Either.isLeft(result)) schemaErrors.set(matchingNode.id, result.left);
-      else schemas.set(matchingNode.id, result.right);
+    try {
+      const loaded = await loadCachedCollection(node, Math.min(10_000, 50_000 - totalItems));
+      totalItems += loaded.snapshot.items.length;
+      snapshots.set(
+        key,
+        loaded.snapshot.partial
+          ? { status: 'partial', snapshot: loaded.snapshot }
+          : { status: 'complete', snapshot: loaded.snapshot },
+      );
+      for (const matchingNode of nodes.filter(
+        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+      )) {
+        schemas.set(matchingNode.id, loaded.schema);
+      }
+    } catch (error) {
+      const failure: ExplorerError =
+        error instanceof ViewLoadError
+          ? error.failure
+          : { kind: 'network', message: 'The collection could not be loaded.' };
+      snapshots.set(key, { status: 'failed', error: failure });
+      for (const matchingNode of nodes.filter(
+        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+      )) {
+        schemaErrors.set(matchingNode.id, failure);
+      }
     }
   }
-  return { snapshots: snapshotResult.right, schemas, schemaErrors };
+
+  return { snapshots: { snapshots, totalItems }, schemas, schemaErrors };
 }
 
 export function buildLoadedViewGraph(

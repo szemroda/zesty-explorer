@@ -210,6 +210,27 @@ describe('ZestyApi', () => {
     expect(fake.requests).toHaveLength(1);
   });
 
+  it('uses the remaining view budget as the final page size', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: { ...fixtureCollectionPage, _meta: { totalResults: 20, start: 0, limit: 2 } },
+      }),
+    );
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        'latest',
+        'private-token',
+        3,
+      ),
+    );
+    expect(snapshot.items).toHaveLength(3);
+    expect(fake.requests[1]?.url).toContain('limit=1');
+    expect(fake.requests).toHaveLength(2);
+  });
+
   it('times out and remains interruptible', async () => {
     const fake = fakeTransport(() => Effect.never);
     const api = createZestyApi(fake.transport, { timeoutMs: 5 });
