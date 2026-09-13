@@ -1,7 +1,6 @@
 import { ChevronDown, ChevronRight, ExternalLink, PanelRightOpen } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import type {
-  CollectionField,
   CollectionNode,
   CollectionNodeId,
   ContentItem,
@@ -23,6 +22,16 @@ import { snapshotQueryKey, type SnapshotLoadState } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { describeExplorerError } from '../error-message';
+import {
+  columnIdForSort,
+  columnWidth,
+  columnWidthLimits,
+  contentItemColumns,
+  hiddenColumnIds,
+  sortForColumn,
+  withColumnWidth,
+} from '../content-item-presentation';
+import { CellValue } from './CellValue';
 import { FilterBuilder } from './FilterBuilder';
 
 export interface SharedNodeTableState {
@@ -48,106 +57,20 @@ interface NestedTableProps {
   readonly onRetry: () => void;
 }
 
-function readableValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'string')
-    return value
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  if (typeof value === 'object') return JSON.stringify(value, null, 2);
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint')
-    return `${value}`;
-  return typeof value === 'symbol' ? (value.description ?? 'Symbol') : '[Function]';
-}
-
-function CellValue({
-  label,
-  value,
-  onPreview,
-}: {
-  readonly label: string;
-  readonly value: unknown;
-  readonly onPreview: NestedTableProps['onPreview'];
-}) {
-  const text = readableValue(value);
-  if (text.length < 56) return <span className="cell-value">{text}</span>;
-  return (
-    <button
-      className="cell-preview-trigger"
-      aria-label={`Preview full ${label}`}
-      onMouseEnter={() => onPreview(label, text)}
-      onFocus={() => onPreview(label, text)}
-      onClick={() => onPreview(label, text)}
-    >
-      {text}
-    </button>
-  );
-}
-
 function stateFor(
   node: CollectionNode,
   states: ReadonlyMap<CollectionNodeId, SharedNodeTableState>,
-  columns: readonly NestedColumn[],
+  columns: ReturnType<typeof contentItemColumns>,
 ): SharedNodeTableState {
-  const saved = node.presentation.visibleColumns;
-  const usesDefaults = saved.includes('*');
   return (
     states.get(node.id) ?? {
       freeText: node.presentation.freeText,
       filters: node.presentation.filters,
       sort: node.presentation.sort,
-      hiddenColumns: new Set(
-        columns
-          .filter((column) => (usesDefaults ? column.technical : !saved.includes(column.id)))
-          .map((column) => column.id),
-      ),
+      hiddenColumns: hiddenColumnIds(columns, node.presentation.visibleColumns),
       columnWidths: node.presentation.columnWidths,
     }
   );
-}
-
-interface NestedColumn {
-  readonly id: string;
-  readonly label: string;
-  readonly technical: boolean;
-  value(item: ContentItem): unknown;
-}
-
-function itemColumns(
-  fields: readonly CollectionField[],
-  items: readonly ContentItem[],
-): readonly NestedColumn[] {
-  const fixedMetadata = new Set(['created', 'modified', 'version']);
-  const extraMetadata = [
-    ...new Set(
-      items.flatMap((item) => Object.keys(item.metadata).filter((key) => !fixedMetadata.has(key))),
-    ),
-  ].sort();
-  return [
-    ...fields.map((field) => ({
-      id: field.name,
-      label: field.label,
-      technical: false,
-      value: (item: ContentItem) => item.fields[field.name],
-    })),
-    { id: '$id', label: 'ZUID', technical: true, value: (item) => item.id },
-    { id: '$created', label: 'Created', technical: true, value: (item) => item.metadata.created },
-    {
-      id: '$modified',
-      label: 'Modified',
-      technical: true,
-      value: (item) => item.metadata.modified,
-    },
-    { id: '$version', label: 'Version', technical: true, value: (item) => item.metadata.version },
-    ...extraMetadata.map((key) => ({
-      id: `$meta.${key}`,
-      label: key,
-      technical: true,
-      value: (item: ContentItem) => item.metadata[key],
-    })),
-    { id: '$raw', label: 'Raw JSON', technical: true, value: (item) => item.raw },
-  ];
 }
 
 function snapshotState(
@@ -180,7 +103,7 @@ export function NestedTable(props: NestedTableProps) {
   const schema = loadedView.schemas.get(node.id);
   const loadedItems =
     state?.status === 'complete' || state?.status === 'partial' ? state.snapshot.items : [];
-  const columns = itemColumns(schema?.fields ?? [], loadedItems);
+  const columns = contentItemColumns({ fields: schema?.fields ?? [] }, loadedItems);
   const sharedState = stateFor(node, nodeStates, columns);
   const deferredText = useDebouncedValue(sharedState.freeText);
   const parentSchema = loadedView.schemas.get(parentNode.id);
@@ -286,18 +209,19 @@ export function NestedTable(props: NestedTableProps) {
                 <input
                   type="number"
                   aria-label={`${column.label} column width`}
-                  min="90"
-                  max="520"
-                  value={sharedState.columnWidths[column.id] ?? 190}
+                  min={columnWidthLimits.min}
+                  max={columnWidthLimits.max}
+                  value={columnWidth(column, sharedState.columnWidths)}
                   onChange={(event) => {
-                    const width = Number(event.target.value);
-                    if (!Number.isFinite(width) || width < 90 || width > 520) return;
+                    const columnWidths = withColumnWidth(
+                      sharedState.columnWidths,
+                      column.id,
+                      event.target.value,
+                    );
+                    if (!columnWidths) return;
                     updateSharedState({
                       ...sharedState,
-                      columnWidths: {
-                        ...sharedState.columnWidths,
-                        [column.id]: width,
-                      },
+                      columnWidths,
                     });
                   }}
                 />
@@ -308,22 +232,22 @@ export function NestedTable(props: NestedTableProps) {
         <label className="compact-label">
           Sort
           <select
-            value={sharedState.sort.fieldPath.join('.')}
+            value={columnIdForSort(sharedState.sort)}
             onChange={(event) =>
               updateSharedState({
                 ...sharedState,
-                sort: { ...sharedState.sort, fieldPath: event.target.value.split('.') },
+                sort: sortForColumn(event.target.value, sharedState.sort.direction),
               })
             }
           >
-            <option value="modified">Modified</option>
-            <option value="id">ZUID</option>
-            <option value="created">Created</option>
-            <option value="version">Version</option>
+            <option value="$modified">Modified</option>
+            <option value="$id">ZUID</option>
+            <option value="$created">Created</option>
+            <option value="$version">Version</option>
             {columns
               .filter((column) => column.id.startsWith('$meta.'))
               .map((column) => (
-                <option key={column.id} value={`metadata.${column.id.slice('$meta.'.length)}`}>
+                <option key={column.id} value={column.id}>
                   {column.label}
                 </option>
               ))}
@@ -375,7 +299,7 @@ export function NestedTable(props: NestedTableProps) {
               width:
                 96 +
                 visibleColumns.reduce(
-                  (total, column) => total + (sharedState.columnWidths[column.id] ?? 190),
+                  (total, column) => total + columnWidth(column, sharedState.columnWidths),
                   0,
                 ),
             }}
@@ -384,7 +308,10 @@ export function NestedTable(props: NestedTableProps) {
               <tr>
                 <th className="sticky-cell">Actions</th>
                 {visibleColumns.map((column) => (
-                  <th key={column.id} style={{ width: sharedState.columnWidths[column.id] ?? 190 }}>
+                  <th
+                    key={column.id}
+                    style={{ width: columnWidth(column, sharedState.columnWidths) }}
+                  >
                     {column.label}
                   </th>
                 ))}
@@ -437,11 +364,11 @@ export function NestedTable(props: NestedTableProps) {
                       {visibleColumns.map((column) => (
                         <td
                           key={column.id}
-                          style={{ width: sharedState.columnWidths[column.id] ?? 190 }}
+                          style={{ width: columnWidth(column, sharedState.columnWidths) }}
                         >
                           <CellValue
                             label={column.label}
-                            value={column.value(item)}
+                            value={column.read(item)}
                             onPreview={onPreview}
                           />
                         </td>
@@ -508,5 +435,3 @@ export function NestedTable(props: NestedTableProps) {
     </section>
   );
 }
-
-export { CellValue };

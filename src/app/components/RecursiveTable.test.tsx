@@ -116,6 +116,7 @@ describe('recursive collection tables', () => {
     expect(
       await screen.findByRole('region', { name: 'Children related items' }),
     ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveValue('$modified');
     expect(screen.getByText('Child 0')).toBeInTheDocument();
 
     fireEvent.click(
@@ -164,5 +165,58 @@ describe('recursive collection tables', () => {
     );
     expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Title' })).not.toBeChecked();
+  });
+
+  it('restores a nested technical metadata sort in the selector', async () => {
+    const items = generated.children.items.map((item) => ({
+      ...item,
+      metadata: { ...item.metadata, workflowStatus: 'ready' },
+    }));
+    const snapshot = {
+      ...generated.children,
+      items,
+      itemsById: new Map(items.map((item) => [item.id, item])),
+    };
+    const metadataChild: CollectionNode = {
+      ...child,
+      presentation: {
+        ...child.presentation,
+        sort: { fieldPath: ['metadata', 'workflowStatus'], direction: 'asc' },
+      },
+    };
+    const metadataRoot = { ...root, children: [metadataChild] };
+    const metadataView: LoadedView = {
+      ...loadedView,
+      snapshots: {
+        ...loadedView.snapshots,
+        snapshots: new Map([
+          ...loadedView.snapshots.snapshots,
+          [snapshotQueryKey(metadataChild.reference, 'latest'), { status: 'complete', snapshot }],
+        ]),
+      },
+    };
+
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={metadataRoot.reference}
+        treeRoot={metadataRoot}
+        loadedView={metadataView}
+        contentState="latest"
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      }),
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Sort' })).toHaveValue(
+      '$meta.workflowStatus',
+    );
   });
 });

@@ -35,10 +35,21 @@ import type {
   ViewFilter,
 } from '../../domain';
 import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
+import {
+  columnIdForSort,
+  columnWidthLimits,
+  contentItemColumns,
+  defaultContentColumnWidth,
+  formatContentValue,
+  initialColumnVisibility,
+  sortForColumn,
+  visibleColumnIds,
+} from '../content-item-presentation';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { buildLoadedViewGraph, type LoadedView } from '../load-view';
+import { CellValue } from './CellValue';
 import { FilterBuilder } from './FilterBuilder';
-import { CellValue, NestedTable, type SharedNodeTableState } from './NestedTable';
+import { NestedTable, type SharedNodeTableState } from './NestedTable';
 
 interface RootTableProps {
   readonly schema: CollectionSchema;
@@ -63,42 +74,6 @@ const features = tableFeatures({
   paginatedRowModel: createPaginatedRowModel(),
 });
 const columnHelper = createColumnHelper<typeof features, ContentItem>();
-const fixedTechnicalColumnIds = ['$id', '$created', '$modified', '$version', '$raw'] as const;
-
-function sortColumnId(fieldPath: readonly string[]): string {
-  const path = fieldPath.join('.');
-  if (fieldPath[0] === 'metadata' && fieldPath[1]) return `$meta.${fieldPath.slice(1).join('.')}`;
-  return ['id', 'created', 'modified', 'version'].includes(path) ? `$${path}` : path;
-}
-
-function sortFieldPath(columnId: string): readonly string[] {
-  if (columnId.startsWith('$meta.')) return ['metadata', columnId.slice('$meta.'.length)];
-  return columnId.startsWith('$') ? [columnId.slice(1)] : columnId.split('.');
-}
-
-function extraMetadataKeys(snapshot: CollectionSnapshot): readonly string[] {
-  const fixed = new Set(['created', 'modified', 'version']);
-  return [
-    ...new Set(
-      snapshot.items.flatMap((item) => Object.keys(item.metadata).filter((key) => !fixed.has(key))),
-    ),
-  ].sort();
-}
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'string')
-    return value
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  if (typeof value === 'object') return JSON.stringify(value);
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint')
-    return `${value}`;
-  if (typeof value === 'symbol') return value.description ?? 'Symbol';
-  return '[Function]';
-}
-
 export function RootTable({
   schema,
   snapshot,
@@ -123,31 +98,22 @@ export function RootTable({
   );
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
   const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
-  const additionalMetadataKeys = useMemo(() => extraMetadataKeys(snapshot), [snapshot]);
-  const technicalColumnIds = useMemo(
-    () => [...fixedTechnicalColumnIds, ...additionalMetadataKeys.map((key) => `$meta.${key}`)],
-    [additionalMetadataKeys],
+  const itemColumnDefinitions = useMemo(
+    () => contentItemColumns(schema, snapshot.items),
+    [schema, snapshot.items],
   );
   const [sorting, setSorting] = useState<SortingState>([
     {
-      id: sortColumnId(treeRoot.presentation.sort.fieldPath),
+      id: columnIdForSort(treeRoot.presentation.sort),
       desc: treeRoot.presentation.sort.direction === 'desc',
     },
   ]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
     treeRoot.presentation.columnWidths,
   );
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>(() => {
-    const saved = treeRoot.presentation.visibleColumns;
-    const usesDefaults = saved.includes('*');
-    return schema.fields.reduce<ColumnVisibilityState>(
-      (visibility, field) => ({
-        ...visibility,
-        [field.name]: usesDefaults || saved.includes(field.name),
-      }),
-      Object.fromEntries(technicalColumnIds.map((id) => [id, !usesDefaults && saved.includes(id)])),
-    );
-  });
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>(() =>
+    initialColumnVisibility(itemColumnDefinitions, treeRoot.presentation.visibleColumns),
+  );
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const deferredTableText = useDebouncedValue(tableFreeText);
   const deferredGlobalText = useDebouncedValue(globalFreeText);
@@ -167,10 +133,7 @@ export function RootTable({
 
   useEffect(() => {
     const active = sorting[0];
-    const sort = {
-      fieldPath: sortFieldPath(active?.id ?? '$modified'),
-      direction: active?.desc === false ? ('asc' as const) : ('desc' as const),
-    };
+    const sort = sortForColumn(active?.id ?? '$modified', active?.desc === false ? 'asc' : 'desc');
     if (
       treeRoot.presentation.sort.direction === sort.direction &&
       treeRoot.presentation.sort.fieldPath.join('.') === sort.fieldPath.join('.')
@@ -210,8 +173,7 @@ export function RootTable({
     );
     const activeSort = sorting[0];
     const sortedIds = sortItemIds(snapshot, tableIds, {
-      fieldPath: sortFieldPath(activeSort?.id ?? '$modified'),
-      direction: activeSort?.desc === false ? 'asc' : 'desc',
+      ...sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
     });
     return sortedIds.flatMap((id) => {
       const item = snapshot.itemsById.get(id);
@@ -260,14 +222,14 @@ export function RootTable({
               ) : null}
               <button
                 className="icon-button"
-                aria-label={`Open details for ${displayValue(row.original.fields.title)}`}
+                aria-label={`Open details for ${formatContentValue(row.original.fields.title)}`}
                 onClick={(event) => onOpenDetails(row.original, event.currentTarget)}
               >
                 <PanelRightOpen size={15} />
               </button>
               <a
                 className="icon-button"
-                aria-label={`Open ${displayValue(row.original.fields.title)} in Zesty Manager`}
+                aria-label={`Open ${formatContentValue(row.original.fields.title)} in Zesty Manager`}
                 href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
                 target="_blank"
                 rel="noreferrer"
@@ -277,78 +239,23 @@ export function RootTable({
             </div>
           ),
         }),
-        ...schema.fields.map((field) =>
-          columnHelper.accessor((item) => item.fields[field.name], {
-            id: field.name,
-            header: field.label,
-            size: 190,
+        ...itemColumnDefinitions.map((column) =>
+          columnHelper.accessor((item) => column.read(item), {
+            id: column.id,
+            header: column.label,
+            size: column.defaultWidth,
+            enableSorting: column.sortable,
             cell: ({ getValue }) => (
-              <CellValue
-                label={field.label}
-                value={getValue()}
-                onPreview={(label, value) => setPreview({ label, value })}
-              />
+              <CellValue label={column.label} value={getValue()} onPreview={setPreviewValue} />
             ),
           }),
         ),
-        columnHelper.accessor((item) => item.id, {
-          id: '$id',
-          header: 'ZUID',
-          size: 210,
-          cell: ({ getValue }) => (
-            <CellValue label="ZUID" value={getValue()} onPreview={setPreviewValue} />
-          ),
-        }),
-        columnHelper.accessor((item) => item.metadata.created, {
-          id: '$created',
-          header: 'Created',
-          size: 180,
-          cell: ({ getValue }) => (
-            <CellValue label="Created" value={getValue()} onPreview={setPreviewValue} />
-          ),
-        }),
-        columnHelper.accessor((item) => item.metadata.modified, {
-          id: '$modified',
-          header: 'Modified',
-          size: 180,
-          cell: ({ getValue }) => (
-            <CellValue label="Modified" value={getValue()} onPreview={setPreviewValue} />
-          ),
-        }),
-        columnHelper.accessor((item) => item.metadata.version, {
-          id: '$version',
-          header: 'Version',
-          size: 110,
-          cell: ({ getValue }) => (
-            <CellValue label="Version" value={getValue()} onPreview={setPreviewValue} />
-          ),
-        }),
-        ...additionalMetadataKeys.map((key) =>
-          columnHelper.accessor((item) => item.metadata[key], {
-            id: `$meta.${key}`,
-            header: key,
-            size: 180,
-            cell: ({ getValue }) => (
-              <CellValue label={key} value={getValue()} onPreview={setPreviewValue} />
-            ),
-          }),
-        ),
-        columnHelper.accessor((item) => item.raw, {
-          id: '$raw',
-          header: 'Raw JSON',
-          size: 260,
-          enableSorting: false,
-          cell: ({ getValue }) => (
-            <CellValue label="Raw JSON" value={getValue()} onPreview={setPreviewValue} />
-          ),
-        }),
       ]),
     [
-      additionalMetadataKeys,
       expanded,
+      itemColumnDefinitions,
       onOpenDetails,
       reference,
-      schema.fields,
       setPreviewValue,
       treeRoot.children.length,
     ],
@@ -372,15 +279,17 @@ export function RootTable({
       const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
       setColumnVisibility(next);
       persistPresentation({
-        visibleColumns: [...technicalColumnIds, ...schema.fields.map((field) => field.name)].filter(
-          (name) => next[name] !== false,
-        ),
+        visibleColumns: visibleColumnIds(itemColumnDefinitions, next),
       });
     },
     onPaginationChange: setPagination,
     manualSorting: true,
     enableSortingRemoval: false,
-    defaultColumn: { size: 190, minSize: 90, maxSize: 520 },
+    defaultColumn: {
+      size: defaultContentColumnWidth,
+      minSize: columnWidthLimits.min,
+      maxSize: columnWidthLimits.max,
+    },
     columnResizeMode: 'onChange',
   });
 
@@ -429,16 +338,8 @@ export function RootTable({
                       checked={column.getIsVisible()}
                       onChange={column.getToggleVisibilityHandler()}
                     />
-                    {column.id === '$id'
-                      ? 'ZUID'
-                      : column.id === '$raw'
-                        ? 'Raw JSON'
-                        : column.id.startsWith('$meta.')
-                          ? column.id.slice('$meta.'.length)
-                          : column.id.startsWith('$')
-                            ? `${column.id.slice(1, 2).toUpperCase()}${column.id.slice(2)}`
-                            : (schema.fields.find((field) => field.name === column.id)?.label ??
-                              column.id)}
+                    {itemColumnDefinitions.find((definition) => definition.id === column.id)
+                      ?.label ?? column.id}
                   </label>
                 ))}
             </div>

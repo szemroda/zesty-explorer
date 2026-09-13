@@ -1,0 +1,137 @@
+import type { CollectionSchema, ContentItem, NodePresentation, SortState } from '../domain';
+
+const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
+
+export const columnWidthLimits = { min: 90, max: 520 } as const;
+export const defaultContentColumnWidth = 190;
+
+export interface ContentItemColumn {
+  readonly id: string;
+  readonly label: string;
+  readonly technical: boolean;
+  readonly sortable: boolean;
+  readonly defaultWidth: number;
+  read(item: ContentItem): unknown;
+}
+
+export function contentItemColumns(
+  schema: Pick<CollectionSchema, 'fields'>,
+  items: readonly ContentItem[],
+): readonly ContentItemColumn[] {
+  const extraMetadataKeys = [
+    ...new Set(
+      items.flatMap((item) =>
+        Object.keys(item.metadata).filter((key) => !fixedMetadataKeys.has(key)),
+      ),
+    ),
+  ].sort();
+
+  return [
+    ...schema.fields.map((field) => ({
+      id: field.name,
+      label: field.label,
+      technical: false,
+      sortable: true,
+      defaultWidth: defaultContentColumnWidth,
+      read: (item: ContentItem) => item.fields[field.name],
+    })),
+    technicalColumn('$id', 'ZUID', 210, (item) => item.id),
+    technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
+    technicalColumn('$modified', 'Modified', 180, (item) => item.metadata.modified),
+    technicalColumn('$version', 'Version', 110, (item) => item.metadata.version),
+    ...extraMetadataKeys.map((key) =>
+      technicalColumn(`$meta.${key}`, key, 180, (item) => item.metadata[key]),
+    ),
+    technicalColumn('$raw', 'Raw JSON', 260, (item) => item.raw, false),
+  ];
+}
+
+function technicalColumn(
+  id: string,
+  label: string,
+  defaultWidth: number,
+  read: (item: ContentItem) => unknown,
+  sortable = true,
+): ContentItemColumn {
+  return { id, label, technical: true, sortable, defaultWidth, read };
+}
+
+export function columnIdForSort(sort: SortState): string {
+  const path = sort.fieldPath.join('.');
+  if (sort.fieldPath[0] === 'metadata' && sort.fieldPath[1]) {
+    return `$meta.${sort.fieldPath.slice(1).join('.')}`;
+  }
+  return ['id', 'created', 'modified', 'version'].includes(path) ? `$${path}` : path;
+}
+
+export function sortForColumn(columnId: string, direction: SortState['direction']): SortState {
+  if (columnId.startsWith('$meta.')) {
+    return { fieldPath: ['metadata', columnId.slice('$meta.'.length)], direction };
+  }
+  return {
+    fieldPath: columnId.startsWith('$') ? [columnId.slice(1)] : columnId.split('.'),
+    direction,
+  };
+}
+
+export function initialColumnVisibility(
+  columns: readonly ContentItemColumn[],
+  savedColumnIds: NodePresentation['visibleColumns'],
+): Readonly<Record<string, boolean>> {
+  const usesDefaults = savedColumnIds.includes('*');
+  return Object.fromEntries(
+    columns.map((column) => [
+      column.id,
+      usesDefaults ? !column.technical : savedColumnIds.includes(column.id),
+    ]),
+  );
+}
+
+export function hiddenColumnIds(
+  columns: readonly ContentItemColumn[],
+  savedColumnIds: NodePresentation['visibleColumns'],
+): ReadonlySet<string> {
+  const visibility = initialColumnVisibility(columns, savedColumnIds);
+  return new Set(columns.filter((column) => !visibility[column.id]).map((column) => column.id));
+}
+
+export function visibleColumnIds(
+  columns: readonly ContentItemColumn[],
+  visibility: Readonly<Record<string, boolean>>,
+): readonly string[] {
+  return columns.filter((column) => visibility[column.id] !== false).map((column) => column.id);
+}
+
+export function columnWidth(
+  column: ContentItemColumn,
+  savedWidths: NodePresentation['columnWidths'],
+): number {
+  return savedWidths[column.id] ?? column.defaultWidth;
+}
+
+export function withColumnWidth(
+  savedWidths: NodePresentation['columnWidths'],
+  columnId: string,
+  input: string,
+): NodePresentation['columnWidths'] | undefined {
+  const width = Number(input);
+  if (!Number.isFinite(width) || width < columnWidthLimits.min || width > columnWidthLimits.max) {
+    return undefined;
+  }
+  return { ...savedWidths, [columnId]: width };
+}
+
+export function formatContentValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '\u2014';
+  if (typeof value === 'string') {
+    return value
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return `${value}`;
+  }
+  return typeof value === 'symbol' ? (value.description ?? 'Symbol') : '[Function]';
+}
