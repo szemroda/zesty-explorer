@@ -138,7 +138,7 @@ export function NestedTable(props: NestedTableProps) {
     return sortItemIds(state.snapshot, filtered, sharedState.sort);
   })();
 
-  if (!state || state.status === 'pending' || state.status === 'stale') {
+  if (!state) {
     return <div className="nested-state">Loading {node.name}…</div>;
   }
   if (state.status === 'failed' || !schema) {
