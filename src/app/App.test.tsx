@@ -204,7 +204,7 @@ describe('root collection browser', () => {
     expect(replaceState).toHaveBeenCalled();
   });
 
-  it('never carries a session token into a different deployment', async () => {
+  it('does not load with replacement credentials until the new root is submitted', async () => {
     const tokens = new Map([
       ['production', 'production-token'],
       ['stage', 'stage-token'],
@@ -214,7 +214,12 @@ describe('root collection browser', () => {
       set: (deployment, value) => tokens.set(deployment, value),
       clear: (deployment) => tokens.delete(deployment),
     };
-    render(<App api={api()} tokenStore={store} />);
+    const requests: string[] = [];
+    const testApi = api((reference, _state, sessionToken) => {
+      requests.push(`${reference.deployment}:${sessionToken}`);
+      return Effect.succeed(snapshot);
+    });
+    render(<App api={testApi} tokenStore={store} />);
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'production-token');
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace root' }));
@@ -222,6 +227,12 @@ describe('root collection browser', () => {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('stage-token');
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(requests).toEqual(['production:production-token']);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(requests).toEqual(['production:production-token']);
+    expect(screen.getByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });
 
   it('rechecks permissions when a token is replaced for the same deployment', async () => {

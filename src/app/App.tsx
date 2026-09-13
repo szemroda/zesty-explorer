@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Copy, Eye, EyeOff, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
@@ -8,7 +8,6 @@ import type {
   CollectionReference,
   ContentItem,
   ContentState,
-  ExplorerError,
   NodePresentation,
   PersistedView,
   RelationshipDefinition,
@@ -28,22 +27,13 @@ import {
   type SessionTokenStore,
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
-import { snapshotQueryKey } from '../zesty-api';
 import { FilterBuilder } from './components/FilterBuilder';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
-import {
-  loadCollection,
-  loadView,
-  rootLoadedView,
-  viewLoadKey,
-  ViewLoadError,
-  type LoadedCollection,
-  type LoadedView,
-} from './load-view';
 import { describeExplorerError } from './error-message';
+import { useLoadedView } from './hooks/useLoadedView';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -56,13 +46,6 @@ interface ExplorerProps {
 }
 
 const defaultApi = createZestyApi(fetchZestyTransport);
-
-class ExplorerQueryError extends Error {
-  constructor(readonly failure: ExplorerError) {
-    super(failure.message);
-    this.name = 'ExplorerQueryError';
-  }
-}
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
 
@@ -80,13 +63,13 @@ function collectionUrl(reference: CollectionReference): string {
 }
 
 function Explorer({ api, tokenStore }: ExplorerProps) {
-  const queryClient = useQueryClient();
   const [initial] = useState(initialSharedView);
-  const [token, setToken] = useState(() =>
+  const [initialToken] = useState(() =>
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
   );
+  const [token, setToken] = useState(initialToken);
+  const [activeToken, setActiveToken] = useState(initialToken);
   const [tokenDeployment, setTokenDeployment] = useState(initial.view?.root.reference.deployment);
-  const [authEpoch, setAuthEpoch] = useState(0);
   const [showToken, setShowToken] = useState(false);
   const [collectionInput, setCollectionInput] = useState(() =>
     initial.view ? collectionUrl(initial.view.root.reference) : '',
@@ -108,7 +91,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [changingRoot, setChangingRoot] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
-  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !token));
+  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
 
   const encodedView = useMemo(() => {
     if (!treeRoot || viewDecodeError) return undefined;
@@ -136,85 +119,45 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     if (encodedView) window.history.replaceState(null, '', encodedView.fragment);
   }, [encodedView, treeRoot, viewDecodeError]);
 
-  const requestReady = Boolean(treeRoot && token && !tokenRequired);
-  const rootQuery = useQuery<LoadedCollection, Error>({
-    queryKey: treeRoot
-      ? ['collection', authEpoch, snapshotQueryKey(treeRoot.reference, contentState), 10_000]
-      : ['collection', 'closed'],
-    enabled: requestReady,
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-    queryFn: async ({ signal }) => {
-      if (!treeRoot || !token) throw new Error('Collection request is not ready.');
-      try {
-        return await loadCollection(api, treeRoot, contentState, token, 10_000, signal);
-      } catch (error) {
-        if (error instanceof ViewLoadError) throw new ExplorerQueryError(error.failure);
-        throw error;
-      }
-    },
-  });
-
-  const query = useQuery<LoadedView, Error>({
-    queryKey: treeRoot
-      ? [
-          'view',
-          authEpoch,
-          rootQuery.dataUpdatedAt,
-          contentState,
-          ...viewLoadKey(treeRoot, contentState),
-        ]
-      : ['view', 'closed'],
-    enabled: requestReady && Boolean(rootQuery.data),
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-    queryFn: async ({ signal }) => {
-      if (!treeRoot || !token || !rootQuery.data) {
-        throw new Error('Collection request is not ready.');
-      }
-      return loadView(treeRoot, contentState, rootQuery.data, (node, itemLimit) =>
-        queryClient.fetchQuery({
-          queryKey: [
-            'collection',
-            authEpoch,
-            snapshotQueryKey(node.reference, contentState),
-            itemLimit,
-          ],
-          staleTime: Number.POSITIVE_INFINITY,
-          queryFn: ({ signal: collectionSignal }) =>
-            loadCollection(
-              api,
-              node,
-              contentState,
-              token,
-              itemLimit,
-              AbortSignal.any([signal, collectionSignal]),
-            ),
-        }),
-      );
-    },
-  });
-
-  const loadedView = useMemo(
-    () =>
-      query.data ??
-      (treeRoot && rootQuery.data
-        ? rootLoadedView(treeRoot, contentState, rootQuery.data)
-        : undefined),
-    [contentState, query.data, rootQuery.data, treeRoot],
+  const requiresCompleteView = Boolean(
+    treeRoot?.children.length &&
+    (globalFreeText ||
+      treeRoot.presentation.freeText ||
+      viewFilters.some((filter) => filter.nodePath.length > 0) ||
+      treeRoot.presentation.filters.some((filter) => filter.nodePath.length > 0)),
   );
-  const queryError = rootQuery.error instanceof ExplorerQueryError ? rootQuery.error : null;
-  const queryErrorMessage = queryError ? describeExplorerError(queryError.failure) : undefined;
-  const nestedAuthenticationError = [...(loadedView?.snapshots.snapshots.values() ?? [])].find(
-    (state) => state.status === 'failed' && state.error.kind === 'authentication',
-  );
-  const authenticationFailed =
-    queryError?.failure.kind === 'authentication' || nestedAuthenticationError !== undefined;
+  const loadedViewQuery = useLoadedView({
+    api,
+    root: treeRoot,
+    contentState,
+    sessionToken: activeToken,
+    enabled: Boolean(
+      treeRoot &&
+      activeToken &&
+      tokenDeployment === treeRoot.reference.deployment &&
+      !tokenRequired &&
+      !changingRoot,
+    ),
+    requiresCompleteView,
+  });
+  const {
+    loadedView,
+    rootSnapshot,
+    rootSchema,
+    status: loadStatus,
+    authenticationFailed,
+    isIncomplete: viewIsIncomplete,
+    refresh: refreshCollections,
+    retryRoot,
+  } = loadedViewQuery;
+  const rootFailure = loadStatus.kind === 'failed' ? loadStatus.failure : undefined;
+  const queryErrorMessage = rootFailure ? describeExplorerError(rootFailure) : undefined;
   useEffect(() => {
     if (!authenticationFailed || !reference) return;
     tokenStore.clear(reference.deployment);
     const update = window.setTimeout(() => {
       setToken('');
+      setActiveToken('');
       setTokenRequired(true);
     }, 0);
     return () => window.clearTimeout(update);
@@ -230,26 +173,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }, [loadedView, selectedItemId]);
 
-  const rootSnapshot = rootQuery.data?.snapshot;
-  const rootSchema = rootQuery.data?.schema;
-  const descendantResultsPending = Boolean(
-    treeRoot?.children.length &&
-    query.isFetching &&
-    (globalFreeText ||
-      treeRoot.presentation.freeText ||
-      viewFilters.some((filter) => filter.nodePath.length > 0) ||
-      treeRoot.presentation.filters.some((filter) => filter.nodePath.length > 0)),
-  );
-  const viewIsIncomplete = [...(loadedView?.snapshots.snapshots.values() ?? [])].some(
-    (state) =>
-      state.status === 'partial' ||
-      (state.status === 'failed' && state.error.kind === 'data-limit'),
-  );
-
-  async function refreshCollections() {
-    await queryClient.refetchQueries({ queryKey: ['collection', authEpoch], type: 'all' });
-  }
-
+  const descendantResultsPending = loadStatus.kind === 'loading-related-data';
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = parseCollectionReference(collectionInput);
@@ -284,8 +208,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     }
 
     tokenStore.set(parsed.value.deployment, token);
+    setActiveToken(token);
     setTokenDeployment(parsed.value.deployment);
-    setAuthEpoch((current) => current + 1);
     setReference(parsed.value);
     setTreeRoot((current) => {
       if (
@@ -324,6 +248,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     }
     tokenStore.clear(reference.deployment);
     setToken('');
+    setActiveToken('');
     setTokenDeployment(reference.deployment);
     setTokenRequired(true);
   }
@@ -352,6 +277,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     if (!viewDecodeError) return;
     await navigator.clipboard.writeText(viewDecodeError.raw);
     setShareMessage('Raw view data copied.');
+  }
+
+  function cancelRootReplacement() {
+    if (!reference) return;
+    setCollectionInput(collectionUrl(reference));
+    setToken(activeToken);
+    setTokenDeployment(reference.deployment);
+    setInputError(undefined);
+    setChangingRoot(false);
   }
 
   const showStart = !reference || tokenRequired || changingRoot;
@@ -581,7 +515,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <button
                   className="button button--quiet"
                   type="button"
-                  onClick={() => setChangingRoot(false)}
+                  onClick={cancelRootReplacement}
                 >
                   Cancel
                 </button>
@@ -589,18 +523,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </form>
           ) : null}
 
-          {!showStart && rootQuery.isPending ? (
+          {!showStart && loadStatus.kind === 'loading-root' ? (
             <div className="state-card">Loading collection…</div>
           ) : null}
-          {!showStart && rootQuery.isFetching && (!rootSnapshot || !rootSchema) ? (
-            <div className="state-card">Loading the current root collection…</div>
-          ) : null}
-          {!showStart && queryError ? (
+          {!showStart && rootFailure ? (
             <div className="state-card state-card--error" role="alert">
               <h2>Collection could not load</h2>
               <p>{queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}</p>
               {queryErrorMessage ? <p>{queryErrorMessage.recovery}</p> : null}
-              <button className="button" onClick={() => void rootQuery.refetch()}>
+              <button className="button" onClick={() => void retryRoot()}>
                 Retry
               </button>
             </div>
