@@ -317,10 +317,6 @@ pnpm build
 
 ## Supporting records
 
-- [Implementation plan](./implementation-plan/index.html)
 - [Domain language](../CONTEXT.md)
 - [ADR 0001: Run as a local browser application](./adr/0001-run-as-local-browser-app.md)
 - [ADR 0002: Use Effect v3 at the I/O seam](./adr/0002-use-effect-at-the-io-seam.md)
-- [Zesty API research](./research/zesty-api.html)
-- [shadcn Base UI research](./research/shadcn-base-ui.html)
-- [Effect research](./research/effect.html)
