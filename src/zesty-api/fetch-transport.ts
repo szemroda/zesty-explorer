@@ -14,7 +14,9 @@ function parseResponseBody(text: string): unknown {
 export const fetchZestyTransport: ZestyTransport = {
   request: (request) =>
     Effect.gen(function* () {
-      const response = yield* HttpClient.get(request.url, { headers: request.headers });
+      // Zesty's preflight rejects Effect's default b3 and traceparent headers.
+      const client = (yield* HttpClient.HttpClient).pipe(HttpClient.withTracerPropagation(false));
+      const response = yield* client.get(request.url, { headers: request.headers });
       const text = yield* response.text;
       return { status: response.status, headers: response.headers, body: parseResponseBody(text) };
     }).pipe(

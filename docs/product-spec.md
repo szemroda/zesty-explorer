@@ -29,6 +29,7 @@ The user manually supplies the session token stored in the Zesty Manager cookie 
 | Development      | `DEV_APP_SID`   |
 
 - The token is sent to the Instances API as `Authorization: Bearer <token>`.
+- The HTTP transport disables distributed trace propagation so browser requests do not add the `b3` or `traceparent` headers rejected by Zesty's CORS preflight.
 - The token is stored only in `sessionStorage` and is never included in the URL, application logs, test output, fixtures, clipboard-generated view links, or error details.
 - The token has the logged-in user's Zesty permissions. The UI describes it as a session token, not a read-only token.
 - The helper beside the token input explains how to copy the correct cookie and warns the user not to share it.

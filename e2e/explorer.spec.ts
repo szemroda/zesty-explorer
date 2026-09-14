@@ -182,6 +182,37 @@ test.beforeEach(async ({ context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 });
 
+test('requests Zesty using only headers accepted by its CORS preflight', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    const captured = window as unknown as { __zestyRequestHeaders: string[][] };
+    captured.__zestyRequestHeaders = [];
+    window.fetch = (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (new URL(url).hostname.endsWith('.api.zesty.io')) {
+        const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+        const corsUnsafeHeaders = [...headers.keys()].filter(
+          (name) =>
+            !['accept', 'accept-language', 'content-language', 'content-type', 'range'].includes(
+              name,
+            ),
+        );
+        captured.__zestyRequestHeaders.push(corsUnsafeHeaders);
+      }
+      return originalFetch(input, init);
+    };
+  });
+  const state = await installFakeApi(page);
+  await openRoot(page);
+
+  const requestHeaders = await page.evaluate(
+    () => (window as unknown as { __zestyRequestHeaders: string[][] }).__zestyRequestHeaders,
+  );
+  expect(state.requests.length).toBeGreaterThan(0);
+  expect(requestHeaders.length).toBeGreaterThan(0);
+  for (const headers of requestHeaders) expect(headers).toEqual(['authorization']);
+});
+
 test('opens, filters, paginates, refreshes, and recovers from authentication failure', async ({
   page,
 }) => {
