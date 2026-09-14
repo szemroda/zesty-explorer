@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeCollectionPage,
   fixtureCollectionPage,
+  safeRequestUrl,
   type CollectionSchema,
   type CollectionSnapshot,
   type ExplorerError,
@@ -130,6 +131,52 @@ describe('root collection browser', () => {
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'replacement-token');
     await waitFor(() => expect(attempts).toBe(2));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+  });
+
+  it('reveals and copies safe technical details for a root load failure', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const failure: ExplorerError = {
+      kind: 'decoding',
+      message: 'Zesty returned collection data in an unsupported shape.',
+      diagnostic: {
+        operation: 'load-collection-items',
+        requestUrl: safeRequestUrl(
+          'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items?lang=en-US',
+        ),
+        responseStatus: 200,
+        issues: [{ path: '$.data[0].meta.version', expected: 'number', received: 'string' }],
+        issuesOmitted: true,
+      },
+    };
+    render(<App api={api(() => Effect.fail(failure))} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+
+    expect(await screen.findByRole('heading', { name: 'Collection could not load' })).toBeVisible();
+    expect(screen.queryByText('Loading collection items')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Technical details' }));
+
+    const technicalDetails = screen.getByLabelText('Technical error details');
+    expect(technicalDetails).toHaveTextContent('Loading collection items');
+    expect(technicalDetails).toHaveTextContent('$.data[0].meta.version');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy technical details' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copied' })).toBeVisible());
+    const expectedDetails = [
+      'Error kind: decoding',
+      'Operation: Loading collection items',
+      'Request URL: https://8-abc123.api.zesty.io/v1/content/models/6-model123/items?lang=en-US',
+      'HTTP status: 200',
+      'Decoding issues:',
+      '- $.data[0].meta.version: expected number, received string',
+      'Further decoding issues were omitted.',
+    ].join('\n');
+    expect(technicalDetails.textContent).toBe(expectedDetails);
+    expect(writeText).toHaveBeenCalledWith(expectedDetails);
+    expect(writeText.mock.calls.flat().join('\n')).not.toContain('private-token');
   });
 
   it('restores a valid shared view before loading and keeps the token out of the URL', async () => {

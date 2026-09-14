@@ -1,12 +1,16 @@
 import { Either, Effect, Schema } from 'effect';
 import {
   decodeCollectionPage,
+  safeRequestUrl,
+  unsupportedShapeError,
   type CollectionField,
   type CollectionReference,
   type CollectionSchema,
   type CollectionSnapshot,
   type ContentItem,
   type ExplorerError,
+  type ExplorerErrorDiagnostic,
+  type ExplorerRequestOperation,
   type FieldKind,
   type FieldZuid,
   type ModelZuid,
@@ -112,12 +116,11 @@ function decodeSchema(
   reference: CollectionReference,
   input: unknown,
 ): Effect.Effect<CollectionSchema, ExplorerError> {
-  const decoded = Schema.decodeUnknownEither(RawFieldsResponseSchema)(input);
+  const decoded = Schema.decodeUnknownEither(RawFieldsResponseSchema, { errors: 'all' })(input);
   if (Either.isLeft(decoded)) {
-    return Effect.fail({
-      kind: 'decoding',
-      message: 'Zesty returned model fields in an unsupported shape.',
-    });
+    return Effect.fail(
+      unsupportedShapeError('Zesty returned model fields in an unsupported shape.', decoded.left),
+    );
   }
 
   const fields: CollectionField[] = decoded.right.data.map((field) => {
@@ -175,6 +178,21 @@ function retryable(error: ExplorerError): boolean {
   return error.kind === 'network' || error.kind === 'rate-limit' || error.kind === 'server';
 }
 
+function withRequestDiagnostic(
+  error: ExplorerError,
+  operation: ExplorerRequestOperation,
+  requestUrl: string,
+  responseStatus?: number,
+): ExplorerError {
+  const diagnostic: ExplorerErrorDiagnostic = {
+    ...error.diagnostic,
+    operation,
+    requestUrl: safeRequestUrl(requestUrl),
+    ...(responseStatus === undefined ? {} : { responseStatus }),
+  };
+  return { ...error, diagnostic };
+}
+
 function createRequester(
   transport: ZestyTransport,
   timeoutMs: number,
@@ -182,35 +200,44 @@ function createRequester(
 ) {
   const requestAttempt = (
     request: ZestyTransportRequest,
+    operation: ExplorerRequestOperation,
   ): Effect.Effect<ZestyTransportResponse, ExplorerError> =>
     transport.request(request).pipe(
-      Effect.mapError((): ExplorerError => ({
-        kind: 'network',
-        message: 'The Zesty request could not reach the server.',
-      })),
+      Effect.mapError((): ExplorerError =>
+        withRequestDiagnostic(
+          { kind: 'network', message: 'The Zesty request could not reach the server.' },
+          operation,
+          request.url,
+        ),
+      ),
       Effect.flatMap((response) => {
         const error = statusError(response);
-        return error ? Effect.fail(error) : Effect.succeed(response);
+        return error
+          ? Effect.fail(withRequestDiagnostic(error, operation, request.url, response.status))
+          : Effect.succeed(response);
       }),
       Effect.timeoutFail({
         duration: timeoutMs,
-        onTimeout: (): ExplorerError => ({
-          kind: 'timeout',
-          message: 'The Zesty request timed out.',
-        }),
+        onTimeout: (): ExplorerError =>
+          withRequestDiagnostic(
+            { kind: 'timeout', message: 'The Zesty request timed out.' },
+            operation,
+            request.url,
+          ),
       }),
     );
 
   const requestWithRetry = (
     request: ZestyTransportRequest,
+    operation: ExplorerRequestOperation,
     retryIndex = 0,
   ): Effect.Effect<ZestyTransportResponse, ExplorerError> =>
-    requestAttempt(request).pipe(
+    requestAttempt(request, operation).pipe(
       Effect.catchAll((error) => {
         const delay = retryDelaysMs[retryIndex];
         if (!retryable(error) || delay === undefined) return Effect.fail(error);
         return Effect.sleep(delay).pipe(
-          Effect.flatMap(() => requestWithRetry(request, retryIndex + 1)),
+          Effect.flatMap(() => requestWithRetry(request, operation, retryIndex + 1)),
         );
       }),
     );
@@ -234,8 +261,16 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
     loadCollectionSchema: (reference, sessionToken) => {
       const url = new URL(`${reference.apiBaseUrl}/content/models/${reference.modelZuid}/fields`);
       url.searchParams.set('lang', 'en-US');
-      return request(authenticatedRequest(url.toString(), sessionToken)).pipe(
-        Effect.flatMap((response) => decodeSchema(reference, response.body)),
+      const requestUrl = url.toString();
+      const operation = 'load-collection-schema' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) =>
+          decodeSchema(reference, response.body).pipe(
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
       );
     },
 
@@ -261,9 +296,18 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
           url.searchParams.set('page', String(page));
           if (state === 'published') url.searchParams.set('_active', 'true');
 
-          const response = yield* request(authenticatedRequest(url.toString(), sessionToken));
+          const requestUrl = url.toString();
+          const operation = 'load-collection-items' as const;
+          const response = yield* request(
+            authenticatedRequest(requestUrl, sessionToken),
+            operation,
+          );
           const decoded = decodeCollectionPage(response.body);
-          if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+          if (Either.isLeft(decoded)) {
+            return yield* Effect.fail(
+              withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
+            );
+          }
 
           totalResults = decoded.right.totalResults;
           const remaining = effectiveLimit - items.length;

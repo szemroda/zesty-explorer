@@ -34,10 +34,19 @@ describe('collection snapshot contracts', () => {
   });
 
   it('returns a typed decoding error for malformed API data', () => {
-    const decoded = decodeCollectionPage({ data: [{ meta: { zuid: 4 } }], _meta: {} });
+    const decoded = decodeCollectionPage({
+      data: [{ secret: 'private-content-value', meta: { zuid: 4 } }],
+      _meta: {},
+    });
     expect(Either.isLeft(decoded)).toBe(true);
     if (Either.isRight(decoded)) return;
     expect(decoded.left.kind).toBe('decoding');
+    expect(decoded.left.diagnostic?.issues?.[0]).toEqual({
+      path: '$.data[0].meta.zuid',
+      expected: 'string',
+      received: 'number',
+    });
+    expect(JSON.stringify(decoded.left)).not.toContain('private-content-value');
   });
 
   it('accepts the official collection metadata shape without a page field', () => {

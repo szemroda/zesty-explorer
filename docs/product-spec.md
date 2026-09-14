@@ -218,6 +218,9 @@ The URL never contains the session token, page numbers, expanded rows, open pane
 - A failed root collection blocks the table and offers retry.
 - A failed nested collection leaves the rest of the view usable, marks its node, and offers retry.
 - Errors distinguish invalid input, blocked host, authentication, permission, missing resource, schema decoding, network/CORS, timeout, rate limiting, and response limits.
+- Root and nested collection load failures include a collapsed `Technical details` disclosure built with the shadcn `Collapsible` component. It shows the error kind, operation, safe request URL, available HTTP status, and decoding issues. Request URLs have user information, fragments, and secret-shaped query parameters removed. Each decoding issue identifies its JSON path, expected type, and received type.
+- Technical error details never include authorization headers, session tokens, response values, response bodies, or stack traces. At most 20 decoding issues are retained; the disclosure states when further issues were omitted.
+- The disclosure offers `Copy technical details`, which copies the same safe diagnostic information shown on screen and no hidden data.
 - Browser Fetch does not expose whether CORS or another network condition blocked a response. The network/CORS error therefore states that Zesty could not be reached, includes the current browser origin, and presents CORS as a diagnostic possibility rather than a confirmed cause.
 - Retry with bounded backoff applies only to transient network, `429`, and selected `5xx` failures. Effect owns retry policy. TanStack Query does not add a second retry loop.
 

@@ -1,5 +1,6 @@
 import { Either, Schema } from 'effect';
 import type { CollectionPage, ContentItem, ExplorerError, ItemZuid } from './types';
+import { unsupportedShapeError } from './error-diagnostic';
 
 const ItemZuidSchema = Schema.String.pipe(
   Schema.filter((value) => /^7-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
@@ -14,11 +15,9 @@ const ItemMetadataSchema = Schema.Struct({
   version: Schema.Number,
 });
 
-const RawItemSchema = Schema.Record({ key: Schema.String, value: Schema.Unknown }).pipe(
-  Schema.filter(
-    (item) =>
-      'meta' in item && Either.isRight(Schema.decodeUnknownEither(ItemMetadataSchema)(item.meta)),
-    { message: () => 'Content item metadata is missing or invalid' },
+const RawItemSchema = Schema.asSchema(
+  Schema.Struct({ meta: ItemMetadataSchema }).pipe(
+    Schema.extend(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
   ),
 );
 
@@ -56,7 +55,10 @@ function normalizeItem(raw: Readonly<Record<string, unknown>>): ContentItem {
 }
 
 export function decodeCollectionPage(input: unknown): Either.Either<CollectionPage, ExplorerError> {
-  return Schema.decodeUnknownEither(CollectionPageSchema)(input).pipe(
+  return Schema.decodeUnknownEither(CollectionPageSchema, {
+    errors: 'all',
+    onExcessProperty: 'preserve',
+  })(input).pipe(
     Either.map((page) => ({
       items: page.data.map(normalizeItem),
       totalResults: page._meta.totalResults,
@@ -65,9 +67,8 @@ export function decodeCollectionPage(input: unknown): Either.Either<CollectionPa
         Math.floor((page._meta.start ?? page._meta.offset ?? 0) / page._meta.limit) + 1,
       limit: page._meta.limit,
     })),
-    Either.mapLeft((): ExplorerError => ({
-      kind: 'decoding',
-      message: 'Zesty returned collection data in an unsupported shape.',
-    })),
+    Either.mapLeft((error) =>
+      unsupportedShapeError('Zesty returned collection data in an unsupported shape.', error),
+    ),
   );
 }

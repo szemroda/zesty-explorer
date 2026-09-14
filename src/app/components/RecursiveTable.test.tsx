@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
+  safeRequestUrl,
   type CollectionNode,
   type CollectionSchema,
+  type ExplorerError,
 } from '../../domain';
 import { snapshotQueryKey } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
@@ -125,6 +127,62 @@ describe('recursive collection tables', () => {
       }),
     );
     expect(details).toHaveBeenCalledWith(generated.children.items[0], expect.any(HTMLElement));
+  });
+
+  it('keeps a nested load failure local and reveals its technical details', async () => {
+    const failure: ExplorerError = {
+      kind: 'decoding',
+      message: 'Zesty returned model fields in an unsupported shape.',
+      diagnostic: {
+        operation: 'load-collection-schema',
+        requestUrl: safeRequestUrl(
+          'https://8-fixture-instance.api.zesty.io/v1/content/models/6-fixture-children/fields?lang=en-US',
+        ),
+        responseStatus: 200,
+        issues: [{ path: '$.data', expected: 'array', received: 'object' }],
+      },
+    };
+    const failedView: LoadedView = {
+      ...loadedView,
+      snapshots: {
+        ...loadedView.snapshots,
+        snapshots: new Map([
+          [
+            snapshotQueryKey(root.reference, 'latest'),
+            { status: 'complete', snapshot: generated.parents },
+          ],
+          [snapshotQueryKey(child.reference, 'latest'), { status: 'failed', error: failure }],
+        ]),
+      },
+      schemas: new Map([[root.id, rootSchema]]),
+      schemaErrors: new Map([[child.id, failure]]),
+    };
+
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={root.reference}
+        treeRoot={root}
+        loadedView={failedView}
+        contentState="latest"
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      }),
+    );
+
+    expect(await screen.findByText(/Children: Zesty returned model fields/)).toBeVisible();
+    expect(screen.queryByText('Loading collection schema')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Technical details' }));
+    const technicalDetails = screen.getByLabelText('Technical error details');
+    expect(technicalDetails).toHaveTextContent('Loading collection schema');
+    expect(technicalDetails).toHaveTextContent('$.data');
   });
 
   it('keeps technical columns hidden by default and lets the user select them', () => {

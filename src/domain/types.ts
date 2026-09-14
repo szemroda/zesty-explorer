@@ -131,7 +131,26 @@ export interface PersistedView {
   readonly globalFreeText: string;
 }
 
-export type ExplorerError =
+export type ExplorerRequestOperation = 'load-collection-schema' | 'load-collection-items';
+
+declare const safeRequestUrlBrand: unique symbol;
+export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };
+
+export interface ExplorerDecodingIssue {
+  readonly path: string;
+  readonly expected: string;
+  readonly received: string;
+}
+
+export interface ExplorerErrorDiagnostic {
+  readonly operation?: ExplorerRequestOperation;
+  readonly requestUrl?: SafeRequestUrl;
+  readonly responseStatus?: number;
+  readonly issues?: readonly ExplorerDecodingIssue[];
+  readonly issuesOmitted?: boolean;
+}
+
+type ExplorerErrorKind =
   | { readonly kind: 'invalid-input'; readonly message: string }
   | { readonly kind: 'blocked-host'; readonly message: string }
   | { readonly kind: 'authentication'; readonly message: string; readonly status: 401 }
@@ -144,3 +163,7 @@ export type ExplorerError =
   | { readonly kind: 'server'; readonly message: string; readonly status: number }
   | { readonly kind: 'data-limit'; readonly message: string; readonly scope: 'collection' | 'view' }
   | { readonly kind: 'cancelled'; readonly message: string };
+
+export type ExplorerError = ExplorerErrorKind & {
+  readonly diagnostic?: ExplorerErrorDiagnostic;
+};

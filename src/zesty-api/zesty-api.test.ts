@@ -1,4 +1,4 @@
-import { Effect, Exit, Fiber } from 'effect';
+import { Effect, Either, Exit, Fiber } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fixtureCollectionPage } from '../domain';
 import { parseCollectionReference } from '../collection-reference';
@@ -164,10 +164,61 @@ describe('ZestyApi', () => {
         body: { data: [{ ZUID: 'wrong', name: 'title', label: 'Title', datatype: 'text' }] },
       }),
     );
-    const exit = await Effect.runPromiseExit(
-      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+    const result = await Effect.runPromise(
+      Effect.either(
+        createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+      ),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) return;
+    expect(result.left.diagnostic?.issues?.[0]).toEqual({
+      path: '$.data[0].ZUID',
+      expected: 'string matching required format',
+      received: 'string',
+    });
+  });
+
+  it('describes an unsupported schema shape without exposing response values', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: Array.from({ length: 25 }, () => ({
+            ZUID: 123,
+            name: 456,
+            label: false,
+            datatype: null,
+            customerSecret: 'private-content-value',
+          })),
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) return;
+    expect(result.left).toMatchObject({
+      kind: 'decoding',
+      diagnostic: {
+        operation: 'load-collection-schema',
+        requestUrl: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123/fields?lang=en-US',
+        responseStatus: 200,
+        issuesOmitted: true,
+      },
+    });
+    expect(result.left.diagnostic?.issues).toHaveLength(20);
+    expect(result.left.diagnostic?.issues?.slice(0, 2)).toEqual([
+      { path: '$.data[0].ZUID', expected: 'string', received: 'number' },
+      { path: '$.data[0].name', expected: 'string', received: 'number' },
+    ]);
+    expect(JSON.stringify(result.left)).not.toContain('private-content-value');
+    expect(JSON.stringify(result.left)).not.toContain('private-token');
   });
 
   it('loads all pages, applies published state, and normalizes once', async () => {
@@ -232,14 +283,24 @@ describe('ZestyApi', () => {
     const forbidden = fakeTransport(() =>
       Effect.succeed({ status: 403, headers: {}, body: { error: 'forbidden' } }),
     );
-    const exit = await Effect.runPromiseExit(
-      createZestyApi(forbidden.transport, { retryDelaysMs: [0, 0] }).loadCollectionSnapshot(
-        reference,
-        'latest',
-        'private-token',
+    const forbiddenResult = await Effect.runPromise(
+      Effect.either(
+        createZestyApi(forbidden.transport, { retryDelaysMs: [0, 0] }).loadCollectionSnapshot(
+          reference,
+          'latest',
+          'private-token',
+        ),
       ),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
+    expect(Either.isLeft(forbiddenResult)).toBe(true);
+    if (Either.isRight(forbiddenResult)) return;
+    expect(forbiddenResult.left).toMatchObject({
+      kind: 'permission',
+      diagnostic: {
+        operation: 'load-collection-items',
+        responseStatus: 403,
+      },
+    });
     expect(forbidden.requests).toHaveLength(1);
   });
 

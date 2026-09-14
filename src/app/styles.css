@@ -615,9 +615,54 @@ th.sticky-cell {
 }
 .nested-state--error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
   color: var(--color-danger);
+}
+.nested-state__message {
+  min-width: 0;
+}
+.error-details {
+  margin: 16px 0;
+  color: var(--color-foreground);
+  font-size: 12px;
+}
+.nested-state .error-details {
+  margin: 10px 0 0;
+}
+.error-details__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+.error-details__trigger svg {
+  transition: transform 140ms ease;
+}
+.error-details__trigger[data-panel-open] svg {
+  transform: rotate(180deg);
+}
+.error-details__content {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #0c0c0e;
+}
+.error-details__content pre {
+  overflow-wrap: anywhere;
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  color: var(--color-muted);
 }
 .details-sheet dt {
   color: var(--color-muted);

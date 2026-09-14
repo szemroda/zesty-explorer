@@ -28,6 +28,7 @@ import {
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
 import { FilterBuilder } from './components/FilterBuilder';
+import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { TreeEditor } from './components/TreeEditor';
@@ -533,6 +534,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               <h2>Collection could not load</h2>
               <p>{queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}</p>
               {queryErrorMessage ? <p>{queryErrorMessage.recovery}</p> : null}
+              <ErrorTechnicalDetails error={rootFailure} />
               <button className="button" onClick={() => void retryRoot()}>
                 Retry
               </button>

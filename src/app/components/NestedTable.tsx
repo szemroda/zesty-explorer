@@ -32,6 +32,7 @@ import {
   withColumnWidth,
 } from '../content-item-presentation';
 import { CellValue } from './CellValue';
+import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FilterBuilder } from './FilterBuilder';
 
 export interface SharedNodeTableState {
@@ -146,10 +147,13 @@ export function NestedTable(props: NestedTableProps) {
     const message = failure ? describeExplorerError(failure, window.location.origin) : undefined;
     return (
       <div className="nested-state nested-state--error" role="alert">
-        <span>
-          {node.name}: {message?.message ?? 'The collection schema could not load.'}{' '}
-          {message?.recovery}
-        </span>
+        <div className="nested-state__message">
+          <span>
+            {node.name}: {message?.message ?? 'The collection schema could not load.'}{' '}
+            {message?.recovery}
+          </span>
+          {failure ? <ErrorTechnicalDetails error={failure} /> : null}
+        </div>
         <button className="button button--quiet" onClick={onRetry}>
           Retry
         </button>
