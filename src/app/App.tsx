@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Effect, Either } from 'effect';
 import {
   Copy,
   Database,
@@ -106,6 +107,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const topMenu = useRef<HTMLDetailsElement>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
+  const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   const encodedView = useMemo(() => {
     if (!treeRoot || viewDecodeError) return undefined;
@@ -190,6 +192,21 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [loadedView, selectedItemId]);
 
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
+  const loadRelationshipSchema = useCallback(
+    async (collectionReference: CollectionReference, signal: AbortSignal) => {
+      const result = await Effect.runPromise(
+        api
+          .loadCollectionSchema(collectionReference, activeToken)
+          .pipe(relationshipSchemaSemaphore.withPermits(1), Effect.either),
+        { signal },
+      );
+      return Either.isRight(result)
+        ? ({ ok: true, schema: result.right } as const)
+        : ({ ok: false, message: result.left.message } as const);
+    },
+    [activeToken, api, relationshipSchemaSemaphore],
+  );
+
   function openCollection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = parseCollectionReference(collectionInput);
@@ -435,6 +452,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               }}
               rootSchema={loadedView.schemas.get(treeRoot.id)!}
               schemas={loadedView.schemas}
+              loadSchema={loadRelationshipSchema}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))

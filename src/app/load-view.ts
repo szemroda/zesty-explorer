@@ -222,9 +222,7 @@ export function buildLoadedViewGraph(
     for (const child of parent.children) {
       const childSnapshot = snapshots.get(child.id);
       if (parentSnapshot && childSnapshot && child.relationship) {
-        const childPath =
-          child.relationship.kind === 'custom' ? child.relationship.childField : ['id'];
-        const index = buildRelationshipIndex(childSnapshot, childPath);
+        const index = buildRelationshipIndex(childSnapshot, child.relationship);
         relationshipsByChildNode.set(
           child.id,
           joinRelatedItems(parentSnapshot, index, child.relationship),

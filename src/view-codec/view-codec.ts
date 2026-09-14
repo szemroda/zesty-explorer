@@ -101,13 +101,40 @@ function isViewFilter(value: unknown): value is ViewFilter {
 }
 
 function isRelationship(value: unknown): value is RelationshipDefinition {
-  if (!isRecord(value) || !isFieldPath(value.parentField)) return false;
+  if (!isRecord(value)) return false;
   if (value.kind === 'native') {
     return (
-      typeof value.targetModelZuid === 'string' && /^6-[a-z0-9-]{5,}$/i.test(value.targetModelZuid)
+      (value.fieldSide === 'parent' || value.fieldSide === 'child') &&
+      isFieldPath(value.field) &&
+      typeof value.relatedModelZuid === 'string' &&
+      /^6-[a-z0-9-]{5,}$/i.test(value.relatedModelZuid)
     );
   }
-  return value.kind === 'custom' && isFieldPath(value.childField);
+  return value.kind === 'custom' && isFieldPath(value.parentField) && isFieldPath(value.childField);
+}
+
+function migrateLegacyRelationship(value: unknown): unknown {
+  if (!isRecord(value) || value.kind !== 'native' || value.fieldSide !== undefined) return value;
+  const childField = isFieldPath(value.childField) ? value.childField : undefined;
+  return {
+    kind: 'native',
+    fieldSide: childField ? 'child' : 'parent',
+    field: childField ?? value.parentField,
+    relatedModelZuid: value.targetModelZuid,
+  };
+}
+
+function migrateLegacyRelationships(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  return {
+    ...value,
+    ...(value.relationship === undefined
+      ? {}
+      : { relationship: migrateLegacyRelationship(value.relationship) }),
+    ...(Array.isArray(value.children)
+      ? { children: value.children.map(migrateLegacyRelationships) }
+      : {}),
+  };
 }
 
 function hasSafeReference(value: Readonly<Record<string, unknown>>): boolean {
@@ -212,15 +239,17 @@ function gunzipBounded(bytes: Uint8Array): Uint8Array {
 
 function validateDecodedView(value: unknown): PersistedView | undefined {
   const decoded = Schema.decodeUnknownEither(VersionedViewSchema)(value);
+  const migratedRoot = Either.isRight(decoded)
+    ? migrateLegacyRelationships(decoded.right.root)
+    : undefined;
   if (
     Either.isLeft(decoded) ||
-    !isCollectionNode(decoded.right.root) ||
+    !isCollectionNode(migratedRoot) ||
     !decoded.right.viewFilters.every(isViewFilter)
   ) {
     return undefined;
   }
-  const root =
-    decoded.right.version === 1 ? migrateVersionOneNode(decoded.right.root) : decoded.right.root;
+  const root = decoded.right.version === 1 ? migrateVersionOneNode(migratedRoot) : migratedRoot;
   if (!validateCollectionTree(root).ok) return undefined;
   return {
     version: 2,

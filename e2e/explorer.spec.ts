@@ -26,6 +26,7 @@ function rawItem(id: string, title: string, fields: Readonly<Record<string, unkn
 const childItems = Array.from({ length: 30 }, (_, index) =>
   rawItem(`7-child-${String(index).padStart(6, '0')}`, `Child ${index}`, {
     parentKey: 'root-0',
+    parent: { zuid: '7-root-000000' },
     active: index % 2 === 0,
   }),
 );
@@ -78,6 +79,13 @@ const fieldsByModel: Readonly<Record<string, readonly Readonly<Record<string, un
   '6-childmodel': [
     { ZUID: '12-title-child', name: 'title', label: 'Title', datatype: 'text' },
     { ZUID: '12-parent-key', name: 'parentKey', label: 'Parent key', datatype: 'text' },
+    {
+      ZUID: '12-parent',
+      name: 'parent',
+      label: 'Parent',
+      datatype: 'relationship',
+      relatedModelZUID: '6-rootmodel',
+    },
     { ZUID: '12-active-child', name: 'active', label: 'Active', datatype: 'boolean' },
   ],
 };
@@ -174,7 +182,7 @@ async function addNativeChild(page: Page) {
   await page.getByRole('button', { name: 'Add related collection' }).click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Children');
-  await page.getByLabel('Native field').selectOption('primaryChild');
+  await page.getByLabel('Native field').selectOption({ label: 'Primary child' });
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Children', { exact: true })).toBeVisible();
 }
@@ -259,6 +267,22 @@ test('reports the browser origin without claiming that CORS caused a network fai
   await expect(alert).toContainText('The Zesty request could not reach the server.');
   await expect(alert).toContainText('http://localhost:5173');
   await expect(alert).toContainText('CORS may be the cause');
+});
+
+test('detects a native relationship declared by the nested collection', async ({ page }) => {
+  await installFakeApi(page);
+  await openRoot(page);
+
+  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await page.getByLabel('Related collection URL').fill(childUrl);
+  await page.getByLabel('Node name').fill('Inverse children');
+  await page.getByLabel('Native field').selectOption({ label: 'Parent' });
+  await page.getByRole('button', { name: 'Add collection node' }).click();
+  await expect(page.getByText('Inverse children', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const relatedItems = page.getByRole('region', { name: 'Inverse children related items' });
+  await expect(relatedItems).toContainText('Child 0');
 });
 
 test('creates native and custom roles, expands related rows, and preserves details focus', async ({

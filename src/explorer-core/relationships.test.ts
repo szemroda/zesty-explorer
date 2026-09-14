@@ -8,6 +8,7 @@ import {
 import {
   addCollectionNode,
   buildRelationshipIndex,
+  findNativeRelationshipCandidates,
   findNativeRelationships,
   joinRelatedItems,
   removeCollectionNode,
@@ -50,12 +51,13 @@ function node(
 
 describe('relationship indexes', () => {
   it('indexes custom scalar paths once and preserves all matches', () => {
-    const index = buildRelationshipIndex(graph.children, ['parentKey']);
-    const joined = joinRelatedItems(graph.parents, index, {
+    const relationship = {
       kind: 'custom',
       parentField: ['childKey'],
       childField: ['parentKey'],
-    });
+    } as const;
+    const index = buildRelationshipIndex(graph.children, relationship);
+    const joined = joinRelatedItems(graph.parents, index, relationship);
 
     expect(joined.get(graph.parents.items[0]!.id)).toHaveLength(2);
     expect(joined.get(graph.parents.items[100]!.id)).toEqual(
@@ -78,11 +80,16 @@ describe('relationship indexes', () => {
         { ...graph.parents.items[1]!, fields: { childKey: 'missing' } },
       ],
     };
-    const joined = joinRelatedItems(parent, buildRelationshipIndex(child, ['parentKey']), {
+    const relationship = {
       kind: 'custom',
       parentField: ['childKey'],
       childField: ['parentKey'],
-    });
+    } as const;
+    const joined = joinRelatedItems(
+      parent,
+      buildRelationshipIndex(child, relationship),
+      relationship,
+    );
 
     expect(joined.get(parent.items[0]!.id)).toEqual([child.items[0]!.id]);
     expect(joined.get(parent.items[1]!.id)).toEqual([]);
@@ -123,14 +130,76 @@ describe('relationship indexes', () => {
         },
       ],
     };
-    const nativeIndex = buildRelationshipIndex(graph.children, ['id']);
+    const nativeRelationship = {
+      kind: 'native',
+      fieldSide: 'parent',
+      field: ['reviewers'],
+      relatedModelZuid: '6-fixture-children',
+    } as const;
+    const nativeIndex = buildRelationshipIndex(graph.children, nativeRelationship);
     expect(
-      joinRelatedItems(parent, nativeIndex, {
-        kind: 'native',
-        parentField: ['reviewers'],
-        targetModelZuid: '6-fixture-children',
-      }).get(parent.items[0]!.id),
+      joinRelatedItems(parent, nativeIndex, nativeRelationship).get(parent.items[0]!.id),
     ).toEqual([graph.children.items[0]!.id, graph.children.items[1]!.id]);
+  });
+
+  it('proposes a native relationship declared by the child collection', () => {
+    const parentSchema: CollectionSchema = {
+      modelZuid: '6-articles123',
+      label: 'Articles',
+      fields: [{ id: '12-title123', name: 'title', label: 'Title', kind: 'text' }],
+    };
+    const childSchema: CollectionSchema = {
+      modelZuid: '6-comments123',
+      label: 'Comments',
+      fields: [
+        {
+          id: '12-article123',
+          name: 'article',
+          label: 'Article',
+          kind: 'relationship',
+          relatedModelZuid: '6-articles123',
+        },
+      ],
+    };
+
+    expect(findNativeRelationshipCandidates(parentSchema, childSchema)).toEqual([
+      {
+        field: childSchema.fields[0],
+        relationship: {
+          kind: 'native',
+          fieldSide: 'child',
+          field: ['article'],
+          relatedModelZuid: '6-articles123',
+        },
+      },
+    ]);
+  });
+
+  it('joins child items through a native relationship field declared by the child', () => {
+    const parent = {
+      ...graph.parents,
+      items: [graph.parents.items[0]!],
+    };
+    const child = {
+      ...graph.children,
+      items: [
+        {
+          ...graph.children.items[0]!,
+          fields: { article: { zuid: graph.parents.items[0]!.id } },
+        },
+      ],
+    };
+    const relationship = {
+      kind: 'native' as const,
+      fieldSide: 'child' as const,
+      field: ['article'],
+      relatedModelZuid: '6-fixture-parents' as const,
+    };
+
+    const index = buildRelationshipIndex(child, relationship);
+    expect(joinRelatedItems(parent, index, relationship).get(parent.items[0]!.id)).toEqual([
+      child.items[0]!.id,
+    ]);
   });
 
   it('marks stale relationship paths without discarding the definition', () => {
@@ -140,6 +209,21 @@ describe('relationship indexes', () => {
       ['title', 'parentKey'],
     );
     expect(validation).toEqual({ valid: false, invalidPaths: ['parent.legacy'] });
+  });
+
+  it('validates the child field used by an inverse native relationship', () => {
+    const validation = validateRelationshipPaths(
+      {
+        kind: 'native',
+        fieldSide: 'child',
+        field: ['legacyArticle'],
+        relatedModelZuid: '6-articles123',
+      },
+      ['id', 'title'],
+      ['id', 'article'],
+    );
+
+    expect(validation).toEqual({ valid: false, invalidPaths: ['child.legacyArticle'] });
   });
 
   it('discovers and validates complete nested scalar paths', () => {

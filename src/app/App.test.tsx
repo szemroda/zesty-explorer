@@ -256,6 +256,182 @@ describe('root collection browser', () => {
     expect(replaceState).toHaveBeenCalled();
   });
 
+  it('detects and follows a native relationship declared by the nested collection', async () => {
+    const articleSchema: CollectionSchema = {
+      modelZuid: '6-articles123',
+      label: 'Articles',
+      fields: [{ id: '12-title123', name: 'title', label: 'Title', kind: 'text' }],
+    };
+    const commentSchema: CollectionSchema = {
+      modelZuid: '6-comments123',
+      label: 'Comments',
+      fields: [
+        {
+          id: '12-article123',
+          name: 'article',
+          label: 'Article',
+          kind: 'relationship',
+          relatedModelZuid: '6-articles123',
+        },
+        { id: '12-body123', name: 'body', label: 'Body', kind: 'text' },
+      ],
+    };
+    const articleItem = {
+      ...snapshot.items[0]!,
+      id: '7-article-000001' as const,
+      fields: { title: 'First article' },
+    };
+    const commentItem = {
+      ...snapshot.items[0]!,
+      id: '7-comment-000001' as const,
+      fields: { article: { zuid: articleItem.id }, body: 'First comment' },
+    };
+    const articleSnapshot: CollectionSnapshot = {
+      ...snapshot,
+      id: 'snapshot-articles',
+      modelZuid: '6-articles123',
+      items: [articleItem],
+      itemsById: new Map([[articleItem.id, articleItem]]),
+    };
+    const commentSnapshot: CollectionSnapshot = {
+      ...snapshot,
+      id: 'snapshot-comments',
+      modelZuid: '6-comments123',
+      items: [commentItem],
+      itemsById: new Map([[commentItem.id, commentItem]]),
+    };
+    const testApi: ZestyApi = {
+      loadCollectionSchema: (reference) =>
+        Effect.succeed(
+          reference.modelZuid === commentSchema.modelZuid ? commentSchema : articleSchema,
+        ),
+      loadCollectionSnapshot: (reference) =>
+        Effect.succeed(
+          reference.modelZuid === commentSchema.modelZuid ? commentSnapshot : articleSnapshot,
+        ),
+    };
+
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-articles123');
+    await screen.findByRole('heading', { name: 'Articles' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-comments123' },
+    });
+
+    const nativeField = await screen.findByLabelText('Native field');
+    expect(nativeField).toHaveDisplayValue('Article');
+    fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
+
+    await screen.findByText('Article', { selector: '.tree-node span' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit relationship for Article' }));
+    expect(screen.getByLabelText('Relationship type')).toHaveValue('native');
+    expect(screen.getByLabelText('Native field')).toHaveDisplayValue('Article');
+    fireEvent.click(screen.getByRole('button', { name: 'Close relationship editor' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Expand relationships for 7-article-000001' }),
+    );
+    expect(await screen.findByRole('region', { name: 'Article related items' })).toHaveTextContent(
+      'First comment',
+    );
+  });
+
+  it('rejects a related collection from another instance before loading its schema', async () => {
+    const loadCollectionSchema = vi.fn<ZestyApi['loadCollectionSchema']>(() =>
+      Effect.succeed(schema),
+    );
+    const testApi: ZestyApi = {
+      loadCollectionSchema,
+      loadCollectionSnapshot: () => Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-foreign.manager.zesty.io/content/6-foreign123' },
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+
+    expect(loadCollectionSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels related schema inspection when the add dialog closes', async () => {
+    let interrupted = false;
+    const testApi: ZestyApi = {
+      loadCollectionSchema: (reference) =>
+        reference.modelZuid === schema.modelZuid
+          ? Effect.succeed(schema)
+          : Effect.never.pipe(
+              Effect.onInterrupt(() =>
+                Effect.sync(() => {
+                  interrupted = true;
+                }),
+              ),
+            ),
+      loadCollectionSnapshot: () => Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-related123' },
+    });
+    await screen.findByText('Checking native relationships…');
+    fireEvent.click(screen.getByRole('button', { name: 'Close add relationship' }));
+
+    await waitFor(() => expect(interrupted).toBe(true));
+  });
+
+  it('requires retry when native relationship inspection fails', async () => {
+    const rootSchema: CollectionSchema = {
+      modelZuid: '6-model123',
+      label: 'Stories',
+      fields: [],
+    };
+    const relatedSchema: CollectionSchema = {
+      modelZuid: '6-related123',
+      label: 'Related',
+      fields: [
+        {
+          id: '12-story123',
+          name: 'story',
+          label: 'Story',
+          kind: 'relationship',
+          relatedModelZuid: rootSchema.modelZuid,
+        },
+      ],
+    };
+    let relatedAttempts = 0;
+    const testApi: ZestyApi = {
+      loadCollectionSchema: (reference) => {
+        if (reference.modelZuid === rootSchema.modelZuid) return Effect.succeed(rootSchema);
+        relatedAttempts += 1;
+        return relatedAttempts === 1
+          ? Effect.fail({ kind: 'network', message: 'Offline' })
+          : Effect.succeed(relatedSchema);
+      },
+      loadCollectionSnapshot: () => Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-related123' },
+    });
+
+    const retry = await screen.findByRole('button', { name: 'Retry schema inspection' });
+    expect(screen.getByRole('button', { name: 'Add collection node' })).toBeDisabled();
+    fireEvent.click(retry);
+    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+  });
+
   it('does not load with replacement credentials until the new root is submitted', async () => {
     const tokens = new Map([
       ['production', 'production-token'],

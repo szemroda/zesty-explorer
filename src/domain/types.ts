@@ -69,8 +69,9 @@ export type FieldPath = readonly string[];
 export type RelationshipDefinition =
   | {
       readonly kind: 'native';
-      readonly parentField: FieldPath;
-      readonly targetModelZuid: ModelZuid;
+      readonly fieldSide: 'parent' | 'child';
+      readonly field: FieldPath;
+      readonly relatedModelZuid: ModelZuid;
     }
   | {
       readonly kind: 'custom';

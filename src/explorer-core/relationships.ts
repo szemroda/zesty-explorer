@@ -12,6 +12,23 @@ import type {
 
 export type RelationshipIndex = ReadonlyMap<Scalar, readonly ItemZuid[]>;
 
+export interface NativeRelationshipCandidate {
+  readonly field: CollectionField;
+  readonly relationship: Extract<RelationshipDefinition, { readonly kind: 'native' }>;
+}
+
+function relationshipJoinPaths(relationship: RelationshipDefinition): {
+  readonly parent: FieldPath;
+  readonly child: FieldPath;
+} {
+  if (relationship.kind === 'custom') {
+    return { parent: relationship.parentField, child: relationship.childField };
+  }
+  return relationship.fieldSide === 'parent'
+    ? { parent: relationship.field, child: ['id'] }
+    : { parent: ['id'], child: relationship.field };
+}
+
 function isScalar(value: unknown): value is Scalar {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
@@ -33,15 +50,19 @@ function itemPathValue(item: ContentItem, path: FieldPath): unknown {
 
 export function buildRelationshipIndex(
   children: CollectionSnapshot,
-  childField: FieldPath,
+  relationship: RelationshipDefinition,
 ): RelationshipIndex {
   const mutable = new Map<Scalar, ItemZuid[]>();
+  const childField = relationshipJoinPaths(relationship).child;
   for (const item of children.items) {
     const value = itemPathValue(item, childField);
-    if (!isScalar(value)) continue;
-    const matches = mutable.get(value);
-    if (matches) matches.push(item.id);
-    else mutable.set(value, [item.id]);
+    const keys =
+      relationship.kind === 'native' ? nativeReferences(value) : isScalar(value) ? [value] : [];
+    for (const key of keys) {
+      const matches = mutable.get(key);
+      if (matches) matches.push(item.id);
+      else mutable.set(key, [item.id]);
+    }
   }
   return mutable;
 }
@@ -62,8 +83,9 @@ export function joinRelatedItems(
   relationship: RelationshipDefinition,
 ): ReadonlyMap<ItemZuid, readonly ItemZuid[]> {
   const result = new Map<ItemZuid, readonly ItemZuid[]>();
+  const parentField = relationshipJoinPaths(relationship).parent;
   for (const parent of parents.items) {
-    const value = itemPathValue(parent, relationship.parentField);
+    const value = itemPathValue(parent, parentField);
     const keys =
       relationship.kind === 'native' ? nativeReferences(value) : isScalar(value) ? [value] : [];
     const matches: ItemZuid[] = [];
@@ -82,18 +104,46 @@ export function findNativeRelationships(
   );
 }
 
+export function findNativeRelationshipCandidates(
+  parentSchema: CollectionSchema,
+  childSchema: CollectionSchema,
+): readonly NativeRelationshipCandidate[] {
+  const parentCandidates = findNativeRelationships(parentSchema, childSchema.modelZuid).map(
+    (field): NativeRelationshipCandidate => ({
+      field,
+      relationship: {
+        kind: 'native',
+        fieldSide: 'parent',
+        field: [field.name],
+        relatedModelZuid: childSchema.modelZuid,
+      },
+    }),
+  );
+  const childCandidates = findNativeRelationships(childSchema, parentSchema.modelZuid).map(
+    (field): NativeRelationshipCandidate => ({
+      field,
+      relationship: {
+        kind: 'native',
+        fieldSide: 'child',
+        field: [field.name],
+        relatedModelZuid: parentSchema.modelZuid,
+      },
+    }),
+  );
+  return [...parentCandidates, ...childCandidates];
+}
+
 export function validateRelationshipPaths(
   relationship: RelationshipDefinition,
   parentPaths: readonly string[],
   childPaths: readonly string[],
 ): { readonly valid: boolean; readonly invalidPaths: readonly string[] } {
   const invalidPaths: string[] = [];
-  const parent = relationship.parentField.join('.');
+  const { parent: parentField, child: childField } = relationshipJoinPaths(relationship);
+  const parent = parentField.join('.');
   if (!parentPaths.includes(parent)) invalidPaths.push(`parent.${parent}`);
-  if (relationship.kind === 'custom') {
-    const child = relationship.childField.join('.');
-    if (!childPaths.includes(child)) invalidPaths.push(`child.${child}`);
-  }
+  const child = childField.join('.');
+  if (!childPaths.includes(child)) invalidPaths.push(`child.${child}`);
   return { valid: invalidPaths.length === 0, invalidPaths };
 }
 

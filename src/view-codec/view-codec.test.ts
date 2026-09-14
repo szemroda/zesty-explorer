@@ -61,6 +61,38 @@ describe('ViewCodec', () => {
     expect(decoded.view.root.presentation.visibleColumns).toEqual(['*']);
   });
 
+  it('migrates the previous native relationship representation', () => {
+    const legacyView = {
+      ...view,
+      root: {
+        ...root,
+        children: [
+          {
+            ...root,
+            id: 'node-child',
+            relationship: {
+              kind: 'native',
+              parentField: ['article'],
+              targetModelZuid: root.reference.modelZuid,
+            },
+          },
+        ],
+      },
+    };
+    const fragment = `#view=${base64Url(gzipSync(strToU8(JSON.stringify(legacyView)), { mtime: 0 }))}`;
+
+    const decoded = ViewCodec.decode(fragment);
+
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.view.root.children[0]?.relationship).toEqual({
+      kind: 'native',
+      fieldSide: 'parent',
+      field: ['article'],
+      relatedModelZuid: root.reference.modelZuid,
+    });
+  });
+
   it('preserves corrupt raw data for recovery', () => {
     expect(ViewCodec.decode('#view=not-valid')).toEqual({
       ok: false,
@@ -93,6 +125,26 @@ describe('ViewCodec', () => {
         root: {
           ...root,
           presentation: { ...root.presentation, columnWidths: { title: -1 } },
+        },
+      }),
+    ).toThrow(/valid, settled/i);
+    expect(() =>
+      ViewCodec.encode({
+        ...view,
+        root: {
+          ...root,
+          children: [
+            {
+              ...root,
+              id: 'node-child',
+              relationship: {
+                kind: 'native',
+                fieldSide: 'child',
+                field: [],
+                relatedModelZuid: root.reference.modelZuid,
+              },
+            },
+          ],
         },
       }),
     ).toThrow(/valid, settled/i);

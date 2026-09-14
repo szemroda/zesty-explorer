@@ -1,4 +1,5 @@
 import { Dialog } from '@base-ui/react/dialog';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
@@ -9,12 +10,23 @@ import type {
   CollectionSchema,
   RelationshipDefinition,
 } from '../../domain';
-import { findNativeRelationships, subtreeNodeNames } from '../../explorer-core';
+import {
+  findNativeRelationshipCandidates,
+  findNativeRelationships,
+  subtreeNodeNames,
+} from '../../explorer-core';
 
 interface TreeEditorProps {
   readonly root: CollectionNode;
   readonly rootSchema: CollectionSchema;
   readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
+  readonly loadSchema: (
+    reference: CollectionReference,
+    signal: AbortSignal,
+  ) => Promise<
+    | { readonly ok: true; readonly schema: CollectionSchema }
+    | { readonly ok: false; readonly message: string }
+  >;
   readonly onAdd: (
     parentId: CollectionNodeId,
     reference: CollectionReference,
@@ -33,15 +45,33 @@ function schemaPaths(schema: CollectionSchema): readonly string[] {
   return ['id', 'created', 'modified', 'version', ...schema.fields.map((field) => field.name)];
 }
 
+function sameFieldPath(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+}
+
+function sameNativeRelationship(
+  left: Extract<RelationshipDefinition, { readonly kind: 'native' }>,
+  right: Extract<RelationshipDefinition, { readonly kind: 'native' }>,
+): boolean {
+  return (
+    left.fieldSide === right.fieldSide &&
+    left.relatedModelZuid === right.relatedModelZuid &&
+    sameFieldPath(left.field, right.field)
+  );
+}
+
 function AddRelationship({
   parent,
   schema,
+  loadSchema,
   onAdd,
 }: {
   readonly parent: CollectionNode;
   readonly schema: CollectionSchema;
+  readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
 }) {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -51,7 +81,32 @@ function AddRelationship({
   const [childPath, setChildPath] = useState('');
   const [error, setError] = useState<string>();
   const parsed = useMemo(() => parseCollectionReference(url), [url]);
-  const nativeFields = parsed.ok ? findNativeRelationships(schema, parsed.value.modelZuid) : [];
+  const referenceAllowed =
+    parsed.ok &&
+    parsed.value.instanceZuid === parent.reference.instanceZuid &&
+    parsed.value.deployment === parent.reference.deployment;
+  const schemaQueryKey = [
+    'relationship-schema',
+    parsed.ok ? parsed.value.instanceZuid : '',
+    parsed.ok ? parsed.value.deployment : '',
+    parsed.ok ? parsed.value.modelZuid : '',
+  ] as const;
+  const schemaQuery = useQuery({
+    queryKey: schemaQueryKey,
+    enabled: open && referenceAllowed,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      if (!parsed.ok) throw new Error('A valid related collection URL is required.');
+      const result = await loadSchema(parsed.value, signal);
+      if (!result.ok) throw new Error(result.message);
+      return result.schema;
+    },
+  });
+  const loadedChildSchema = schemaQuery.data;
+  const nativeCandidates =
+    parsed.ok && loadedChildSchema
+      ? findNativeRelationshipCandidates(schema, loadedChildSchema)
+      : [];
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,33 +114,36 @@ function AddRelationship({
       setError(parsed.error.message);
       return;
     }
+    if (!referenceAllowed) {
+      setError('Every collection node must belong to the root instance and deployment.');
+      return;
+    }
 
     let relationship: RelationshipDefinition;
     let defaultName: string;
-    if (mode === 'native' && nativeFields.length > 0) {
-      const selected = nativeFields.find((field) => field.name === nativeField) ?? nativeFields[0];
-      if (!selected || (nativeFields.length > 1 && !nativeField)) {
+    if (mode === 'native' && nativeCandidates.length > 0) {
+      const selected =
+        nativeCandidates.find((candidate) => candidate.field.id === nativeField) ??
+        nativeCandidates[0];
+      if (!selected || (nativeCandidates.length > 1 && !nativeField)) {
         setError('Choose which native relationship field this role uses.');
         return;
       }
-      relationship = {
-        kind: 'native',
-        parentField: [selected.name],
-        targetModelZuid: parsed.value.modelZuid,
-      };
-      defaultName = selected.label;
+      relationship = selected.relationship;
+      defaultName = selected.field.label;
     } else {
       if (!parentPath.trim() || !childPath.trim()) {
         setError('Choose a parent field path and enter a child field path.');
         return;
       }
+      const parentField = parentPath.split('.').filter(Boolean);
       relationship = {
         kind: 'custom',
-        parentField: parentPath.split('.').filter(Boolean),
+        parentField,
         childField: childPath.split('.').filter(Boolean),
       };
       defaultName =
-        schema.fields.find((field) => field.name === relationship.parentField[0])?.label ??
+        schema.fields.find((field) => field.name === parentField[0])?.label ??
         parsed.value.modelZuid;
     }
 
@@ -101,7 +159,13 @@ function AddRelationship({
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) void queryClient.cancelQueries({ queryKey: schemaQueryKey, exact: true });
+      }}
+    >
       <Dialog.Trigger className="tree-action">
         <Plus size={13} /> Add relationship
       </Dialog.Trigger>
@@ -128,7 +192,10 @@ function AddRelationship({
               id={`child-url-${parent.id}`}
               type="url"
               value={url}
-              onChange={(event) => setUrl(event.target.value)}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                setNativeField('');
+              }}
             />
             <label className="field-label" htmlFor={`child-name-${parent.id}`}>
               Node name
@@ -141,7 +208,23 @@ function AddRelationship({
               onChange={(event) => setName(event.target.value)}
             />
 
-            {nativeFields.length > 0 ? (
+            {schemaQuery.isFetching ? (
+              <p className="muted" role="status">
+                Checking native relationships…
+              </p>
+            ) : null}
+            {schemaQuery.error ? (
+              <div>
+                <p className="error-message">
+                  Could not inspect the related collection schema: {schemaQuery.error.message}
+                </p>
+                <button type="button" className="button" onClick={() => void schemaQuery.refetch()}>
+                  Retry schema inspection
+                </button>
+              </div>
+            ) : null}
+
+            {nativeCandidates.length > 0 ? (
               <>
                 <label className="field-label" htmlFor={`relation-mode-${parent.id}`}>
                   Relationship type
@@ -157,7 +240,7 @@ function AddRelationship({
               </>
             ) : null}
 
-            {mode === 'native' && nativeFields.length > 0 ? (
+            {mode === 'native' && nativeCandidates.length > 0 ? (
               <>
                 <label className="field-label" htmlFor={`native-field-${parent.id}`}>
                   Native field
@@ -167,10 +250,10 @@ function AddRelationship({
                   value={nativeField}
                   onChange={(event) => setNativeField(event.target.value)}
                 >
-                  {nativeFields.length > 1 ? <option value="">Choose a field</option> : null}
-                  {nativeFields.map((field) => (
-                    <option key={field.id} value={field.name}>
-                      {field.label}
+                  {nativeCandidates.length > 1 ? <option value="">Choose a field</option> : null}
+                  {nativeCandidates.map((candidate) => (
+                    <option key={candidate.field.id} value={candidate.field.id}>
+                      {candidate.field.label}
                     </option>
                   ))}
                 </select>
@@ -203,7 +286,11 @@ function AddRelationship({
               </div>
             )}
             {error ? <p className="error-message">{error}</p> : null}
-            <button className="button button--primary" type="submit">
+            <button
+              className="button button--primary"
+              type="submit"
+              disabled={schemaQuery.isFetching || schemaQuery.isError}
+            >
               Add collection node
             </button>
           </form>
@@ -225,28 +312,70 @@ function EditRelationship({
   readonly onChange: TreeEditorProps['onRelationshipChange'];
 }) {
   const relationship = node.relationship;
+  const discoveredNativeCandidates = childSchema
+    ? findNativeRelationshipCandidates(parentSchema, childSchema)
+    : findNativeRelationships(parentSchema, node.reference.modelZuid).map((field) => ({
+        field,
+        relationship: {
+          kind: 'native' as const,
+          fieldSide: 'parent' as const,
+          field: [field.name],
+          relatedModelZuid: node.reference.modelZuid,
+        },
+      }));
+  const currentNativeCandidate =
+    relationship?.kind === 'native'
+      ? {
+          field: {
+            id: `12-saved-${node.id}` as const,
+            name: relationship.field.join('.'),
+            label: node.name,
+            kind: 'relationship' as const,
+            relatedModelZuid: relationship.relatedModelZuid,
+          },
+          relationship,
+        }
+      : undefined;
+  const nativeCandidates =
+    currentNativeCandidate &&
+    !discoveredNativeCandidates.some((candidate) =>
+      sameNativeRelationship(candidate.relationship, currentNativeCandidate.relationship),
+    )
+      ? [...discoveredNativeCandidates, currentNativeCandidate]
+      : discoveredNativeCandidates;
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'native' | 'custom'>(relationship?.kind ?? 'custom');
-  const [parentPath, setParentPath] = useState(relationship?.parentField.join('.') ?? '');
+  const [nativeField, setNativeField] = useState('');
+  const [parentPath, setParentPath] = useState(
+    relationship?.kind === 'custom' ? relationship.parentField.join('.') : '',
+  );
   const [childPath, setChildPath] = useState(
     relationship?.kind === 'custom' ? relationship.childField.join('.') : 'id',
   );
   const [error, setError] = useState<string>();
-  const nativeFields = findNativeRelationships(parentSchema, node.reference.modelZuid);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!parentPath.trim() || (mode === 'custom' && !childPath.trim())) {
+    if (mode === 'custom' && (!parentPath.trim() || !childPath.trim())) {
       setError('Choose both relationship field paths.');
       return;
     }
+    const selectedNative =
+      nativeCandidates.find((candidate) => candidate.field.id === nativeField) ??
+      (relationship?.kind === 'native'
+        ? nativeCandidates.find((candidate) =>
+            sameNativeRelationship(candidate.relationship, relationship),
+          )
+        : nativeCandidates.length === 1
+          ? nativeCandidates[0]
+          : undefined);
+    if (mode === 'native' && !selectedNative) {
+      setError('Choose which native relationship field this role uses.');
+      return;
+    }
     const next: RelationshipDefinition =
-      mode === 'native'
-        ? {
-            kind: 'native',
-            parentField: parentPath.split('.').filter(Boolean),
-            targetModelZuid: node.reference.modelZuid,
-          }
+      mode === 'native' && selectedNative
+        ? selectedNative.relationship
         : {
             kind: 'custom',
             parentField: parentPath.split('.').filter(Boolean),
@@ -279,25 +408,51 @@ function EditRelationship({
             <label className="field-label">
               Relationship type
               <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
-                {nativeFields.length > 0 ? (
+                {nativeCandidates.length > 0 ? (
                   <option value="native">Native relationship</option>
                 ) : null}
                 <option value="custom">Custom equality</option>
               </select>
             </label>
-            <label className="field-label">
-              Parent field path
-              <input
-                list={`edit-parent-paths-${node.id}`}
-                value={parentPath}
-                onChange={(event) => setParentPath(event.target.value)}
-              />
-              <datalist id={`edit-parent-paths-${node.id}`}>
-                {schemaPaths(parentSchema).map((path) => (
-                  <option key={path} value={path} />
-                ))}
-              </datalist>
-            </label>
+            {mode === 'native' ? (
+              <label className="field-label">
+                Native field
+                <select
+                  value={
+                    nativeField ||
+                    (relationship?.kind === 'native'
+                      ? nativeCandidates.find((candidate) =>
+                          sameNativeRelationship(candidate.relationship, relationship),
+                        )?.field.id
+                      : '')
+                  }
+                  onChange={(event) => setNativeField(event.target.value)}
+                >
+                  {nativeCandidates.length > 1 && relationship?.kind !== 'native' ? (
+                    <option value="">Choose a field</option>
+                  ) : null}
+                  {nativeCandidates.map((candidate) => (
+                    <option key={candidate.field.id} value={candidate.field.id}>
+                      {candidate.field.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="field-label">
+                Parent field path
+                <input
+                  list={`edit-parent-paths-${node.id}`}
+                  value={parentPath}
+                  onChange={(event) => setParentPath(event.target.value)}
+                />
+                <datalist id={`edit-parent-paths-${node.id}`}>
+                  {schemaPaths(parentSchema).map((path) => (
+                    <option key={path} value={path} />
+                  ))}
+                </datalist>
+              </label>
+            )}
             {mode === 'custom' ? (
               <label className="field-label">
                 Child field path
@@ -330,6 +485,7 @@ function TreeNodeRow({
   onRename,
   onRemove,
   schemas,
+  loadSchema,
   onAdd,
   parent,
   onRelationshipChange,
@@ -339,6 +495,7 @@ function TreeNodeRow({
   readonly onRename: TreeEditorProps['onRename'];
   readonly onRemove: TreeEditorProps['onRemove'];
   readonly schemas: TreeEditorProps['schemas'];
+  readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
   readonly parent?: CollectionNode;
   readonly onRelationshipChange: TreeEditorProps['onRelationshipChange'];
@@ -401,7 +558,12 @@ function TreeNodeRow({
         </details>
       </div>
       {schemas.get(node.id) ? (
-        <AddRelationship parent={node} schema={schemas.get(node.id)!} onAdd={onAdd} />
+        <AddRelationship
+          parent={node}
+          schema={schemas.get(node.id)!}
+          loadSchema={loadSchema}
+          onAdd={onAdd}
+        />
       ) : null}
       {node.children.length > 0 ? (
         <ul className="tree-children">
@@ -413,6 +575,7 @@ function TreeNodeRow({
               onRename={onRename}
               onRemove={onRemove}
               schemas={schemas}
+              loadSchema={loadSchema}
               onAdd={onAdd}
               parent={node}
               onRelationshipChange={onRelationshipChange}
@@ -428,6 +591,7 @@ export function TreeEditor({
   root,
   rootSchema,
   schemas,
+  loadSchema,
   onAdd,
   onRename,
   onRemove,
@@ -447,6 +611,7 @@ export function TreeEditor({
           onRename={onRename}
           onRemove={onRemove}
           schemas={availableSchemas}
+          loadSchema={loadSchema}
           onAdd={onAdd}
           onRelationshipChange={onRelationshipChange}
         />

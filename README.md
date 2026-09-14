@@ -44,7 +44,7 @@ The token is stored only in that tab's `sessionStorage`, separated by deployment
 
 - `Published only` applies the same content state to every collection. Off means latest saved content.
 - `Add related collection` attaches a collection below a tree node. All nodes must belong to the root instance and deployment.
-- Native relationships use model relationship fields. When several fields target the same model, choose the intended field.
+- Native relationships use model relationship fields declared on either collection. When several fields connect the same models, choose the intended field.
 - Custom relationships compare one parent field path with one child field path using strict scalar equality. Values are not coerced.
 - Expand a content item to mount its related tables. Several rows can remain expanded.
 - View filters determine which root items remain and may inspect descendants. Table filters limit only that node's rows and may also inspect descendants.

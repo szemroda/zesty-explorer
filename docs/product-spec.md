@@ -94,7 +94,7 @@ The `Published only` checkbox changes the state for the entire view and reloads 
 
 The `Add related collection` action belongs to a parent collection node. The user supplies a collection URL, which determines the child collection.
 
-- The application reads Zesty model fields and proposes native relationships between the parent and child models.
+- The application reads both Zesty models and proposes native relationships declared on either the parent or child collection.
 - If several native relationship fields target the same model, the user must choose one. The application does not guess.
 - When no suitable native relationship exists, the user creates a custom relationship by choosing one field path on the parent and one on the child.
 - A custom relationship supports nested scalar field paths and strict equality only.

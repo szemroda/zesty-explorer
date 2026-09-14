@@ -90,11 +90,12 @@ describe.each(performanceBaselines)('ExplorerCore with $totalItems generated ite
     };
     const nativeRelationship = {
       kind: 'native' as const,
-      parentField: ['primaryChild'],
-      targetModelZuid: generated.children.modelZuid,
+      fieldSide: 'parent' as const,
+      field: ['primaryChild'],
+      relatedModelZuid: generated.children.modelZuid,
     };
     const nativeParentSnapshot = nativeParents(generated.parents, generated.children);
-    const customIndex = buildRelationshipIndex(generated.children, ['parentKey']);
+    const customIndex = buildRelationshipIndex(generated.children, customRelationship);
     const customRelations = joinRelatedItems(generated.parents, customIndex, customRelationship);
     const graph = createExplorerGraph({
       rootNodeId: 'node-root',
@@ -110,13 +111,13 @@ describe.each(performanceBaselines)('ExplorerCore with $totalItems generated ite
 
     const runners: Readonly<Record<Operation, () => unknown>> = {
       normalize: () => decodeCollectionPage(raw),
-      'custom-index': () => buildRelationshipIndex(generated.children, ['parentKey']),
-      'native-index': () => buildRelationshipIndex(generated.children, ['id']),
+      'custom-index': () => buildRelationshipIndex(generated.children, customRelationship),
+      'native-index': () => buildRelationshipIndex(generated.children, nativeRelationship),
       'custom-join': () => joinRelatedItems(generated.parents, customIndex, customRelationship),
       'native-join': () =>
         joinRelatedItems(
           nativeParentSnapshot,
-          buildRelationshipIndex(generated.children, ['id']),
+          buildRelationshipIndex(generated.children, nativeRelationship),
           nativeRelationship,
         ),
       'descendant-filter': () =>
