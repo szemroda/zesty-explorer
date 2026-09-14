@@ -20,7 +20,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The development server binds to `127.0.0.1` and exits if port 5173 is already in use.
+Open [http://localhost:5173](http://localhost:5173). Use that exact hostname: Zesty accepts `localhost` as a browser origin but rejects the equivalent loopback addresses `127.0.0.1` and `[::1]`. The application redirects `http://127.0.0.1:5173` to `localhost` while preserving the complete view URL. The development server remains bound to IPv4 loopback, does not serve `[::1]`, and exits if port 5173 is already in use.
 
 ## Start a view
 

@@ -143,7 +143,7 @@ export function NestedTable(props: NestedTableProps) {
   }
   if (state.status === 'failed' || !schema) {
     const failure = state.status === 'failed' ? state.error : loadedView.schemaErrors.get(node.id);
-    const message = failure ? describeExplorerError(failure) : undefined;
+    const message = failure ? describeExplorerError(failure, window.location.origin) : undefined;
     return (
       <div className="nested-state nested-state--error" role="alert">
         <span>

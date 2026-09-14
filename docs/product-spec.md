@@ -9,8 +9,8 @@ Zesty Explorer is a local, read-only React application for browsing one Zesty in
 
 ## Product constraints
 
-- Users clone the repository, install dependencies with pnpm, and run the application on `http://localhost:5173`.
-- The development server binds only to `127.0.0.1` and fails if port `5173` is unavailable.
+- Users clone the repository, install dependencies with pnpm, and run the application on the canonical browser origin `http://localhost:5173`. The literal hostname is required by the Zesty Instances API CORS policy; `127.0.0.1` and `[::1]` are not supported browser origins.
+- The development server binds only to IPv4 loopback, opens `http://localhost:5173`, and fails if port `5173` is unavailable. Requests opened through `http://127.0.0.1:5173` are redirected to `localhost` before application startup while preserving the path, query, and fragment. The IPv6 loopback address `[::1]` is unsupported and is not served.
 - The application calls the Zesty Instances API directly. It has no backend and is not deployed to Vercel.
 - The application is read-only. It never writes content, models, relationships, or settings to Zesty.
 - The interface, source code, documentation, errors, and test names use English.
@@ -217,6 +217,7 @@ The URL never contains the session token, page numbers, expanded rows, open pane
 - A failed root collection blocks the table and offers retry.
 - A failed nested collection leaves the rest of the view usable, marks its node, and offers retry.
 - Errors distinguish invalid input, blocked host, authentication, permission, missing resource, schema decoding, network/CORS, timeout, rate limiting, and response limits.
+- Browser Fetch does not expose whether CORS or another network condition blocked a response. The network/CORS error therefore states that Zesty could not be reached, includes the current browser origin, and presents CORS as a diagnostic possibility rather than a confirmed cause.
 - Retry with bounded backoff applies only to transient network, `429`, and selected `5xx` failures. Effect owns retry policy. TanStack Query does not add a second retry loop.
 
 ## Technical design
@@ -318,5 +319,6 @@ pnpm build
 ## Supporting records
 
 - [Domain language](../CONTEXT.md)
-- [ADR 0001: Run as a local browser application](./adr/0001-run-as-local-browser-app.md)
+- [ADR 0001: Run as a local browser application (superseded)](./adr/0001-run-as-local-browser-app.md)
 - [ADR 0002: Use Effect v3 at the I/O seam](./adr/0002-use-effect-at-the-io-seam.md)
+- [ADR 0003: Call Instances API from the canonical localhost origin](./adr/0003-call-instances-api-from-canonical-localhost.md)

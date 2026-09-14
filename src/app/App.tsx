@@ -151,7 +151,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     retryRoot,
   } = loadedViewQuery;
   const rootFailure = loadStatus.kind === 'failed' ? loadStatus.failure : undefined;
-  const queryErrorMessage = rootFailure ? describeExplorerError(rootFailure) : undefined;
+  const queryErrorMessage = rootFailure
+    ? describeExplorerError(rootFailure, window.location.origin)
+    : undefined;
   useEffect(() => {
     if (!authenticationFailed || !reference) return;
     tokenStore.clear(reference.deployment);

@@ -66,7 +66,7 @@ async function installPerformanceApi(page: Page) {
   await page.route('https://8-performance.api.zesty.io/**', async (route) => {
     const request = route.request();
     const headers = {
-      'access-control-allow-origin': 'http://127.0.0.1:5173',
+      'access-control-allow-origin': 'http://localhost:5173',
       'access-control-allow-headers': 'authorization',
       'access-control-allow-methods': 'GET,OPTIONS',
     };

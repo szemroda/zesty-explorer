@@ -5,6 +5,7 @@ const childUrl = 'https://8-fixture.manager.zesty.io/content/6-childmodel';
 
 interface FakeApiState {
   unauthorized: boolean;
+  networkFailure: boolean;
   partialRoot: boolean;
   forbiddenModels: Set<string>;
   requests: string[];
@@ -84,12 +85,16 @@ async function fulfillApi(route: Route, state: FakeApiState) {
   const request = route.request();
   state.requests.push(`${request.method()} ${request.url()}`);
   const cors = {
-    'access-control-allow-origin': 'http://127.0.0.1:5173',
+    'access-control-allow-origin': 'http://localhost:5173',
     'access-control-allow-headers': 'authorization,content-type',
     'access-control-allow-methods': 'GET,OPTIONS',
   };
   if (request.method() === 'OPTIONS') {
     await route.fulfill({ status: 204, headers: cors });
+    return;
+  }
+  if (state.networkFailure) {
+    await route.abort('failed');
     return;
   }
   expect(request.method()).toBe('GET');
@@ -139,13 +144,14 @@ async function fulfillApi(route: Route, state: FakeApiState) {
 async function installFakeApi(page: Page): Promise<FakeApiState> {
   const state: FakeApiState = {
     unauthorized: false,
+    networkFailure: false,
     partialRoot: false,
     forbiddenModels: new Set(),
     requests: [],
   };
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
-    if (url.hostname === '127.0.0.1') await route.continue();
+    if (url.hostname === 'localhost') await route.continue();
     else await route.abort('blockedbyclient');
   });
   await page.route('https://8-fixture.api.zesty.io/**', (route) => fulfillApi(route, state));
@@ -205,6 +211,22 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('heading', { name: 'Replace your session token' })).toBeVisible();
   expect(page.url()).toContain('#view=');
+});
+
+test('reports the browser origin without claiming that CORS caused a network failure', async ({
+  page,
+}) => {
+  const state = await installFakeApi(page);
+  state.networkFailure = true;
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByLabel('Root collection URL').fill(rootUrl);
+  await page.getByRole('button', { name: 'Open collection' }).click();
+
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('The Zesty request could not reach the server.');
+  await expect(alert).toContainText('http://localhost:5173');
+  await expect(alert).toContainText('CORS may be the cause');
 });
 
 test('creates native and custom roles, expands related rows, and preserves details focus', async ({

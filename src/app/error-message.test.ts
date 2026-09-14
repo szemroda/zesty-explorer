@@ -19,7 +19,7 @@ const failures: readonly ExplorerError[] = [
 
 describe('explorer error messages', () => {
   it.each(failures)('gives $kind failures an actionable recovery', (failure) => {
-    const result = describeExplorerError(failure);
+    const result = describeExplorerError(failure, 'http://localhost:5173');
     expect(result.message).toBe(failure.message);
     expect(result.recovery.length).toBeGreaterThan(10);
   });

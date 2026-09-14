@@ -5,7 +5,7 @@ export interface ErrorMessage {
   readonly recovery: string;
 }
 
-export function describeExplorerError(error: ExplorerError): ErrorMessage {
+export function describeExplorerError(error: ExplorerError, browserOrigin: string): ErrorMessage {
   if (error.kind === 'invalid-input' || error.kind === 'blocked-host') {
     return { message: error.message, recovery: 'Check the collection URL and try again.' };
   }
@@ -33,7 +33,7 @@ export function describeExplorerError(error: ExplorerError): ErrorMessage {
   if (error.kind === 'network') {
     return {
       message: error.message,
-      recovery: 'Check connectivity and browser CORS errors, then retry.',
+      recovery: `Check connectivity and the browser Network panel for requests from ${browserOrigin}. CORS may be the cause when the browser exposes no response.`,
     };
   }
   if (error.kind === 'timeout') {
