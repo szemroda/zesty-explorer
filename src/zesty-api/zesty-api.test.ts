@@ -225,11 +225,11 @@ describe('ZestyApi', () => {
     const secondPage = {
       data: [
         {
-          title: 'Third story',
+          data: { title: 'Third story' },
           meta: {
-            zuid: '7-000000-cccccc',
-            created: '2026-01-03T12:00:00.000Z',
-            modified: '2026-02-03T12:00:00.000Z',
+            ZUID: '7-000000-cccccc',
+            createdAt: '2026-01-03T12:00:00.000Z',
+            updatedAt: '2026-02-03T12:00:00.000Z',
             version: 1,
           },
         },
@@ -263,6 +263,54 @@ describe('ZestyApi', () => {
     expect(snapshot.partial).toBe(false);
     expect(fake.requests).toHaveLength(2);
     expect(fake.requests.every((request) => request.url.includes('_active=true'))).toBe(true);
+  });
+
+  it('normalizes the documented Zesty content item response', async () => {
+    const rawItem = {
+      data: {
+        title: 'Documented response',
+        featured: true,
+      },
+      meta: {
+        ZUID: '7-documented-item',
+        contentModelZUID: '6-model123',
+        createdAt: '2026-01-03T12:00:00.000Z',
+        updatedAt: '2026-02-03T12:00:00.000Z',
+        version: 3,
+        workflowStatus: 'ready',
+      },
+      siblings: {},
+      web: { path: '/documented-response/' },
+    };
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [rawItem],
+          _meta: { totalResults: 1, start: 0, offset: 0, limit: 2_500 },
+        },
+      }),
+    );
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionSnapshot(reference, 'latest', 'private-token'),
+    );
+
+    expect(snapshot.items).toEqual([
+      {
+        id: '7-documented-item',
+        fields: { title: 'Documented response', featured: true },
+        metadata: {
+          contentModelZUID: '6-model123',
+          created: '2026-01-03T12:00:00.000Z',
+          modified: '2026-02-03T12:00:00.000Z',
+          version: 3,
+          workflowStatus: 'ready',
+        },
+        raw: rawItem,
+      },
+    ]);
   });
 
   it('retries transient failures but does not retry permission errors', async () => {
@@ -320,11 +368,11 @@ describe('ZestyApi', () => {
 
   it('stops at the collection limit and marks the snapshot partial', async () => {
     const data = Array.from({ length: 5 }, (_, index) => ({
-      title: `Item ${index}`,
+      data: { title: `Item ${index}` },
       meta: {
-        zuid: `7-limit-${index}00000`,
-        created: '2026-01-01T12:00:00.000Z',
-        modified: '2026-01-01T12:00:00.000Z',
+        ZUID: `7-limit-${index}00000`,
+        createdAt: '2026-01-01T12:00:00.000Z',
+        updatedAt: '2026-01-01T12:00:00.000Z',
         version: 1,
       },
     }));

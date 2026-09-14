@@ -13,12 +13,11 @@ interface FakeApiState {
 
 function rawItem(id: string, title: string, fields: Readonly<Record<string, unknown>> = {}) {
   return {
-    title,
-    ...fields,
+    data: { title, ...fields },
     meta: {
-      zuid: id,
-      created: '2026-01-01T00:00:00.000Z',
-      modified: '2026-02-01T00:00:00.000Z',
+      ZUID: id,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-02-01T00:00:00.000Z',
       version: 1,
     },
   };
@@ -39,8 +38,8 @@ const rootItems = Array.from({ length: 105 }, (_, index) =>
       : `Story ${index} with a deliberately long title used to exercise the full-value popover`,
     {
       rootKey: `root-${index}`,
-      primaryChild: index === 0 ? childItems.map((item) => item.meta.zuid) : [],
-      secondaryChild: index === 0 ? childItems[0]?.meta.zuid : null,
+      primaryChild: index === 0 ? childItems.map((item) => item.meta.ZUID) : [],
+      secondaryChild: index === 0 ? childItems[0]?.meta.ZUID : null,
       category: index % 2 ? 'news' : 'guide',
       score: index,
     },

@@ -55,11 +55,11 @@ function measure(
 function rawPage(snapshot: CollectionSnapshot) {
   return {
     data: snapshot.items.map((item) => ({
-      ...item.fields,
+      data: item.fields,
       meta: {
-        zuid: item.id,
-        created: item.metadata.created,
-        modified: item.metadata.modified,
+        ZUID: item.id,
+        createdAt: item.metadata.created,
+        updatedAt: item.metadata.modified,
         version: item.metadata.version,
       },
     })),

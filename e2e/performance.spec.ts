@@ -53,13 +53,15 @@ async function nextPaintAfterClick(locator: Locator): Promise<number> {
 
 async function installPerformanceApi(page: Page) {
   const rootItems = Array.from({ length: 10_000 }, (_, index) => ({
-    title: `Performance item ${index}`,
-    score: (index * 7_919) % 10_000,
-    childRef: '7-performance-child',
+    data: {
+      title: `Performance item ${index}`,
+      score: (index * 7_919) % 10_000,
+      childRef: '7-performance-child',
+    },
     meta: {
-      zuid: `7-performance-${String(index).padStart(6, '0')}`,
-      created: '2026-01-01T00:00:00.000Z',
-      modified: `2026-02-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+      ZUID: `7-performance-${String(index).padStart(6, '0')}`,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: `2026-02-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
       version: 1,
     },
   }));
@@ -100,11 +102,11 @@ async function installPerformanceApi(page: Page) {
     const data = child
       ? [
           {
-            title: 'Performance child',
+            data: { title: 'Performance child' },
             meta: {
-              zuid: '7-performance-child',
-              created: '2026-01-01T00:00:00.000Z',
-              modified: '2026-02-01T00:00:00.000Z',
+              ZUID: '7-performance-child',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-02-01T00:00:00.000Z',
               version: 1,
             },
           },

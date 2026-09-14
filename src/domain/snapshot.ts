@@ -9,16 +9,17 @@ const ItemZuidSchema = Schema.String.pipe(
 );
 
 const ItemMetadataSchema = Schema.Struct({
-  zuid: ItemZuidSchema,
-  created: Schema.String,
-  modified: Schema.String,
+  ZUID: ItemZuidSchema,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
   version: Schema.Number,
 });
 
 const RawItemSchema = Schema.asSchema(
-  Schema.Struct({ meta: ItemMetadataSchema }).pipe(
-    Schema.extend(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  ),
+  Schema.Struct({
+    data: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    meta: ItemMetadataSchema,
+  }).pipe(Schema.extend(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
 );
 
 const CollectionPageSchema = Schema.Struct({
@@ -32,23 +33,22 @@ const CollectionPageSchema = Schema.Struct({
   }),
 });
 
-function normalizeItem(raw: Readonly<Record<string, unknown>>): ContentItem {
+function normalizeItem(raw: typeof RawItemSchema.Type): ContentItem {
   const decodedMetadata = Schema.decodeUnknownSync(ItemMetadataSchema)(raw.meta);
-  const fields: Record<string, unknown> = {};
-
-  for (const [name, value] of Object.entries(raw)) {
-    if (name !== 'meta') fields[name] = value;
-  }
-
   const rawMetadata =
     typeof raw.meta === 'object' && raw.meta !== null && !Array.isArray(raw.meta) ? raw.meta : {};
-  const metadata = Object.fromEntries(
-    Object.entries(rawMetadata).filter(([name]) => name !== 'zuid'),
-  );
+  const metadata: Record<string, unknown> = {};
+
+  for (const [name, value] of Object.entries(rawMetadata)) {
+    if (name === 'ZUID') continue;
+    if (name === 'createdAt') metadata.created = value;
+    else if (name === 'updatedAt') metadata.modified = value;
+    else metadata[name] = value;
+  }
 
   return {
-    id: decodedMetadata.zuid as ItemZuid,
-    fields,
+    id: decodedMetadata.ZUID as ItemZuid,
+    fields: raw.data,
     metadata,
     raw,
   };

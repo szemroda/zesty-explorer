@@ -35,14 +35,14 @@ describe('collection snapshot contracts', () => {
 
   it('returns a typed decoding error for malformed API data', () => {
     const decoded = decodeCollectionPage({
-      data: [{ secret: 'private-content-value', meta: { zuid: 4 } }],
+      data: [{ data: { secret: 'private-content-value' }, meta: { ZUID: 4 } }],
       _meta: {},
     });
     expect(Either.isLeft(decoded)).toBe(true);
     if (Either.isRight(decoded)) return;
     expect(decoded.left.kind).toBe('decoding');
     expect(decoded.left.diagnostic?.issues?.[0]).toEqual({
-      path: '$.data[0].meta.zuid',
+      path: '$.data[0].meta.ZUID',
       expected: 'string',
       received: 'number',
     });
@@ -65,7 +65,7 @@ describe('collection snapshot contracts', () => {
       data: [
         {
           ...fixtureCollectionPage.data[0],
-          meta: { ...fixtureCollectionPage.data[0].meta, zuid: 'wrong' },
+          meta: { ...fixtureCollectionPage.data[0].meta, ZUID: 'wrong' },
         },
       ],
     });
