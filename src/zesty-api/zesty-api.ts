@@ -30,14 +30,27 @@ const ModelZuidSchema = Schema.String.pipe(
   }),
 );
 
+const ScalarSchema = Schema.Union(Schema.String, Schema.Number, Schema.Boolean);
+const RawOptionsSchema = Schema.NullOr(
+  Schema.Union(
+    Schema.Array(ScalarSchema),
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+);
+
 const RawFieldSchema = Schema.Struct({
   ZUID: FieldZuidSchema,
   name: Schema.String,
   label: Schema.String,
   datatype: Schema.String,
-  relatedModelZUID: Schema.optional(ModelZuidSchema),
-  options: Schema.optional(
-    Schema.Array(Schema.Union(Schema.String, Schema.Number, Schema.Boolean)),
+  relatedModelZUID: Schema.optional(Schema.NullOr(ModelZuidSchema)),
+  options: Schema.optional(RawOptionsSchema),
+  settings: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        options: Schema.optional(RawOptionsSchema),
+      }),
+    ),
   ),
 });
 
@@ -51,7 +64,7 @@ const defaultOptions = {
 };
 
 function fieldKind(datatype: string): FieldKind {
-  const normalized = datatype.toLowerCase();
+  const normalized = datatype.toLowerCase().replaceAll('_', '-');
   if (
     normalized.includes('relationship') ||
     normalized === 'one-to-one' ||
@@ -59,7 +72,7 @@ function fieldKind(datatype: string): FieldKind {
   ) {
     return 'relationship';
   }
-  if (normalized.includes('bool')) return 'boolean';
+  if (normalized.includes('bool') || normalized === 'yes-no') return 'boolean';
   if (normalized.includes('date') || normalized.includes('time')) return 'date';
   if (
     normalized.includes('number') ||
@@ -78,6 +91,23 @@ function fieldKind(datatype: string): FieldKind {
   return 'text';
 }
 
+function fieldOptions(
+  field: typeof RawFieldSchema.Type,
+): readonly (string | number | boolean)[] | undefined {
+  const options = field.options ?? field.settings?.options;
+  if (Array.isArray(options)) {
+    const scalarOptions: (string | number | boolean)[] = [];
+    for (const option of options) {
+      if (typeof option === 'string' || typeof option === 'number' || typeof option === 'boolean') {
+        scalarOptions.push(option);
+      }
+    }
+    return scalarOptions;
+  }
+  if (options && typeof options === 'object') return Object.keys(options);
+  return undefined;
+}
+
 function decodeSchema(
   reference: CollectionReference,
   input: unknown,
@@ -90,14 +120,17 @@ function decodeSchema(
     });
   }
 
-  const fields: CollectionField[] = decoded.right.data.map((field) => ({
-    id: field.ZUID as FieldZuid,
-    name: field.name,
-    label: field.label,
-    kind: fieldKind(field.datatype),
-    ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID as ModelZuid } : {}),
-    ...(field.options ? { options: field.options } : {}),
-  }));
+  const fields: CollectionField[] = decoded.right.data.map((field) => {
+    const options = fieldOptions(field);
+    return {
+      id: field.ZUID as FieldZuid,
+      name: field.name,
+      label: field.label,
+      kind: fieldKind(field.datatype),
+      ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID as ModelZuid } : {}),
+      ...(options ? { options } : {}),
+    };
+  });
   return Effect.succeed({ modelZuid: reference.modelZuid, label: reference.modelZuid, fields });
 }
 

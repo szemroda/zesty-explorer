@@ -79,6 +79,83 @@ describe('ZestyApi', () => {
     ]);
   });
 
+  it('loads fields with nullable relationships and settings-based options', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            {
+              ZUID: '12-category1',
+              name: 'category',
+              label: 'Category',
+              datatype: 'dropdown',
+              relatedModelZUID: null,
+              options: null,
+              settings: {
+                options: {
+                  news: 'News',
+                  guide: 'Guide',
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const schema = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+    );
+
+    expect(schema.fields).toEqual([
+      {
+        id: '12-category1',
+        name: 'category',
+        label: 'Category',
+        kind: 'text',
+        options: ['news', 'guide'],
+      },
+    ]);
+  });
+
+  it('maps Zesty relationship and yes-no datatypes', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            {
+              ZUID: '12-author12',
+              name: 'author',
+              label: 'Author',
+              datatype: 'one_to_one',
+              relatedModelZUID: '6-author123',
+            },
+            {
+              ZUID: '12-featured',
+              name: 'featured',
+              label: 'Featured',
+              datatype: 'yes_no',
+              relatedModelZUID: null,
+            },
+          ],
+        },
+      }),
+    );
+
+    const schema = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
+    );
+
+    expect(schema.fields.map(({ name, kind }) => ({ name, kind }))).toEqual([
+      { name: 'author', kind: 'relationship' },
+      { name: 'featured', kind: 'boolean' },
+    ]);
+  });
+
   it('rejects malformed schema ZUIDs before branding them', async () => {
     const fake = fakeTransport(() =>
       Effect.succeed({
