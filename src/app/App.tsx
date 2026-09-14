@@ -1,5 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Copy, Eye, EyeOff, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  Database,
+  Eye,
+  EyeOff,
+  ListFilter,
+  MoreHorizontal,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../collection-reference';
 import type {
@@ -87,11 +98,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [viewFilters, setViewFilters] = useState<readonly ViewFilter[]>(
     initial.view?.viewFilters ?? [],
   );
+  const [viewFiltersOpen, setViewFiltersOpen] = useState(Boolean(initial.view?.viewFilters.length));
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
   const [shareMessage, setShareMessage] = useState<string>();
   const [changingRoot, setChangingRoot] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
+  const topMenu = useRef<HTMLDetailsElement>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
 
   const encodedView = useMemo(() => {
@@ -323,52 +336,85 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   return (
     <main className="app-shell">
       <header className="top-bar">
-        <div>
-          <span className="eyebrow">Local read-only browser</span>
-          <h1>Zesty Explorer</h1>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            <Database size={17} />
+          </span>
+          <div>
+            <h1>Zesty Explorer</h1>
+            <span>Read-only content browser</span>
+          </div>
         </div>
         <div className="top-actions">
           {reference ? (
             <>
-              <input
-                className="global-search"
-                type="search"
-                aria-label="Search the complete view"
-                placeholder="Search view"
-                value={globalFreeText}
-                onChange={(event) => setGlobalFreeText(event.target.value)}
-              />
-              <label className="checkbox-label">
+              <label className="search-control global-search">
+                <Search size={15} aria-hidden="true" />
                 <input
-                  type="checkbox"
-                  checked={contentState === 'published'}
-                  onChange={(event) =>
-                    setContentState(event.target.checked ? 'published' : 'latest')
-                  }
+                  type="search"
+                  aria-label="Search the complete view"
+                  placeholder="Search all collections"
+                  value={globalFreeText}
+                  onChange={(event) => setGlobalFreeText(event.target.value)}
                 />
-                Published only
               </label>
+              <div className="segmented-control" role="group" aria-label="Content version">
+                <button
+                  className="segmented-control__option"
+                  aria-pressed={contentState === 'latest'}
+                  onClick={() => setContentState('latest')}
+                >
+                  Latest
+                </button>
+                <button
+                  className="segmented-control__option"
+                  aria-pressed={contentState === 'published'}
+                  onClick={() => setContentState('published')}
+                >
+                  Published
+                </button>
+              </div>
               <button className="button button--quiet" onClick={() => void refreshCollections()}>
                 <RefreshCw size={14} aria-hidden="true" /> Refresh
               </button>
               <button className="button button--quiet" onClick={() => void copyViewLink()}>
                 <Copy size={14} aria-hidden="true" /> Copy view link
               </button>
-              <button
-                className="button button--quiet"
-                onClick={() => {
-                  setCollectionInput(collectionUrl(reference));
-                  setChangingRoot(true);
-                }}
-              >
-                Replace root
-              </button>
-              <button className="button button--quiet" onClick={resetView}>
-                <RotateCcw size={14} aria-hidden="true" /> Reset view
-              </button>
-              <button className="icon-button" aria-label="Clear session token" onClick={clearToken}>
-                <Trash2 size={16} aria-hidden="true" />
-              </button>
+              <details ref={topMenu} className="toolbar-menu top-menu">
+                <summary className="icon-button" aria-label="View options">
+                  <MoreHorizontal size={17} />
+                </summary>
+                <div className="toolbar-menu__popup top-menu__popup">
+                  <button
+                    className="menu-action"
+                    onClick={() => {
+                      topMenu.current?.removeAttribute('open');
+                      setCollectionInput(collectionUrl(reference));
+                      setChangingRoot(true);
+                    }}
+                  >
+                    <Database size={14} /> Replace root collection
+                  </button>
+                  <button
+                    className="menu-action"
+                    onClick={() => {
+                      topMenu.current?.removeAttribute('open');
+                      resetView();
+                    }}
+                  >
+                    <RotateCcw size={14} /> Reset view
+                  </button>
+                  <button
+                    className="menu-action menu-action--danger"
+                    onClick={() => {
+                      topMenu.current?.removeAttribute('open');
+                      clearToken();
+                    }}
+                  >
+                    <Trash2 size={14} /> Clear saved token
+                  </button>
+                </div>
+              </details>
             </>
           ) : (
             <span className="status-dot">No collection open</span>
@@ -378,7 +424,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
       <div className="workspace">
         <aside className="tree-panel" aria-label="Collection tree">
-          <p className="eyebrow">View</p>
           {treeRoot && loadedView?.schemas.get(treeRoot.id) ? (
             <TreeEditor
               root={{
@@ -404,12 +449,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               }
             />
           ) : reference ? (
-            <div className="tree-node">
-              <span className="tree-node__dot" />
-              <span>{reference.modelZuid}</span>
-            </div>
+            <>
+              <div className="tree-heading">
+                <Database size={15} /> <span>Collections</span>
+              </div>
+              <div className="tree-node tree-node--root">
+                <span className="tree-node__dot" />
+                <span>{reference.modelZuid}</span>
+              </div>
+            </>
           ) : (
-            <p className="muted">Your root collection will appear here.</p>
+            <div className="tree-empty">
+              <Database size={18} />
+              <p>Your collections will appear here.</p>
+            </div>
           )}
         </aside>
 
@@ -511,18 +564,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 URL.
               </p>
               {inputError ? <p className="error-message">{inputError}</p> : null}
-              <button className="button button--primary" type="submit">
-                Open collection
-              </button>
-              {changingRoot ? (
-                <button
-                  className="button button--quiet"
-                  type="button"
-                  onClick={cancelRootReplacement}
-                >
-                  Cancel
+              <div className="start-card__actions">
+                {changingRoot ? (
+                  <button
+                    className="button button--quiet"
+                    type="button"
+                    onClick={cancelRootReplacement}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                <button className="button button--primary" type="submit">
+                  Open collection
                 </button>
-              ) : null}
+              </div>
             </form>
           ) : null}
 
@@ -542,19 +597,32 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           ) : null}
           {!showStart && loadedView && treeRoot && rootSnapshot && rootSchema ? (
             <>
-              <section className="view-filters" aria-label="View filters">
-                <div>
-                  <p className="eyebrow">Root result rules</p>
-                  <strong>View filters</strong>
+              <details
+                className="view-filters"
+                aria-label="View filters"
+                open={viewFiltersOpen}
+                onToggle={(event) => setViewFiltersOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  <span className="view-filters__title">
+                    <ListFilter size={15} />
+                    <strong>View filters</strong>
+                    <span>Filter results across the collection tree</span>
+                  </span>
+                  {viewFilters.length > 0 ? (
+                    <span className="control-count">{viewFilters.length}</span>
+                  ) : null}
+                </summary>
+                <div className="view-filters__panel">
+                  <FilterBuilder
+                    label="View filter"
+                    root={treeRoot}
+                    schemas={loadedView.schemas}
+                    filters={viewFilters}
+                    onChange={setViewFilters}
+                  />
                 </div>
-                <FilterBuilder
-                  label="View filter"
-                  root={treeRoot}
-                  schemas={loadedView.schemas}
-                  filters={viewFilters}
-                  onChange={setViewFilters}
-                />
-              </section>
+              </details>
               {descendantResultsPending ? (
                 <p className="partial-warning" role="status">
                   Related data is loading. Descendant-dependent results will appear when it is

@@ -1,4 +1,14 @@
-import { ChevronDown, ChevronRight, ExternalLink, PanelRightOpen } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  ExternalLink,
+  ListFilter,
+  Search,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { Fragment, useState } from 'react';
 import type {
   CollectionNode,
@@ -54,7 +64,6 @@ interface NestedTableProps {
   readonly updateNodeState: (nodeId: CollectionNodeId, state: SharedNodeTableState) => void;
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
-  readonly onPreview: (label: string, value: string) => void;
   readonly onRetry: () => void;
 }
 
@@ -94,7 +103,6 @@ export function NestedTable(props: NestedTableProps) {
     updateNodeState,
     onPresentationChange,
     onOpenDetails,
-    onPreview,
     onRetry,
   } = props;
   const [pageIndex, setPageIndex] = useState(0);
@@ -166,6 +174,7 @@ export function NestedTable(props: NestedTableProps) {
   const currentPageIndex = Math.min(pageIndex, pageCount - 1);
   const pageIds = pageItemIds(sortedIds, currentPageIndex, pageSize);
   const visibleColumns = columns.filter((column) => !sharedState.hiddenColumns.has(column.id));
+  const actionColumnWidth = node.children.length > 0 ? 116 : 78;
 
   function updateSharedState(next: SharedNodeTableState) {
     updateNodeState(node.id, next);
@@ -183,107 +192,137 @@ export function NestedTable(props: NestedTableProps) {
   return (
     <section className="nested-table" aria-label={`${node.name} related items`}>
       <div className="nested-toolbar">
-        <strong>{node.name}</strong>
-        <input
-          type="search"
-          aria-label={`Filter ${node.name}`}
-          placeholder="Filter rows"
-          value={sharedState.freeText}
-          onChange={(event) => updateSharedState({ ...sharedState, freeText: event.target.value })}
-        />
-        <span className="muted">{sharedState.filters.length} filters</span>
-        <details className="columns-menu">
-          <summary className="button button--quiet">Columns</summary>
-          <div className="columns-menu__popup">
-            {columns.map((column) => (
-              <div className="nested-column-control" key={column.id}>
-                <label>
+        <div className="nested-title">
+          <strong>{node.name}</strong>
+          <span>{sortedIds.length} linked items</span>
+        </div>
+        <div className="nested-tools">
+          <label className="search-control search-control--compact">
+            <Search size={14} aria-hidden="true" />
+            <input
+              type="search"
+              aria-label={`Filter ${node.name}`}
+              placeholder="Search"
+              value={sharedState.freeText}
+              onChange={(event) =>
+                updateSharedState({ ...sharedState, freeText: event.target.value })
+              }
+            />
+          </label>
+          <details className="toolbar-menu">
+            <summary className="button button--quiet" aria-label={`Configure ${node.name} filters`}>
+              <ListFilter size={14} /> Filters
+              {sharedState.filters.length > 0 ? (
+                <span className="control-count">{sharedState.filters.length}</span>
+              ) : null}
+            </summary>
+            <div className="toolbar-menu__popup toolbar-menu__popup--wide">
+              <FilterBuilder
+                label={`${node.name} table filter`}
+                root={node}
+                schemas={loadedView.schemas}
+                filters={sharedState.filters}
+                onChange={(filters) => updateSharedState({ ...sharedState, filters })}
+              />
+            </div>
+          </details>
+          <details className="toolbar-menu">
+            <summary className="button button--quiet" aria-label={`Choose ${node.name} columns`}>
+              <SlidersHorizontal size={14} /> Columns
+            </summary>
+            <div className="toolbar-menu__popup columns-menu__popup">
+              {columns.map((column) => (
+                <div className="nested-column-control" key={column.id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!sharedState.hiddenColumns.has(column.id)}
+                      onChange={(event) => {
+                        const hiddenColumns = new Set(sharedState.hiddenColumns);
+                        if (event.target.checked) hiddenColumns.delete(column.id);
+                        else hiddenColumns.add(column.id);
+                        updateSharedState({ ...sharedState, hiddenColumns });
+                      }}
+                    />
+                    {column.label}
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={!sharedState.hiddenColumns.has(column.id)}
+                    type="number"
+                    aria-label={`${column.label} column width`}
+                    min={columnWidthLimits.min}
+                    max={columnWidthLimits.max}
+                    value={columnWidth(column, sharedState.columnWidths)}
                     onChange={(event) => {
-                      const hiddenColumns = new Set(sharedState.hiddenColumns);
-                      if (event.target.checked) hiddenColumns.delete(column.id);
-                      else hiddenColumns.add(column.id);
-                      updateSharedState({ ...sharedState, hiddenColumns });
+                      const columnWidths = withColumnWidth(
+                        sharedState.columnWidths,
+                        column.id,
+                        event.target.value,
+                      );
+                      if (!columnWidths) return;
+                      updateSharedState({
+                        ...sharedState,
+                        columnWidths,
+                      });
                     }}
                   />
-                  {column.label}
-                </label>
-                <input
-                  type="number"
-                  aria-label={`${column.label} column width`}
-                  min={columnWidthLimits.min}
-                  max={columnWidthLimits.max}
-                  value={columnWidth(column, sharedState.columnWidths)}
-                  onChange={(event) => {
-                    const columnWidths = withColumnWidth(
-                      sharedState.columnWidths,
-                      column.id,
-                      event.target.value,
-                    );
-                    if (!columnWidths) return;
-                    updateSharedState({
-                      ...sharedState,
-                      columnWidths,
-                    });
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        </details>
-        <label className="compact-label">
-          Sort
-          <select
-            value={columnIdForSort(sharedState.sort)}
-            onChange={(event) =>
-              updateSharedState({
-                ...sharedState,
-                sort: sortForColumn(event.target.value, sharedState.sort.direction),
-              })
-            }
-          >
-            <option value="$modified">Modified</option>
-            <option value="$id">ZUID</option>
-            <option value="$created">Created</option>
-            <option value="$version">Version</option>
-            {columns
-              .filter((column) => column.id.startsWith('$meta.'))
-              .map((column) => (
-                <option key={column.id} value={column.id}>
-                  {column.label}
+                </div>
+              ))}
+            </div>
+          </details>
+          <div className="sort-control" role="group" aria-label={`Sort ${node.name}`}>
+            <select
+              aria-label="Sort"
+              value={columnIdForSort(sharedState.sort)}
+              onChange={(event) =>
+                updateSharedState({
+                  ...sharedState,
+                  sort: sortForColumn(event.target.value, sharedState.sort.direction),
+                })
+              }
+            >
+              <option value="$modified">Modified</option>
+              <option value="$id">ZUID</option>
+              <option value="$created">Created</option>
+              <option value="$version">Version</option>
+              {columns
+                .filter((column) => column.id.startsWith('$meta.'))
+                .map((column) => (
+                  <option key={column.id} value={column.id}>
+                    {column.label}
+                  </option>
+                ))}
+              {currentSchema.fields.map((field) => (
+                <option key={field.id} value={field.name}>
+                  {field.label}
                 </option>
               ))}
-            {currentSchema.fields.map((field) => (
-              <option key={field.id} value={field.name}>
-                {field.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="button button--quiet"
-          onClick={() =>
-            updateSharedState({
-              ...sharedState,
-              sort: {
-                ...sharedState.sort,
-                direction: sharedState.sort.direction === 'asc' ? 'desc' : 'asc',
-              },
-            })
-          }
-        >
-          {sharedState.sort.direction === 'asc' ? 'Ascending' : 'Descending'}
-        </button>
+            </select>
+            <button
+              className="icon-button"
+              aria-label={
+                sharedState.sort.direction === 'asc' ? 'Sort ascending' : 'Sort descending'
+              }
+              aria-pressed={sharedState.sort.direction === 'desc'}
+              title={sharedState.sort.direction === 'asc' ? 'Ascending' : 'Descending'}
+              onClick={() =>
+                updateSharedState({
+                  ...sharedState,
+                  sort: {
+                    ...sharedState.sort,
+                    direction: sharedState.sort.direction === 'asc' ? 'desc' : 'asc',
+                  },
+                })
+              }
+            >
+              {sharedState.sort.direction === 'asc' ? (
+                <ArrowUp size={14} />
+              ) : (
+                <ArrowDown size={14} />
+              )}
+            </button>
+          </div>
+        </div>
       </div>
-      <FilterBuilder
-        label={`${node.name} table filter`}
-        root={node}
-        schemas={loadedView.schemas}
-        filters={sharedState.filters}
-        onChange={(filters) => updateSharedState({ ...sharedState, filters })}
-      />
       {state.status === 'partial' ? (
         <p className="partial-warning">Incomplete related results</p>
       ) : null}
@@ -300,24 +339,35 @@ export function NestedTable(props: NestedTableProps) {
           <table
             style={{
               tableLayout: 'fixed',
-              width:
-                96 +
+              width: `max(100%, ${
+                actionColumnWidth +
                 visibleColumns.reduce(
                   (total, column) => total + columnWidth(column, sharedState.columnWidths),
                   0,
-                ),
+                )
+              }px)`,
             }}
           >
+            <colgroup>
+              <col style={{ width: actionColumnWidth }} />
+              {visibleColumns.map((column, index) => (
+                <col
+                  key={column.id}
+                  style={
+                    index === visibleColumns.length - 1
+                      ? undefined
+                      : { width: columnWidth(column, sharedState.columnWidths) }
+                  }
+                />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th className="sticky-cell">Actions</th>
+                <th className="sticky-cell">
+                  <span className="sr-only">Item actions</span>
+                </th>
                 {visibleColumns.map((column) => (
-                  <th
-                    key={column.id}
-                    style={{ width: columnWidth(column, sharedState.columnWidths) }}
-                  >
-                    {column.label}
-                  </th>
+                  <th key={column.id}>{column.label}</th>
                 ))}
               </tr>
             </thead>
@@ -330,11 +380,13 @@ export function NestedTable(props: NestedTableProps) {
                   <Fragment key={itemId}>
                     <tr>
                       <td className="sticky-cell">
-                        <div className="row-actions">
+                        <div className="row-actions" role="group" aria-label="Item actions">
                           {node.children.length > 0 ? (
                             <button
-                              className="icon-button"
+                              className="button button--row button--relationship"
                               aria-label={`${isExpanded ? 'Collapse' : 'Expand'} relationships for ${itemId}`}
+                              aria-expanded={isExpanded}
+                              title={isExpanded ? 'Hide related items' : 'Show related items'}
                               onClick={() =>
                                 setExpanded((current) => {
                                   const next = new Set(current);
@@ -348,18 +400,20 @@ export function NestedTable(props: NestedTableProps) {
                             </button>
                           ) : null}
                           <button
-                            className="icon-button"
+                            className="button button--row"
                             aria-label={`Open details for ${itemId}`}
+                            title="Open item details"
                             onClick={(event) => onOpenDetails(item, event.currentTarget)}
                           >
-                            <PanelRightOpen size={14} />
+                            <Eye size={14} />
                           </button>
                           <a
-                            className="icon-button"
+                            className="button button--row"
                             aria-label={`Open ${itemId} in Zesty Manager`}
                             href={`${node.reference.managerBaseUrl}/${node.reference.area}/${node.reference.modelZuid}/${item.id}`}
                             target="_blank"
                             rel="noreferrer"
+                            title="Open in Zesty Manager in a new tab"
                           >
                             <ExternalLink size={14} />
                           </a>
@@ -370,11 +424,7 @@ export function NestedTable(props: NestedTableProps) {
                           key={column.id}
                           style={{ width: columnWidth(column, sharedState.columnWidths) }}
                         >
-                          <CellValue
-                            label={column.label}
-                            value={column.read(item)}
-                            onPreview={onPreview}
-                          />
+                          <CellValue value={column.read(item)} />
                         </td>
                       ))}
                     </tr>
@@ -404,23 +454,27 @@ export function NestedTable(props: NestedTableProps) {
       )}
       <div className="pagination">
         <span>{sortedIds.length} related items</span>
-        <button
-          className="button button--quiet"
-          disabled={currentPageIndex === 0}
-          onClick={() => setPageIndex(currentPageIndex - 1)}
-        >
-          Previous
-        </button>
-        <span>
-          Page {currentPageIndex + 1} of {pageCount}
-        </span>
-        <button
-          className="button button--quiet"
-          disabled={currentPageIndex + 1 >= pageCount}
-          onClick={() => setPageIndex(currentPageIndex + 1)}
-        >
-          Next
-        </button>
+        {pageCount > 1 ? (
+          <>
+            <button
+              className="button button--quiet"
+              disabled={currentPageIndex === 0}
+              onClick={() => setPageIndex(currentPageIndex - 1)}
+            >
+              Previous
+            </button>
+            <span>
+              Page {currentPageIndex + 1} of {pageCount}
+            </span>
+            <button
+              className="button button--quiet"
+              disabled={currentPageIndex + 1 >= pageCount}
+              onClick={() => setPageIndex(currentPageIndex + 1)}
+            >
+              Next
+            </button>
+          </>
+        ) : null}
         <label>
           Rows
           <select

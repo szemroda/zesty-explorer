@@ -17,12 +17,13 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Eye,
   ExternalLink,
-  PanelRightOpen,
+  ListFilter,
+  Search,
   SlidersHorizontal,
 } from 'lucide-react';
-import { Popover } from '@base-ui/react/popover';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -65,6 +66,11 @@ interface RootTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
 }
 
+function itemLabel(item: ContentItem): string {
+  const label = formatContentValue(item.fields.title ?? item.fields.name);
+  return label === '—' ? item.id : label;
+}
+
 const features = tableFeatures({
   columnSizingFeature,
   columnResizingFeature,
@@ -90,11 +96,6 @@ export function RootTable({
   const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
-  );
-  const [preview, setPreview] = useState<{ readonly label: string; readonly value: string }>();
-  const setPreviewValue = useCallback(
-    (label: string, value: string) => setPreview({ label, value }),
-    [],
   );
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
   const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
@@ -189,6 +190,7 @@ export function RootTable({
     treeRoot.id,
     viewFilters,
   ]);
+  const actionColumnWidth = treeRoot.children.length > 0 ? 116 : 78;
 
   const columns = useMemo(
     () =>
@@ -196,14 +198,19 @@ export function RootTable({
         columnHelper.display({
           id: 'actions',
           header: '',
+          size: actionColumnWidth,
           enableHiding: false,
           enableResizing: false,
           cell: ({ row }) => (
-            <div className="row-actions">
+            <div className="row-actions" role="group" aria-label="Item actions">
               {treeRoot.children.length > 0 ? (
                 <button
-                  className="icon-button"
+                  className="button button--row button--relationship"
                   aria-label={`${expanded.has(row.original.id) ? 'Collapse' : 'Expand'} relationships for ${row.original.id}`}
+                  aria-expanded={expanded.has(row.original.id)}
+                  title={
+                    expanded.has(row.original.id) ? 'Hide related items' : 'Show related items'
+                  }
                   onClick={() =>
                     setExpanded((current) => {
                       const next = new Set(current);
@@ -221,18 +228,20 @@ export function RootTable({
                 </button>
               ) : null}
               <button
-                className="icon-button"
-                aria-label={`Open details for ${formatContentValue(row.original.fields.title)}`}
+                className="button button--row"
+                aria-label={`Open details for ${itemLabel(row.original)}`}
+                title="Open item details"
                 onClick={(event) => onOpenDetails(row.original, event.currentTarget)}
               >
-                <PanelRightOpen size={15} />
+                <Eye size={15} />
               </button>
               <a
-                className="icon-button"
-                aria-label={`Open ${formatContentValue(row.original.fields.title)} in Zesty Manager`}
+                className="button button--row"
+                aria-label={`Open ${itemLabel(row.original)} in Zesty Manager`}
                 href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
                 target="_blank"
                 rel="noreferrer"
+                title="Open in Zesty Manager in a new tab"
               >
                 <ExternalLink size={15} />
               </a>
@@ -245,18 +254,16 @@ export function RootTable({
             header: column.label,
             size: column.defaultWidth,
             enableSorting: column.sortable,
-            cell: ({ getValue }) => (
-              <CellValue label={column.label} value={getValue()} onPreview={setPreviewValue} />
-            ),
+            cell: ({ getValue }) => <CellValue value={getValue()} />,
           }),
         ),
       ]),
     [
+      actionColumnWidth,
       expanded,
       itemColumnDefinitions,
       onOpenDetails,
       reference,
-      setPreviewValue,
       treeRoot.children.length,
     ],
   );
@@ -309,25 +316,49 @@ export function RootTable({
     return <div className="state-card">This collection has no content items.</div>;
 
   return (
-    <div className="table-card">
+    <section className="table-card" aria-label={`${schema.label} collection`}>
       <div className="table-toolbar">
-        <div>
-          <p className="eyebrow">Root collection</p>
+        <div className="table-title">
           <h2>{schema.label}</h2>
+          <span>
+            {filteredItems.length} of {snapshot.items.length} items
+          </span>
         </div>
         <div className="table-tools">
-          <input
-            type="search"
-            aria-label="Filter this table"
-            placeholder="Filter this table"
-            value={tableFreeText}
-            onChange={(event) => setTableFreeText(event.target.value)}
-          />
-          <details className="columns-menu">
-            <summary className="button button--quiet">
+          <label className="search-control">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Filter this table"
+              placeholder="Search this collection"
+              value={tableFreeText}
+              onChange={(event) => setTableFreeText(event.target.value)}
+            />
+          </label>
+          <details className="toolbar-menu">
+            <summary className="button button--quiet" aria-label="Configure table filters">
+              <ListFilter size={14} /> Filters
+              {filters.length > 0 ? <span className="control-count">{filters.length}</span> : null}
+            </summary>
+            <div className="toolbar-menu__popup toolbar-menu__popup--wide">
+              <FilterBuilder
+                label="Table filter"
+                root={treeRoot}
+                schemas={loadedView.schemas}
+                filters={filters}
+                onChange={(next) => {
+                  setFilters(next);
+                  persistPresentation({ filters: next });
+                  setPagination((current) => ({ ...current, pageIndex: 0 }));
+                }}
+              />
+            </div>
+          </details>
+          <details className="toolbar-menu">
+            <summary className="button button--quiet" aria-label="Choose visible columns">
               <SlidersHorizontal size={14} /> Columns
             </summary>
-            <div className="columns-menu__popup">
+            <div className="toolbar-menu__popup columns-menu__popup">
               {table
                 .getAllLeafColumns()
                 .filter((column) => column.getCanHide())
@@ -346,29 +377,28 @@ export function RootTable({
           </details>
         </div>
       </div>
-      <div>
-        <FilterBuilder
-          label="Table filter"
-          root={treeRoot}
-          schemas={loadedView.schemas}
-          filters={filters}
-          onChange={(next) => {
-            setFilters(next);
-            persistPresentation({ filters: next });
-            setPagination((current) => ({ ...current, pageIndex: 0 }));
-          }}
-        />
-        {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
-          <span className="muted">Filtering…</span>
-        ) : null}
-      </div>
+      {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
+        <div className="table-progress" role="status">
+          Updating results...
+        </div>
+      ) : null}
       {snapshot.partial ? (
         <p className="partial-warning" role="status">
           Showing a partial collection. Results may be incomplete.
         </p>
       ) : null}
       <div className="table-scroll">
-        <table style={{ width: table.getTotalSize(), tableLayout: 'fixed' }}>
+        <table style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}>
+          <colgroup>
+            {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
+              <col
+                key={column.id}
+                style={
+                  index === visibleColumns.length - 1 ? undefined : { width: column.getSize() }
+                }
+              />
+            ))}
+          </colgroup>
           <thead>
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
@@ -376,7 +406,6 @@ export function RootTable({
                   <th
                     key={header.id}
                     className={header.id === 'actions' ? 'sticky-cell' : undefined}
-                    style={{ width: header.getSize() }}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
@@ -410,7 +439,6 @@ export function RootTable({
                     <td
                       key={cell.id}
                       className={cell.column.id === 'actions' ? 'sticky-cell' : undefined}
-                      style={{ width: cell.column.getSize() }}
                     >
                       <table.FlexRender cell={cell} />
                     </td>
@@ -433,7 +461,6 @@ export function RootTable({
                             updateNodeState={updateNodeState}
                             onPresentationChange={onPresentationChange}
                             onOpenDetails={onOpenDetails}
-                            onPreview={(label, value) => setPreview({ label, value })}
                             onRetry={onRetry}
                           />
                         ))}
@@ -448,23 +475,27 @@ export function RootTable({
       </div>
       <div className="pagination">
         <span>{filteredItems.length} items</span>
-        <button
-          className="button button--quiet"
-          disabled={!table.getCanPreviousPage()}
-          onClick={() => table.previousPage()}
-        >
-          Previous
-        </button>
-        <span>
-          Page {pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())}
-        </span>
-        <button
-          className="button button--quiet"
-          disabled={!table.getCanNextPage()}
-          onClick={() => table.nextPage()}
-        >
-          Next
-        </button>
+        {table.getPageCount() > 1 ? (
+          <>
+            <button
+              className="button button--quiet"
+              disabled={!table.getCanPreviousPage()}
+              onClick={() => table.previousPage()}
+            >
+              Previous
+            </button>
+            <span>
+              Page {pagination.pageIndex + 1} of {table.getPageCount()}
+            </span>
+            <button
+              className="button button--quiet"
+              disabled={!table.getCanNextPage()}
+              onClick={() => table.nextPage()}
+            >
+              Next
+            </button>
+          </>
+        ) : null}
         <label>
           Rows
           <select
@@ -479,20 +510,6 @@ export function RootTable({
           </select>
         </label>
       </div>
-      <Popover.Root open={Boolean(preview)} onOpenChange={(open) => !open && setPreview(undefined)}>
-        <Popover.Trigger className="preview-anchor" aria-hidden="true" tabIndex={-1}>
-          Preview
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Positioner side="bottom" align="end" sideOffset={8}>
-            <Popover.Popup className="value-popover">
-              <Popover.Title>{preview?.label}</Popover.Title>
-              <pre>{preview?.value}</pre>
-              <Popover.Close className="button button--quiet">Close</Popover.Close>
-            </Popover.Popup>
-          </Popover.Positioner>
-        </Popover.Portal>
-      </Popover.Root>
-    </div>
+    </section>
   );
 }

@@ -135,74 +135,95 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
 
   return (
     <div className="filter-builder" aria-label={label}>
-      <select
-        aria-label={`${label} relationship path`}
-        value={path}
-        onChange={(event) => choosePath(event.target.value)}
-      >
-        {choices.map((candidate) => (
-          <option key={candidate.node.id} value={candidate.path.join('/')}>
-            {candidate.label}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={`${label} field`}
-        value={field?.name ?? ''}
-        onChange={(event) => {
-          setFieldName(event.target.value);
-          const nextField = schema?.fields.find(
-            (candidate) => candidate.name === event.target.value,
-          );
-          setOperator(operatorsFor(nextField)[0] ?? 'contains');
-        }}
-      >
-        {schema?.fields.map((candidate) => (
-          <option key={candidate.id} value={candidate.name}>
-            {candidate.label}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={`${label} operator`}
-        value={operator}
-        onChange={(event) => setOperator(event.target.value as ViewFilter['operator'])}
-      >
-        {operators.map((candidate) => (
-          <option key={candidate} value={candidate}>
-            {candidate.replaceAll('-', ' ')}
-          </option>
-        ))}
-      </select>
-      {needsValue ? (
-        field?.options?.length && operator === 'one-of' ? (
+      <div className="filter-builder__controls">
+        <label className="filter-control">
+          <span>Collection</span>
           <select
-            multiple
-            aria-label={`${label} value`}
-            value={value ? value.split(',') : []}
-            onChange={(event) =>
-              setValue([...event.target.selectedOptions].map((option) => option.value).join(','))
-            }
+            aria-label={`${label} relationship path`}
+            value={path}
+            onChange={(event) => choosePath(event.target.value)}
           >
-            {field.options.map((option) => (
-              <option key={String(option)} value={String(option)}>
-                {String(option)}
+            {choices.map((candidate) => (
+              <option key={candidate.node.id} value={candidate.path.join('/')}>
+                {candidate.label}
               </option>
             ))}
           </select>
-        ) : (
-          <input
-            aria-label={`${label} value`}
-            value={value}
-            placeholder={operator === 'between' ? 'lower, upper' : 'Value'}
-            inputMode={field?.kind === 'number' ? 'decimal' : undefined}
-            onChange={(event) => setValue(event.target.value)}
-          />
-        )
-      ) : null}
-      <button className="button button--quiet" disabled={!field} onClick={add}>
-        <Plus size={13} /> Add
-      </button>
+        </label>
+        <label className="filter-control">
+          <span>Field</span>
+          <select
+            aria-label={`${label} field`}
+            value={field?.name ?? ''}
+            onChange={(event) => {
+              setFieldName(event.target.value);
+              const nextField = schema?.fields.find(
+                (candidate) => candidate.name === event.target.value,
+              );
+              setOperator(operatorsFor(nextField)[0] ?? 'contains');
+            }}
+          >
+            {schema?.fields.map((candidate) => (
+              <option key={candidate.id} value={candidate.name}>
+                {candidate.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-control">
+          <span>Condition</span>
+          <select
+            aria-label={`${label} operator`}
+            value={operator}
+            onChange={(event) => setOperator(event.target.value as ViewFilter['operator'])}
+          >
+            {operators.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {candidate.replaceAll('-', ' ')}
+              </option>
+            ))}
+          </select>
+        </label>
+        {needsValue ? (
+          <label className="filter-control filter-control--value">
+            <span>Value</span>
+            {field?.options?.length && operator === 'one-of' ? (
+              <select
+                multiple
+                aria-label={`${label} value`}
+                value={value ? value.split(',') : []}
+                onChange={(event) =>
+                  setValue(
+                    [...event.target.selectedOptions].map((option) => option.value).join(','),
+                  )
+                }
+              >
+                {field.options.map((option) => (
+                  <option key={String(option)} value={String(option)}>
+                    {String(option)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                aria-label={`${label} value`}
+                value={value}
+                placeholder={operator === 'between' ? 'lower, upper' : 'Enter a value'}
+                inputMode={field?.kind === 'number' ? 'decimal' : undefined}
+                onChange={(event) => setValue(event.target.value)}
+              />
+            )}
+          </label>
+        ) : null}
+        <button
+          className="button button--primary filter-add"
+          type="button"
+          disabled={!field}
+          onClick={add}
+        >
+          <Plus size={14} /> Add filter
+        </button>
+      </div>
       {filters.length > 0 ? (
         <div className="filter-chips">
           {filters.map((filter) => (
@@ -216,6 +237,7 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
             >
               {filterSummary(filter, choices)}
               <button
+                type="button"
                 aria-label={`Remove filter ${filter.fieldPath.join('.')}`}
                 onClick={() => onChange(filters.filter((candidate) => candidate.id !== filter.id))}
               >

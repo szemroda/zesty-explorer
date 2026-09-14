@@ -95,12 +95,14 @@ describe('root collection browser', () => {
     expect(htmlCell.querySelector('strong')).toBeNull();
     expect(screen.getByRole('checkbox', { name: 'workflowStatus' })).not.toBeChecked();
     expect(screen.getByRole('dialog', { name: '7-000000-aaaaaa' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: /open first story in zesty manager/i }),
-    ).toHaveAttribute(
+    const zestyLink = screen.getByRole('link', {
+      name: /open first story in zesty manager/i,
+    });
+    expect(zestyLink).toHaveAttribute(
       'href',
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa',
     );
+    expect(zestyLink).toHaveAttribute('target', '_blank');
   });
 
   it('clears an expired token, preserves the root, and resumes with a replacement', async () => {
@@ -216,7 +218,10 @@ describe('root collection browser', () => {
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     expect(screen.getByLabelText('Search the complete view')).toHaveValue('story');
-    expect(screen.getByLabelText('Published only')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Published' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(window.location.hash).toMatch(/^#view=/);
     expect(window.location.href).not.toContain('stored-session-token');
   });
@@ -269,7 +274,7 @@ describe('root collection browser', () => {
     render(<App api={testApi} tokenStore={store} />);
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'production-token');
     await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'Replace root' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace root collection' }));
     fireEvent.change(screen.getByLabelText('Root collection URL'), {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });
@@ -292,7 +297,7 @@ describe('root collection browser', () => {
     render(<App api={testApi} tokenStore={tokenStore()} />);
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
     await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear session token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear saved token' }));
     submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
   });

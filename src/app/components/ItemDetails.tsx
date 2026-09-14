@@ -42,7 +42,7 @@ export function ItemDetails({ item, onClose, finalFocus }: ItemDetailsProps) {
         >
           <header>
             <div>
-              <p className="eyebrow">Content item</p>
+              <span className="details-kicker">Item details</span>
               <Dialog.Title id="details-title">{item.id}</Dialog.Title>
             </div>
             <Dialog.Close className="icon-button" aria-label="Close item details">
@@ -53,7 +53,7 @@ export function ItemDetails({ item, onClose, finalFocus }: ItemDetailsProps) {
             <button
               role="tab"
               aria-selected={!raw}
-              className="button button--quiet"
+              className="details-tab"
               onClick={() => setRaw(false)}
             >
               Fields
@@ -61,7 +61,7 @@ export function ItemDetails({ item, onClose, finalFocus }: ItemDetailsProps) {
             <button
               role="tab"
               aria-selected={raw}
-              className="button button--quiet"
+              className="details-tab"
               onClick={() => setRaw(true)}
             >
               Raw JSON

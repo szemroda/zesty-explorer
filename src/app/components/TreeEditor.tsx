@@ -1,5 +1,5 @@
 import { Dialog } from '@base-ui/react/dialog';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { GitBranch, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
 import type {
@@ -103,7 +103,7 @@ function AddRelationship({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger className="tree-action">
-        <Plus size={13} /> Add related collection
+        <Plus size={13} /> Add relationship
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="dialog-backdrop" />
@@ -259,8 +259,9 @@ function EditRelationship({
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger className="tree-icon" aria-label={`Edit relationship for ${node.name}`}>
+      <Dialog.Trigger className="tree-menu__item" aria-label={`Edit relationship for ${node.name}`}>
         <Pencil size={12} />
+        <span>Edit relationship</span>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="dialog-backdrop" />
@@ -353,7 +354,7 @@ function TreeNodeRow({
 
   return (
     <li>
-      <div className="tree-node">
+      <div className={node.id === root.id ? 'tree-node tree-node--root' : 'tree-node'}>
         <span className="tree-node__dot" />
         {editing ? (
           <input
@@ -364,30 +365,40 @@ function TreeNodeRow({
               onRename(node.id, name);
               setEditing(false);
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') {
+                setName(node.name);
+                setEditing(false);
+              }
+            }}
           />
         ) : (
           <span>{node.name}</span>
         )}
-        <button
-          className="tree-icon"
-          aria-label={`Rename ${node.name}`}
-          onClick={() => setEditing(true)}
-        >
-          <Pencil size={12} />
-        </button>
-        {parent && schemas.get(parent.id) ? (
-          <EditRelationship
-            node={node}
-            parentSchema={schemas.get(parent.id)!}
-            {...(schemas.get(node.id) ? { childSchema: schemas.get(node.id)! } : {})}
-            onChange={onRelationshipChange}
-          />
-        ) : null}
-        {node.id !== root.id ? (
-          <button className="tree-icon" aria-label={`Remove ${node.name}`} onClick={remove}>
-            <Trash2 size={12} />
-          </button>
-        ) : null}
+        <details className="tree-menu">
+          <summary className="tree-icon" aria-label={`Actions for ${node.name}`}>
+            <MoreHorizontal size={15} />
+          </summary>
+          <div className="tree-menu__popup">
+            <button className="tree-menu__item" onClick={() => setEditing(true)}>
+              <Pencil size={12} /> <span>Rename</span>
+            </button>
+            {parent && schemas.get(parent.id) ? (
+              <EditRelationship
+                node={node}
+                parentSchema={schemas.get(parent.id)!}
+                {...(schemas.get(node.id) ? { childSchema: schemas.get(node.id)! } : {})}
+                onChange={onRelationshipChange}
+              />
+            ) : null}
+            {node.id !== root.id ? (
+              <button className="tree-menu__item tree-menu__item--danger" onClick={remove}>
+                <Trash2 size={12} /> <span>Remove</span>
+              </button>
+            ) : null}
+          </div>
+        </details>
       </div>
       {schemas.get(node.id) ? (
         <AddRelationship parent={node} schema={schemas.get(node.id)!} onAdd={onAdd} />
@@ -424,7 +435,11 @@ export function TreeEditor({
 }: TreeEditorProps) {
   const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
   return (
-    <div>
+    <div className="tree-editor">
+      <div className="tree-heading">
+        <GitBranch size={15} aria-hidden="true" />
+        <span>Collections</span>
+      </div>
       <ul className="tree-list">
         <TreeNodeRow
           node={root}
