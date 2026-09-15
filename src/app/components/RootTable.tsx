@@ -235,16 +235,18 @@ export function RootTable({
               >
                 <Eye size={15} />
               </button>
-              <a
-                className="button button--row"
-                aria-label={`Open ${itemLabel(row.original)} in Zesty Manager`}
-                href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
-                target="_blank"
-                rel="noreferrer"
-                title="Open in Zesty Manager in a new tab"
-              >
-                <ExternalLink size={15} />
-              </a>
+              {reference.area !== 'other' ? (
+                <a
+                  className="button button--row"
+                  aria-label={`Open ${itemLabel(row.original)} in Zesty Manager`}
+                  href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open in Zesty Manager in a new tab"
+                >
+                  <ExternalLink size={15} />
+                </a>
+              ) : null}
             </div>
           ),
         }),

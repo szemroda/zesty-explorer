@@ -99,6 +99,7 @@ describe('view loading', () => {
     let interrupted = false;
     const root = node('node-root', '6-root');
     const api: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () => Effect.succeed(schema),
       loadCollectionSnapshot: () =>
         Effect.never.pipe(
@@ -119,6 +120,7 @@ describe('view loading', () => {
 
   it('surfaces typed root failures', async () => {
     const api: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () => Effect.fail({ kind: 'network', message: 'Offline' }),
       loadCollectionSnapshot: () => Effect.succeed(snapshot('6-root')),
     };

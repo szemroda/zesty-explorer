@@ -13,13 +13,15 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { parseCollectionReference } from '../collection-reference';
+import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
 import type {
   CollectionNode,
   CollectionNodeId,
   CollectionReference,
   ContentItem,
   ContentState,
+  InstanceReference,
+  ModelZuid,
   NodePresentation,
   PersistedView,
   RelationshipDefinition,
@@ -40,6 +42,7 @@ import {
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
 import { FilterBuilder } from './components/FilterBuilder';
+import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
@@ -47,6 +50,9 @@ import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
+import { useCollectionCatalog } from './hooks/useCollectionCatalog';
+import { Toaster } from './components/ui/toast';
+import { ToastProvider, useAppToastManager } from './components/ui/toast-context';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -72,10 +78,26 @@ function initialSharedView(): {
 }
 
 function collectionUrl(reference: CollectionReference): string {
+  if (reference.area === 'other') {
+    return `${reference.apiBaseUrl}/content/models/${reference.modelZuid}`;
+  }
   return `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`;
 }
 
+function instanceReference(reference: CollectionReference): InstanceReference {
+  return {
+    instanceZuid: reference.instanceZuid,
+    deployment: reference.deployment,
+    apiBaseUrl: reference.apiBaseUrl,
+    managerBaseUrl: reference.managerBaseUrl,
+    suggestedModelZuid: reference.modelZuid,
+    ...(reference.itemZuid ? { suggestedItemZuid: reference.itemZuid } : {}),
+    suggestedArea: reference.area,
+  };
+}
+
 function Explorer({ api, tokenStore }: ExplorerProps) {
+  const toastManager = useAppToastManager();
   const [initial] = useState(initialSharedView);
   const [initialToken] = useState(() =>
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
@@ -103,10 +125,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
   const [shareMessage, setShareMessage] = useState<string>();
   const [changingRoot, setChangingRoot] = useState(false);
+  const [selectingRoot, setSelectingRoot] = useState(false);
+  const [catalogInstance, setCatalogInstance] = useState<InstanceReference | undefined>(() =>
+    initial.view ? instanceReference(initial.view.root.reference) : undefined,
+  );
+  const [selectedRootZuid, setSelectedRootZuid] = useState<ModelZuid | undefined>(
+    initial.view?.root.reference.modelZuid,
+  );
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const topMenu = useRef<HTMLDetailsElement>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   const encodedView = useMemo(() => {
@@ -152,7 +183,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       activeToken &&
       tokenDeployment === treeRoot.reference.deployment &&
       !tokenRequired &&
-      !changingRoot,
+      !changingRoot &&
+      !selectingRoot,
     ),
     requiresCompleteView,
   });
@@ -166,20 +198,73 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     refresh: refreshCollections,
     retryRoot,
   } = loadedViewQuery;
+  const catalogQuery = useCollectionCatalog({
+    api,
+    reference: catalogInstance,
+    sessionToken: activeToken,
+    enabled: Boolean(catalogInstance && activeToken),
+  });
+
+  const refreshAll = useCallback(
+    async function refreshAllRequests() {
+      if (isRefreshing) return;
+      setIsRefreshing(true);
+      let succeeded: boolean;
+      try {
+        const [catalogSucceeded, collectionsSucceeded] = await Promise.all([
+          catalogQuery.refresh(),
+          refreshCollections(),
+        ]);
+        succeeded = catalogSucceeded && collectionsSucceeded;
+      } catch {
+        succeeded = false;
+      } finally {
+        setIsRefreshing(false);
+      }
+      setRefreshFailed(!succeeded);
+      if (succeeded) {
+        toastManager.close('refresh-failed');
+        return;
+      }
+      toastManager.add({
+        id: 'refresh-failed',
+        title: 'Refresh failed',
+        description: 'Some data could not be refreshed. The current view remains available.',
+        priority: 'low',
+        timeout: 8_000,
+        data: { retry: () => void refreshAllRequests() },
+      });
+    },
+    [catalogQuery, isRefreshing, refreshCollections, toastManager],
+  );
   const rootFailure = loadStatus.kind === 'failed' ? loadStatus.failure : undefined;
   const queryErrorMessage = rootFailure
     ? describeExplorerError(rootFailure, window.location.origin)
     : undefined;
+  const catalogAuthenticationFailed = catalogQuery.error?.kind === 'authentication';
   useEffect(() => {
-    if (!authenticationFailed || !reference) return;
-    tokenStore.clear(reference.deployment);
+    const failedDeployment = catalogAuthenticationFailed
+      ? catalogInstance?.deployment
+      : authenticationFailed
+        ? reference?.deployment
+        : undefined;
+    if (!failedDeployment) return;
+    tokenStore.clear(failedDeployment);
     const update = window.setTimeout(() => {
       setToken('');
       setActiveToken('');
       setTokenRequired(true);
+      setCatalogInstance(undefined);
+      setSelectingRoot(false);
     }, 0);
     return () => window.clearTimeout(update);
-  }, [authenticationFailed, reference, tokenStore]);
+  }, [
+    authenticationFailed,
+    catalogAuthenticationFailed,
+    catalogInstance?.deployment,
+    reference?.deployment,
+    tokenStore,
+  ]);
 
   const selectedItem = useMemo(() => {
     if (!selectedItemId || !loadedView) return undefined;
@@ -207,9 +292,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     [activeToken, api, relationshipSchemaSemaphore],
   );
 
-  function openCollection(event: React.FormEvent<HTMLFormElement>) {
+  function loadCatalog(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsed = parseCollectionReference(collectionInput);
+    const parsed = parseInstanceReference(collectionInput);
     if (!parsed.ok) {
       setInputError(parsed.error.message);
       return;
@@ -219,11 +304,73 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       return;
     }
 
+    tokenStore.set(parsed.value.deployment, token);
+    setActiveToken(token);
+    setTokenDeployment(parsed.value.deployment);
+    setCatalogInstance(parsed.value);
+    setSelectedRootZuid(parsed.value.suggestedModelZuid);
+    setInputError(undefined);
+    setTokenRequired(false);
+    setSelectingRoot(true);
+  }
+
+  const rootPickerCollections = useMemo(() => {
+    const collections = [...(catalogQuery.catalog?.collections ?? [])];
+    const parsed = parseCollectionReference(collectionInput);
+    if (!catalogInstance) return collections;
+    const fallbackReference: CollectionReference | undefined =
+      parsed.ok &&
+      parsed.value.instanceZuid === catalogInstance.instanceZuid &&
+      parsed.value.deployment === catalogInstance.deployment
+        ? parsed.value
+        : catalogInstance.suggestedModelZuid
+          ? {
+              instanceZuid: catalogInstance.instanceZuid,
+              modelZuid: catalogInstance.suggestedModelZuid,
+              deployment: catalogInstance.deployment,
+              area: catalogInstance.suggestedArea ?? 'other',
+              apiBaseUrl: catalogInstance.apiBaseUrl,
+              managerBaseUrl: catalogInstance.managerBaseUrl,
+            }
+          : undefined;
+    if (!fallbackReference) return collections;
+    if (
+      collections.some(
+        (collection) => collection.reference.modelZuid === fallbackReference.modelZuid,
+      )
+    )
+      return collections;
+    collections.push({
+      label: fallbackReference.modelZuid,
+      name: fallbackReference.modelZuid,
+      type: 'uncatalogued',
+      group: fallbackReference.area,
+      reference: fallbackReference,
+    });
+    return collections;
+  }, [catalogInstance, catalogQuery.catalog?.collections, collectionInput]);
+
+  function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const selected = rootPickerCollections.find(
+      (collection) => collection.reference.modelZuid === selectedRootZuid,
+    );
+    if (!selected) {
+      setInputError('Choose a root collection or paste a collection reference.');
+      return;
+    }
+    const selectedReference: CollectionReference = {
+      ...selected.reference,
+      ...(catalogInstance?.suggestedModelZuid === selected.reference.modelZuid &&
+      catalogInstance.suggestedItemZuid
+        ? { itemZuid: catalogInstance.suggestedItemZuid }
+        : {}),
+    };
     const replacingRoot = Boolean(
       treeRoot &&
-      (treeRoot.reference.instanceZuid !== parsed.value.instanceZuid ||
-        treeRoot.reference.modelZuid !== parsed.value.modelZuid ||
-        treeRoot.reference.deployment !== parsed.value.deployment),
+      (treeRoot.reference.instanceZuid !== selectedReference.instanceZuid ||
+        treeRoot.reference.modelZuid !== selectedReference.modelZuid ||
+        treeRoot.reference.deployment !== selectedReference.deployment),
     );
     if (
       replacingRoot &&
@@ -240,22 +387,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setContentState('latest');
     }
 
-    tokenStore.set(parsed.value.deployment, token);
-    setActiveToken(token);
-    setTokenDeployment(parsed.value.deployment);
-    setReference(parsed.value);
+    setReference(selectedReference);
     setTreeRoot((current) => {
       if (
-        current?.reference.instanceZuid === parsed.value.instanceZuid &&
-        current.reference.modelZuid === parsed.value.modelZuid &&
-        current.reference.deployment === parsed.value.deployment
+        current?.reference.instanceZuid === selectedReference.instanceZuid &&
+        current.reference.modelZuid === selectedReference.modelZuid &&
+        current.reference.deployment === selectedReference.deployment
       ) {
         return current;
       }
       return {
         id: 'node-root',
-        name: parsed.value.modelZuid,
-        reference: parsed.value,
+        name: selected.label,
+        reference: selectedReference,
         presentation: {
           visibleColumns: ['*'],
           columnWidths: {},
@@ -266,10 +410,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         children: [],
       };
     });
-    setSelectedItemId(parsed.value.itemZuid);
+    setSelectedItemId(selectedReference.itemZuid);
     setInputError(undefined);
     setTokenRequired(false);
     setChangingRoot(false);
+    setSelectingRoot(false);
   }
 
   function clearToken() {
@@ -284,6 +429,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setActiveToken('');
     setTokenDeployment(reference.deployment);
     setTokenRequired(true);
+    setCatalogInstance(undefined);
+    setSelectingRoot(false);
   }
 
   function resetView() {
@@ -298,6 +445,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setViewDecodeError(undefined);
     setTokenRequired(false);
     setChangingRoot(false);
+    setSelectingRoot(false);
+    setCatalogInstance(undefined);
+    setSelectedRootZuid(undefined);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
 
@@ -319,9 +469,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTokenDeployment(reference.deployment);
     setInputError(undefined);
     setChangingRoot(false);
+    setSelectingRoot(false);
+    setCatalogInstance(instanceReference(reference));
+    setSelectedRootZuid(reference.modelZuid);
   }
 
-  const showStart = !reference || tokenRequired || changingRoot;
+  const showStart = !reference || tokenRequired || changingRoot || selectingRoot;
 
   function addRelatedCollection(
     parentId: CollectionNodeId,
@@ -391,9 +544,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   Published
                 </button>
               </div>
-              <button className="button button--quiet" onClick={() => void refreshCollections()}>
-                <RefreshCw size={14} aria-hidden="true" /> Refresh
+              <button
+                className="button button--quiet refresh-button"
+                onClick={() => void refreshAll()}
+                disabled={isRefreshing}
+                aria-describedby={refreshFailed ? 'refresh-status' : undefined}
+                {...(refreshFailed ? { 'data-refresh-failed': '' } : {})}
+              >
+                <RefreshCw
+                  className={isRefreshing ? 'refresh-icon refresh-icon--spinning' : 'refresh-icon'}
+                  size={14}
+                  aria-hidden="true"
+                />
+                Refresh
+                {refreshFailed ? <span className="refresh-failure-dot" aria-hidden="true" /> : null}
               </button>
+              {refreshFailed ? (
+                <span id="refresh-status" className="sr-only" role="status">
+                  The last refresh failed. Activate Refresh to retry.
+                </span>
+              ) : null}
               <button className="button button--quiet" onClick={() => void copyViewLink()}>
                 <Copy size={14} aria-hidden="true" /> Copy view link
               </button>
@@ -452,6 +622,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               }}
               rootSchema={loadedView.schemas.get(treeRoot.id)!}
               schemas={loadedView.schemas}
+              catalog={catalogQuery.catalog?.collections ?? []}
+              catalogError={catalogQuery.error}
+              catalogWarning={catalogQuery.catalog?.warning}
+              onRetryCatalog={() => void catalogQuery.refresh()}
               loadSchema={loadRelationshipSchema}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
@@ -510,93 +684,181 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </div>
             </div>
           ) : showStart ? (
-            <form className="start-card" aria-labelledby="start-title" onSubmit={openCollection}>
-              <p className="eyebrow">
-                {tokenRequired
-                  ? 'Session expired'
-                  : changingRoot
-                    ? 'Change this view'
-                    : 'Start a view'}
-              </p>
-              <h2 id="start-title">
-                {tokenRequired
-                  ? 'Replace your session token'
-                  : changingRoot
-                    ? 'Replace the root collection'
-                    : 'Open a Zesty collection'}
-              </h2>
-
-              <label className="field-label" htmlFor="session-token">
-                Zesty session token
-              </label>
-              <div className="input-with-action">
-                <input
-                  id="session-token"
-                  type={showToken ? 'text' : 'password'}
-                  value={token}
-                  autoComplete="off"
-                  onChange={(event) => {
-                    setToken(event.target.value);
-                    const parsed = parseCollectionReference(collectionInput);
-                    if (parsed.ok) setTokenDeployment(parsed.value.deployment);
-                  }}
+            selectingRoot ? (
+              <form
+                className="start-card"
+                aria-labelledby="root-picker-title"
+                onSubmit={confirmRoot}
+              >
+                <p className="eyebrow">Choose a root</p>
+                <h2 id="root-picker-title">Choose the root collection</h2>
+                {catalogQuery.isLoading ? (
+                  <p className="muted" role="status">
+                    Loading collection catalog…
+                  </p>
+                ) : null}
+                {catalogQuery.error ? (
+                  <div className="catalog-state catalog-state--error" role="alert">
+                    <p>{catalogQuery.error.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.error} />
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => void catalogQuery.refresh()}
+                    >
+                      Retry catalog
+                    </button>
+                  </div>
+                ) : null}
+                {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
+                  <p className="catalog-state" role="status">
+                    This session returned an empty collection catalog.
+                  </p>
+                ) : null}
+                <CollectionPicker
+                  label="Root collection"
+                  collections={rootPickerCollections}
+                  value={selectedRootZuid}
+                  onChange={(collection) => setSelectedRootZuid(collection?.reference.modelZuid)}
+                  disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
                 />
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
-                  onClick={() => setShowToken((visible) => !visible)}
-                >
-                  {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              <details className="help-text">
-                <summary>How to find the token</summary>
-                Copy APP_SID for production, STAGE_APP_SID for stage, or DEV_APP_SID for development
-                from your Zesty Manager cookies. It carries your permissions. Do not share it.
-              </details>
-
-              <label className="field-label" htmlFor="collection-url">
-                Root collection URL
-              </label>
-              <input
-                id="collection-url"
-                type="url"
-                value={collectionInput}
-                placeholder="https://8-….manager.zesty.io/content/6-…"
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setCollectionInput(value);
-                  const parsed = parseCollectionReference(value);
-                  if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
-                  if (!tokenDeployment) {
-                    setTokenDeployment(parsed.value.deployment);
-                    return;
-                  }
-                  setToken(tokenStore.read(parsed.value.deployment) ?? '');
-                  setTokenDeployment(parsed.value.deployment);
-                }}
-              />
-              <p className="help-text">
-                Paste a Content or Blocks URL from Zesty Manager, or a full Instances API collection
-                URL.
-              </p>
-              {inputError ? <p className="error-message">{inputError}</p> : null}
-              <div className="start-card__actions">
-                {changingRoot ? (
+                {catalogQuery.catalog?.warning ? (
+                  <div className="catalog-warning" role="status">
+                    <p>{catalogQuery.catalog.warning.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                  </div>
+                ) : null}
+                <div className="manual-reference">
+                  <span className="manual-reference__label">Or paste a collection reference</span>
+                  <input
+                    type="url"
+                    aria-label="Root collection reference"
+                    value={collectionInput}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setCollectionInput(value);
+                      const parsed = parseCollectionReference(value);
+                      if (
+                        parsed.ok &&
+                        parsed.value.instanceZuid === catalogInstance?.instanceZuid &&
+                        parsed.value.deployment === catalogInstance.deployment
+                      ) {
+                        setSelectedRootZuid(parsed.value.modelZuid);
+                      }
+                    }}
+                  />
+                </div>
+                {inputError ? <p className="error-message">{inputError}</p> : null}
+                <div className="start-card__actions">
                   <button
                     className="button button--quiet"
                     type="button"
-                    onClick={cancelRootReplacement}
+                    onClick={() => {
+                      setSelectingRoot(false);
+                      if (!reference) setCatalogInstance(undefined);
+                    }}
                   >
-                    Cancel
+                    Back
                   </button>
-                ) : null}
-                <button className="button button--primary" type="submit">
-                  Open collection
-                </button>
-              </div>
-            </form>
+                  <button
+                    className="button button--primary"
+                    type="submit"
+                    disabled={!selectedRootZuid}
+                  >
+                    Open root collection
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form className="start-card" aria-labelledby="start-title" onSubmit={loadCatalog}>
+                <p className="eyebrow">
+                  {tokenRequired
+                    ? 'Session expired'
+                    : changingRoot
+                      ? 'Change this view'
+                      : 'Start a view'}
+                </p>
+                <h2 id="start-title">
+                  {tokenRequired
+                    ? 'Replace your session token'
+                    : changingRoot
+                      ? 'Replace the root collection'
+                      : 'Open a Zesty collection'}
+                </h2>
+
+                <label className="field-label" htmlFor="session-token">
+                  Zesty session token
+                </label>
+                <div className="input-with-action">
+                  <input
+                    id="session-token"
+                    type={showToken ? 'text' : 'password'}
+                    value={token}
+                    autoComplete="off"
+                    onChange={(event) => {
+                      setToken(event.target.value);
+                      const parsed = parseCollectionReference(collectionInput);
+                      if (parsed.ok) setTokenDeployment(parsed.value.deployment);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
+                    onClick={() => setShowToken((visible) => !visible)}
+                  >
+                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <details className="help-text">
+                  <summary>How to find the token</summary>
+                  Copy APP_SID for production, STAGE_APP_SID for stage, or DEV_APP_SID for
+                  development from your Zesty Manager cookies. It carries your permissions. Do not
+                  share it.
+                </details>
+
+                <label className="field-label" htmlFor="collection-url">
+                  Zesty instance URL
+                </label>
+                <input
+                  id="collection-url"
+                  type="url"
+                  value={collectionInput}
+                  placeholder="https://8-….manager.zesty.io/content/6-…"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setCollectionInput(value);
+                    const parsed = parseInstanceReference(value);
+                    if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
+                    if (!tokenDeployment) {
+                      setTokenDeployment(parsed.value.deployment);
+                      return;
+                    }
+                    setToken(tokenStore.read(parsed.value.deployment) ?? '');
+                    setTokenDeployment(parsed.value.deployment);
+                  }}
+                />
+                <p className="help-text">
+                  Paste any URL from an allowed Zesty Manager host, or a recognized Instances API
+                  instance or model URL.
+                </p>
+                {inputError ? <p className="error-message">{inputError}</p> : null}
+                <div className="start-card__actions">
+                  {changingRoot ? (
+                    <button
+                      className="button button--quiet"
+                      type="button"
+                      onClick={cancelRootReplacement}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                  <button className="button button--primary" type="submit">
+                    Load collections
+                  </button>
+                </div>
+              </form>
+            )
           ) : null}
 
           {!showStart && loadStatus.kind === 'loading-root' ? (
@@ -695,7 +957,10 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Explorer api={api} tokenStore={resolvedTokenStore} />
+      <ToastProvider limit={2}>
+        <Explorer api={api} tokenStore={resolvedTokenStore} />
+        <Toaster />
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

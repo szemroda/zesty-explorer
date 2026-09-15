@@ -4,6 +4,7 @@ import type { ExplorerError, ExplorerRequestOperation } from '../../domain';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 
 const operationLabels: Readonly<Record<ExplorerRequestOperation, string>> = {
+  'load-collection-catalog': 'Loading collection catalog',
   'load-collection-schema': 'Loading collection schema',
   'load-collection-items': 'Loading collection items',
 };

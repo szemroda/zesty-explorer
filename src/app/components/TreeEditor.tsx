@@ -6,20 +6,28 @@ import { parseCollectionReference } from '../../collection-reference';
 import type {
   CollectionNode,
   CollectionNodeId,
+  CollectionCatalogEntry,
   CollectionReference,
   CollectionSchema,
   RelationshipDefinition,
+  ExplorerError,
 } from '../../domain';
 import {
   findNativeRelationshipCandidates,
   findNativeRelationships,
   subtreeNodeNames,
 } from '../../explorer-core';
+import { CollectionPicker } from './CollectionPicker';
+import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 
 interface TreeEditorProps {
   readonly root: CollectionNode;
   readonly rootSchema: CollectionSchema;
   readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
+  readonly catalog: readonly CollectionCatalogEntry[];
+  readonly catalogError: ExplorerError | undefined;
+  readonly catalogWarning: ExplorerError | undefined;
+  readonly onRetryCatalog: () => void;
   readonly loadSchema: (
     reference: CollectionReference,
     signal: AbortSignal,
@@ -63,17 +71,26 @@ function sameNativeRelationship(
 function AddRelationship({
   parent,
   schema,
+  catalog,
+  catalogError,
+  catalogWarning,
+  onRetryCatalog,
   loadSchema,
   onAdd,
 }: {
   readonly parent: CollectionNode;
   readonly schema: CollectionSchema;
+  readonly catalog: TreeEditorProps['catalog'];
+  readonly catalogError: TreeEditorProps['catalogError'];
+  readonly catalogWarning: TreeEditorProps['catalogWarning'];
+  readonly onRetryCatalog: TreeEditorProps['onRetryCatalog'];
   readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
+  const [selectedCollection, setSelectedCollection] = useState<CollectionCatalogEntry>();
   const [name, setName] = useState('');
   const [mode, setMode] = useState<'native' | 'custom'>('native');
   const [nativeField, setNativeField] = useState('');
@@ -81,37 +98,40 @@ function AddRelationship({
   const [childPath, setChildPath] = useState('');
   const [error, setError] = useState<string>();
   const parsed = useMemo(() => parseCollectionReference(url), [url]);
+  const selectedReference = selectedCollection?.reference ?? (parsed.ok ? parsed.value : undefined);
   const referenceAllowed =
-    parsed.ok &&
-    parsed.value.instanceZuid === parent.reference.instanceZuid &&
-    parsed.value.deployment === parent.reference.deployment;
+    selectedReference !== undefined &&
+    selectedReference.instanceZuid === parent.reference.instanceZuid &&
+    selectedReference.deployment === parent.reference.deployment;
   const schemaQueryKey = [
     'relationship-schema',
-    parsed.ok ? parsed.value.instanceZuid : '',
-    parsed.ok ? parsed.value.deployment : '',
-    parsed.ok ? parsed.value.modelZuid : '',
+    selectedReference?.instanceZuid ?? '',
+    selectedReference?.deployment ?? '',
+    selectedReference?.modelZuid ?? '',
   ] as const;
   const schemaQuery = useQuery({
     queryKey: schemaQueryKey,
     enabled: open && referenceAllowed,
     retry: false,
     queryFn: async ({ signal }) => {
-      if (!parsed.ok) throw new Error('A valid related collection URL is required.');
-      const result = await loadSchema(parsed.value, signal);
+      if (!selectedReference) throw new Error('A valid related collection URL is required.');
+      const result = await loadSchema(selectedReference, signal);
       if (!result.ok) throw new Error(result.message);
       return result.schema;
     },
   });
   const loadedChildSchema = schemaQuery.data;
-  const nativeCandidates =
-    parsed.ok && loadedChildSchema
-      ? findNativeRelationshipCandidates(schema, loadedChildSchema)
-      : [];
+  const nativeCandidates = loadedChildSchema
+    ? findNativeRelationshipCandidates(schema, loadedChildSchema)
+    : [];
+  const effectiveMode = loadedChildSchema && nativeCandidates.length === 0 ? 'custom' : mode;
+  const effectiveChildPath =
+    effectiveMode === 'custom' && loadedChildSchema && !childPath ? 'id' : childPath;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!parsed.ok) {
-      setError(parsed.error.message);
+    if (!selectedReference) {
+      setError(parsed.ok ? 'Choose a related collection.' : parsed.error.message);
       return;
     }
     if (!referenceAllowed) {
@@ -121,7 +141,7 @@ function AddRelationship({
 
     let relationship: RelationshipDefinition;
     let defaultName: string;
-    if (mode === 'native' && nativeCandidates.length > 0) {
+    if (effectiveMode === 'native' && nativeCandidates.length > 0) {
       const selected =
         nativeCandidates.find((candidate) => candidate.field.id === nativeField) ??
         nativeCandidates[0];
@@ -132,7 +152,7 @@ function AddRelationship({
       relationship = selected.relationship;
       defaultName = selected.field.label;
     } else {
-      if (!parentPath.trim() || !childPath.trim()) {
+      if (!parentPath.trim() || !effectiveChildPath.trim()) {
         setError('Choose a parent field path and enter a child field path.');
         return;
       }
@@ -140,20 +160,21 @@ function AddRelationship({
       relationship = {
         kind: 'custom',
         parentField,
-        childField: childPath.split('.').filter(Boolean),
+        childField: effectiveChildPath.split('.').filter(Boolean),
       };
       defaultName =
         schema.fields.find((field) => field.name === parentField[0])?.label ??
-        parsed.value.modelZuid;
+        selectedReference.modelZuid;
     }
 
-    const problem = onAdd(parent.id, parsed.value, name || defaultName, relationship);
+    const problem = onAdd(parent.id, selectedReference, name || defaultName, relationship);
     if (problem) {
       setError(problem);
       return;
     }
     setOpen(false);
     setUrl('');
+    setSelectedCollection(undefined);
     setName('');
     setError(undefined);
   }
@@ -185,18 +206,58 @@ function AddRelationship({
             Add another collection from the same Zesty instance and deployment.
           </Dialog.Description>
           <form onSubmit={submit}>
-            <label className="field-label" htmlFor={`child-url-${parent.id}`}>
-              Related collection URL
-            </label>
-            <input
-              id={`child-url-${parent.id}`}
-              type="url"
-              value={url}
-              onChange={(event) => {
-                setUrl(event.target.value);
+            <CollectionPicker
+              label="Related collection"
+              collections={catalog}
+              value={selectedReference?.modelZuid}
+              onChange={(collection) => {
+                if (!collection) {
+                  setUrl('');
+                  setSelectedCollection(undefined);
+                  return;
+                }
+                const reference = collection.reference;
+                setSelectedCollection(collection);
+                setUrl(
+                  reference.area === 'other'
+                    ? `${reference.apiBaseUrl}/content/models/${reference.modelZuid}`
+                    : `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`,
+                );
                 setNativeField('');
+                setMode('native');
               }}
             />
+            {catalogError ? (
+              <div className="catalog-state catalog-state--error" role="alert">
+                <p>{catalogError.message}</p>
+                <ErrorTechnicalDetails error={catalogError} />
+                <button type="button" className="button" onClick={onRetryCatalog}>
+                  Retry catalog
+                </button>
+              </div>
+            ) : null}
+            {catalogWarning ? (
+              <div className="catalog-warning" role="status">
+                <p>{catalogWarning.message}</p>
+                <ErrorTechnicalDetails error={catalogWarning} />
+              </div>
+            ) : null}
+            <div className="manual-reference">
+              <span className="manual-reference__label">Or paste a collection reference</span>
+              <label className="field-label" htmlFor={`child-url-${parent.id}`}>
+                Related collection URL
+              </label>
+              <input
+                id={`child-url-${parent.id}`}
+                type="url"
+                value={url}
+                onChange={(event) => {
+                  setUrl(event.target.value);
+                  setSelectedCollection(undefined);
+                  setNativeField('');
+                }}
+              />
+            </div>
             <label className="field-label" htmlFor={`child-name-${parent.id}`}>
               Node name
             </label>
@@ -223,6 +284,11 @@ function AddRelationship({
                 </button>
               </div>
             ) : null}
+            {loadedChildSchema && nativeCandidates.length === 0 ? (
+              <p className="catalog-state" role="status">
+                No native relationship targets this collection. Custom equality is selected.
+              </p>
+            ) : null}
 
             {nativeCandidates.length > 0 ? (
               <>
@@ -240,7 +306,7 @@ function AddRelationship({
               </>
             ) : null}
 
-            {mode === 'native' && nativeCandidates.length > 0 ? (
+            {effectiveMode === 'native' && nativeCandidates.length > 0 ? (
               <>
                 <label className="field-label" htmlFor={`native-field-${parent.id}`}>
                   Native field
@@ -278,7 +344,7 @@ function AddRelationship({
                   Child field path
                   <input
                     type="text"
-                    value={childPath}
+                    value={effectiveChildPath}
                     placeholder="e.g. parent.zuid"
                     onChange={(event) => setChildPath(event.target.value)}
                   />
@@ -485,6 +551,10 @@ function TreeNodeRow({
   onRename,
   onRemove,
   schemas,
+  catalog,
+  catalogError,
+  catalogWarning,
+  onRetryCatalog,
   loadSchema,
   onAdd,
   parent,
@@ -495,6 +565,10 @@ function TreeNodeRow({
   readonly onRename: TreeEditorProps['onRename'];
   readonly onRemove: TreeEditorProps['onRemove'];
   readonly schemas: TreeEditorProps['schemas'];
+  readonly catalog: TreeEditorProps['catalog'];
+  readonly catalogError: TreeEditorProps['catalogError'];
+  readonly catalogWarning: TreeEditorProps['catalogWarning'];
+  readonly onRetryCatalog: TreeEditorProps['onRetryCatalog'];
   readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
   readonly parent?: CollectionNode;
@@ -561,6 +635,10 @@ function TreeNodeRow({
         <AddRelationship
           parent={node}
           schema={schemas.get(node.id)!}
+          catalog={catalog}
+          catalogError={catalogError}
+          catalogWarning={catalogWarning}
+          onRetryCatalog={onRetryCatalog}
           loadSchema={loadSchema}
           onAdd={onAdd}
         />
@@ -575,6 +653,10 @@ function TreeNodeRow({
               onRename={onRename}
               onRemove={onRemove}
               schemas={schemas}
+              catalog={catalog}
+              catalogError={catalogError}
+              catalogWarning={catalogWarning}
+              onRetryCatalog={onRetryCatalog}
               loadSchema={loadSchema}
               onAdd={onAdd}
               parent={node}
@@ -591,6 +673,10 @@ export function TreeEditor({
   root,
   rootSchema,
   schemas,
+  catalog,
+  catalogError,
+  catalogWarning,
+  onRetryCatalog,
   loadSchema,
   onAdd,
   onRename,
@@ -611,6 +697,10 @@ export function TreeEditor({
           onRename={onRename}
           onRemove={onRemove}
           schemas={availableSchemas}
+          catalog={catalog}
+          catalogError={catalogError}
+          catalogWarning={catalogWarning}
+          onRetryCatalog={onRetryCatalog}
           loadSchema={loadSchema}
           onAdd={onAdd}
           onRelationshipChange={onRelationshipChange}

@@ -207,6 +207,26 @@ describe('recursive collection tables', () => {
     expect(screen.getByRole('cell', { name: generated.parents.items[0]!.id })).toBeInTheDocument();
   });
 
+  it('does not guess a Manager item URL for an unrecognized collection type', () => {
+    const otherReference = { ...root.reference, area: 'other' as const };
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={otherReference}
+        treeRoot={{ ...root, reference: otherReference, children: [] }}
+        loadedView={loadedView}
+        contentState="latest"
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('button', { name: /Open details for/ })).not.toHaveLength(0);
+    expect(screen.queryByRole('link', { name: /in Zesty Manager/ })).not.toBeInTheDocument();
+  });
+
   it('preserves an explicit choice to hide every data column', () => {
     render(
       <RootTable

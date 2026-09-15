@@ -1,6 +1,6 @@
 import { Either, Schema } from 'effect';
 import { Gunzip, gzipSync, strFromU8, strToU8 } from 'fflate';
-import { parseCollectionReference } from '../collection-reference';
+import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
 import type {
   CollectionNode,
   PersistedView,
@@ -144,6 +144,18 @@ function hasSafeReference(value: Readonly<Record<string, unknown>>): boolean {
     typeof value.modelZuid !== 'string'
   ) {
     return false;
+  }
+  if (value.area === 'other') {
+    if (typeof value.apiBaseUrl !== 'string') return false;
+    const instance = parseInstanceReference(value.apiBaseUrl);
+    return (
+      instance.ok &&
+      instance.value.instanceZuid === value.instanceZuid &&
+      instance.value.deployment === value.deployment &&
+      instance.value.apiBaseUrl === value.apiBaseUrl &&
+      instance.value.managerBaseUrl === value.managerBaseUrl &&
+      /^6-[a-z0-9][a-z0-9-]{4,}$/i.test(value.modelZuid)
+    );
   }
   const parsed = parseCollectionReference(
     `${value.managerBaseUrl}/${value.area}/${value.modelZuid}`,

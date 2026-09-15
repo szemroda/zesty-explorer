@@ -1,10 +1,12 @@
 import type { Effect } from 'effect';
 import type {
   CollectionReference,
+  CollectionCatalog,
   CollectionSchema,
   CollectionSnapshot,
   ContentState,
   ExplorerError,
+  InstanceReference,
 } from '../domain';
 
 export interface ZestyTransportRequest {
@@ -28,6 +30,10 @@ export interface ZestyTransport {
 }
 
 export interface ZestyApi {
+  loadCollectionCatalog(
+    reference: InstanceReference,
+    sessionToken: string,
+  ): Effect.Effect<CollectionCatalog, ExplorerError>;
   loadCollectionSchema(
     reference: CollectionReference,
     sessionToken: string,

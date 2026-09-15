@@ -62,6 +62,7 @@ describe('loaded view query', () => {
       Effect.succeed(collectionSnapshot(reference.modelZuid)),
     );
     const api: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         Effect.succeed({
           modelZuid: reference.modelZuid,
@@ -101,6 +102,7 @@ describe('loaded view query', () => {
       message: 'Expired',
     };
     const api: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () =>
         Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
       loadCollectionSnapshot: () => Effect.fail(failure),

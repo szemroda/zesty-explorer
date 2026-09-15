@@ -41,7 +41,7 @@ export interface LoadedViewQueryResult {
   readonly status: LoadedViewQueryStatus;
   readonly authenticationFailed: boolean;
   readonly isIncomplete: boolean;
-  readonly refresh: () => Promise<void>;
+  readonly refresh: () => Promise<boolean>;
   readonly retryRoot: () => Promise<void>;
 }
 
@@ -186,6 +186,10 @@ export function useLoadedView({
       queryKey: ['collection', credentials.revision],
       type: 'all',
     });
+    return queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ['collection', credentials.revision] })
+      .every((query) => query.state.status !== 'error');
   }, [credentials.revision, queryClient]);
   const retryRoot = useCallback(async () => {
     await rootQuery.refetch();

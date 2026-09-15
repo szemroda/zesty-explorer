@@ -6,7 +6,7 @@ export type CollectionNodeId = `node-${string}`;
 export type SnapshotId = `snapshot-${string}`;
 
 export type Deployment = 'production' | 'stage' | 'development';
-export type CollectionArea = 'content' | 'blocks';
+export type CollectionArea = 'content' | 'blocks' | 'other';
 export type ContentState = 'latest' | 'published';
 export type Scalar = string | number | boolean;
 export type JsonValue =
@@ -20,6 +20,32 @@ export interface CollectionReference {
   readonly area: CollectionArea;
   readonly apiBaseUrl: string;
   readonly managerBaseUrl: string;
+}
+
+export interface InstanceReference {
+  readonly instanceZuid: InstanceZuid;
+  readonly deployment: Deployment;
+  readonly apiBaseUrl: string;
+  readonly managerBaseUrl: string;
+  readonly suggestedModelZuid?: ModelZuid;
+  readonly suggestedItemZuid?: ItemZuid;
+  readonly suggestedArea?: CollectionArea;
+}
+
+export type CollectionCatalogGroup = 'content' | 'blocks' | 'other';
+
+export interface CollectionCatalogEntry {
+  readonly label: string;
+  readonly name: string;
+  readonly type: string;
+  readonly group: CollectionCatalogGroup;
+  readonly reference: CollectionReference;
+}
+
+export interface CollectionCatalog {
+  readonly collections: readonly CollectionCatalogEntry[];
+  readonly incomplete: boolean;
+  readonly warning?: ExplorerError;
 }
 
 export interface ContentItem {
@@ -132,7 +158,8 @@ export interface PersistedView {
   readonly globalFreeText: string;
 }
 
-export type ExplorerRequestOperation = 'load-collection-schema' | 'load-collection-items';
+export type ExplorerRequestOperation =
+  'load-collection-catalog' | 'load-collection-schema' | 'load-collection-items';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };

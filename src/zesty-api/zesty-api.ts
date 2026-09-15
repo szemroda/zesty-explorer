@@ -3,16 +3,21 @@ import {
   decodeCollectionPage,
   safeRequestUrl,
   unsupportedShapeError,
+  type CollectionCatalog,
+  type CollectionCatalogEntry,
+  type CollectionCatalogGroup,
   type CollectionField,
   type CollectionReference,
   type CollectionSchema,
   type CollectionSnapshot,
   type ContentItem,
   type ExplorerError,
+  type ExplorerDecodingIssue,
   type ExplorerErrorDiagnostic,
   type ExplorerRequestOperation,
   type FieldKind,
   type FieldZuid,
+  type InstanceReference,
   type ModelZuid,
 } from '../domain';
 import type {
@@ -59,6 +64,13 @@ const RawFieldSchema = Schema.Struct({
 });
 
 const RawFieldsResponseSchema = Schema.Struct({ data: Schema.Array(RawFieldSchema) });
+const RawCatalogResponseSchema = Schema.Struct({ data: Schema.Array(Schema.Unknown) });
+const RawModelSchema = Schema.Struct({
+  ZUID: ModelZuidSchema,
+  label: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+});
 
 const defaultOptions = {
   pageSize: 2_500,
@@ -135,6 +147,92 @@ function decodeSchema(
     };
   });
   return Effect.succeed({ modelZuid: reference.modelZuid, label: reference.modelZuid, fields });
+}
+
+const contentModelTypes = new Set(['content', 'dataset', 'item', 'pageset']);
+
+function catalogGroup(type: string): CollectionCatalogGroup {
+  const normalized = type.trim().toLowerCase();
+  if (normalized === 'block' || normalized === 'blocks') return 'blocks';
+  if (contentModelTypes.has(normalized)) return 'content';
+  return 'other';
+}
+
+function prefixCatalogIssues(
+  error: ExplorerError,
+  recordIndex: number,
+): NonNullable<ExplorerError['diagnostic']>['issues'] {
+  return error.diagnostic?.issues?.map((issue) => ({
+    ...issue,
+    path:
+      issue.path === '$'
+        ? `$.data[${recordIndex}]`
+        : `$.data[${recordIndex}]${issue.path.slice(1)}`,
+  }));
+}
+
+function decodeCatalog(
+  reference: InstanceReference,
+  input: unknown,
+): Effect.Effect<CollectionCatalog, ExplorerError> {
+  const envelope = Schema.decodeUnknownEither(RawCatalogResponseSchema, { errors: 'all' })(input);
+  if (Either.isLeft(envelope)) {
+    return Effect.fail(
+      unsupportedShapeError(
+        'Zesty returned the collection catalog in an unsupported shape.',
+        envelope.left,
+      ),
+    );
+  }
+
+  const collections: CollectionCatalogEntry[] = [];
+  const issues: ExplorerDecodingIssue[] = [];
+  let issuesOmitted = false;
+  envelope.right.data.forEach((record, index) => {
+    const decoded = Schema.decodeUnknownEither(RawModelSchema, { errors: 'all' })(record);
+    if (Either.isLeft(decoded)) {
+      const recordError = unsupportedShapeError('A collection record is invalid.', decoded.left);
+      const recordIssues = prefixCatalogIssues(recordError, index) ?? [];
+      const available = Math.max(0, 20 - issues.length);
+      issues.push(...recordIssues.slice(0, available));
+      if (recordIssues.length > available || recordError.diagnostic?.issuesOmitted)
+        issuesOmitted = true;
+      return;
+    }
+
+    const group = catalogGroup(decoded.right.type);
+    collections.push({
+      label: decoded.right.label,
+      name: decoded.right.name,
+      type: decoded.right.type,
+      group,
+      reference: {
+        instanceZuid: reference.instanceZuid,
+        modelZuid: decoded.right.ZUID as ModelZuid,
+        deployment: reference.deployment,
+        area: group,
+        apiBaseUrl: reference.apiBaseUrl,
+        managerBaseUrl: reference.managerBaseUrl,
+      },
+    });
+  });
+
+  return Effect.succeed({
+    collections,
+    incomplete: issues.length > 0 || issuesOmitted,
+    ...(issues.length > 0 || issuesOmitted
+      ? {
+          warning: {
+            kind: 'decoding' as const,
+            message: 'Some collection records could not be understood and were omitted.',
+            diagnostic: {
+              ...(issues.length > 0 ? { issues } : {}),
+              ...(issuesOmitted ? { issuesOmitted: true } : {}),
+            },
+          },
+        }
+      : {}),
+  });
 }
 
 function statusError(response: ZestyTransportResponse): ExplorerError | undefined {
@@ -258,6 +356,33 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
   const request = createRequester(transport, resolved.timeoutMs, resolved.retryDelaysMs);
 
   return {
+    loadCollectionCatalog: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/content/models`;
+      const operation = 'load-collection-catalog' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) =>
+          decodeCatalog(reference, response.body).pipe(
+            Effect.map((catalog) =>
+              catalog.warning
+                ? {
+                    ...catalog,
+                    warning: withRequestDiagnostic(
+                      catalog.warning,
+                      operation,
+                      requestUrl,
+                      response.status,
+                    ),
+                  }
+                : catalog,
+            ),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
     loadCollectionSchema: (reference, sessionToken) => {
       const url = new URL(`${reference.apiBaseUrl}/content/models/${reference.modelZuid}/fields`);
       url.searchParams.set('lang', 'en-US');

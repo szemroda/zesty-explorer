@@ -16,13 +16,41 @@ _Avoid_: Access token, API key, credential URL parameter
 A Zesty project that owns the collections available to one view.
 _Avoid_: Workspace, site
 
+**Instance reference**:
+A Zesty Manager or Instances API URL that identifies an instance and may also identify a collection or content item within it.
+_Avoid_: Collection reference when no collection is identified, instance link
+
 **Zesty deployment**:
-The production, stage, or development Zesty infrastructure selected by a root collection reference. Every collection node in a view belongs to the same deployment.
+The production, stage, or development Zesty infrastructure selected by an instance reference. Every collection node in a view belongs to the same deployment.
 _Avoid_: Content state, environment
 
 **Collection**:
 A set of Zesty content items that share one content model.
 _Avoid_: Table, dataset
+
+**Collection catalog**:
+The complete set of collections available to a user's session within one instance, including collections that contain no content items.
+_Avoid_: Content navigation, non-empty collections
+
+**Incomplete collection catalog**:
+A collection catalog that omits one or more records because their API representation could not be understood. It remains usable but carries an explicit warning.
+_Avoid_: Partial collection, complete catalog
+
+**Block collection**:
+A collection whose Zesty content model represents reusable visual content. It belongs to the collection catalog but is distinguished from other collections when users choose one.
+_Avoid_: Block, component collection
+
+**Unrecognized collection type**:
+A collection type returned by Zesty that Zesty Explorer does not understand. Its collection remains selectable, but the application has no trusted Manager navigation target for it.
+_Avoid_: Invalid collection, unsupported collection
+
+**Collection picker**:
+The searchable control for selecting a collection from a collection catalog. It displays collection labels while retaining technical names and model identifiers to distinguish similar collections.
+_Avoid_: Dropdown, model selector
+
+**Uncatalogued collection**:
+A collection identified by a valid collection reference but absent from the collection catalog available to the current session. Its absence does not prove that the collection is missing or inaccessible.
+_Avoid_: Deleted collection, forbidden collection, missing model
 
 **Collection reference**:
 A Zesty Manager URL or Instances API URL that uniquely identifies a collection and its instance.
@@ -45,7 +73,7 @@ The collection whose content items form the top level of a view. Every other col
 _Avoid_: Main table, primary dataset
 
 **Collection node**:
-One use of a collection at a specific position and role in a view's relationship tree. The same collection may have several nodes with different relationships, names, filters, columns, and sorting.
+One use of a collection at a specific position and role in a view's relationship tree. The same collection may have several nodes with different stable names, relationships, filters, columns, and sorting.
 _Avoid_: Collection, table instance
 
 **Relationship**:

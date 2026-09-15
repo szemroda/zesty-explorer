@@ -49,6 +49,18 @@ describe('ViewCodec', () => {
     expect(ViewCodec.encode(view)).toEqual(encoded);
   });
 
+  it('round-trips an unrecognized collection type without inventing a Manager area', () => {
+    const otherView: PersistedView = {
+      ...view,
+      root: {
+        ...root,
+        reference: { ...root.reference, area: 'other' },
+      },
+    };
+    const encoded = ViewCodec.encode(otherView);
+    expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, view: otherView });
+  });
+
   it('decodes the version-one golden link fixture', () => {
     expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, view });
   });

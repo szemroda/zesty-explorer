@@ -77,6 +77,28 @@ async function installPerformanceApi(page: Page) {
       return;
     }
     const url = new URL(request.url());
+    if (url.pathname.endsWith('/content/models')) {
+      await route.fulfill({
+        headers,
+        json: {
+          data: [
+            {
+              ZUID: '6-performance-root',
+              label: '6-performance-root',
+              name: 'performance-root',
+              type: 'pageset',
+            },
+            {
+              ZUID: '6-performance-child',
+              label: '6-performance-child',
+              name: 'performance-child',
+              type: 'pageset',
+            },
+          ],
+        },
+      });
+      return;
+    }
     const child = url.pathname.includes('6-performance-child');
     if (url.pathname.endsWith('/fields')) {
       await route.fulfill({
@@ -137,10 +159,11 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page
-    .getByLabel('Root collection URL')
+    .getByLabel('Zesty instance URL')
     .fill('https://8-performance.manager.zesty.io/content/6-performance-root');
-  await page.getByRole('button', { name: 'Open collection' }).click();
-  await expect(page.getByText('10000 items')).toBeVisible();
+  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
   const filter = page.getByLabel('Filter this table');
   const searches = ['8765', '765', '65', '5', '4321'];
@@ -148,7 +171,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
   await filter.fill('Performance item 9999');
   await expect(page.getByText('1 items')).toBeVisible();
   await filter.fill('');
-  await expect(page.getByText('10000 items')).toBeVisible();
+  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
   const filterSamples: number[] = [];
   for (let index = 0; index < searches.length; index += 1) {
     filterSamples.push(
@@ -172,7 +195,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
     );
   }
   await filter.fill('');
-  await expect(page.getByText('10000 items')).toBeVisible();
+  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
   await page.waitForTimeout(350);
 
   const scoreSort = page.getByRole('button', { name: 'Score' });
@@ -186,7 +209,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInf
     samples: sortSamples,
   };
 
-  await page.getByRole('button', { name: 'Add related collection' }).click();
+  await page.getByRole('button', { name: 'Add relationship' }).click();
   await page
     .getByLabel('Related collection URL')
     .fill('https://8-performance.manager.zesty.io/content/6-performance-child');

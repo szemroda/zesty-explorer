@@ -1,7 +1,7 @@
 import { Effect, Either, Exit, Fiber } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fixtureCollectionPage } from '../domain';
-import { parseCollectionReference } from '../collection-reference';
+import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
 import { createZestyApi, type ZestyTransport, type ZestyTransportRequest } from './index';
 
 const parsedReference = parseCollectionReference(
@@ -9,6 +9,9 @@ const parsedReference = parseCollectionReference(
 );
 if (!parsedReference.ok) throw new Error('Test reference must parse');
 const reference = parsedReference.value;
+const parsedInstance = parseInstanceReference('https://8-abc123.manager.zesty.io/');
+if (!parsedInstance.ok) throw new Error('Test instance must parse');
+const instance = parsedInstance.value;
 
 function fakeTransport(
   handler: (
@@ -31,6 +34,102 @@ function fakeTransport(
 }
 
 describe('ZestyApi', () => {
+  it('loads the complete collection catalog with an authenticated GET', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'pageset' },
+            { ZUID: '6-blocks123', label: 'Hero blocks', name: 'hero_blocks', type: 'block' },
+            { ZUID: '6-custom123', label: 'Custom', name: 'custom', type: 'future-kind' },
+          ],
+        },
+      }),
+    );
+
+    const catalog = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionCatalog(instance, 'private-token'),
+    );
+
+    expect(
+      catalog.collections.map(({ label, name, type, group, reference }) => ({
+        label,
+        name,
+        type,
+        group,
+        modelZuid: reference.modelZuid,
+        area: reference.area,
+      })),
+    ).toEqual([
+      {
+        label: 'Stories',
+        name: 'stories',
+        type: 'pageset',
+        group: 'content',
+        modelZuid: '6-stories123',
+        area: 'content',
+      },
+      {
+        label: 'Hero blocks',
+        name: 'hero_blocks',
+        type: 'block',
+        group: 'blocks',
+        modelZuid: '6-blocks123',
+        area: 'blocks',
+      },
+      {
+        label: 'Custom',
+        name: 'custom',
+        type: 'future-kind',
+        group: 'other',
+        modelZuid: '6-custom123',
+        area: 'other',
+      },
+    ]);
+    expect(catalog.incomplete).toBe(false);
+    expect(fake.requests).toEqual([
+      {
+        method: 'GET',
+        url: 'https://8-abc123.api.zesty.io/v1/content/models',
+        headers: { authorization: 'Bearer private-token', accept: 'application/json' },
+      },
+    ]);
+  });
+
+  it('keeps valid collections when individual catalog records are malformed', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'dataset' },
+            { ZUID: 42, label: false, name: 'broken', type: null },
+          ],
+        },
+      }),
+    );
+
+    const catalog = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionCatalog(instance, 'private-token'),
+    );
+
+    expect(catalog.collections).toHaveLength(1);
+    expect(catalog.incomplete).toBe(true);
+    expect(catalog.warning).toMatchObject({
+      kind: 'decoding',
+      diagnostic: {
+        operation: 'load-collection-catalog',
+        requestUrl: 'https://8-abc123.api.zesty.io/v1/content/models',
+        responseStatus: 200,
+      },
+    });
+    expect(catalog.warning?.diagnostic?.issues?.[0]?.path).toBe('$.data[1].ZUID');
+    expect(JSON.stringify(catalog.warning)).not.toContain('private-token');
+  });
+
   it('loads and decodes a collection schema with an authenticated GET', async () => {
     const fake = fakeTransport(() =>
       Effect.succeed({

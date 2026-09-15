@@ -6,6 +6,7 @@ import {
   decodeCollectionPage,
   fixtureCollectionPage,
   safeRequestUrl,
+  type CollectionCatalog,
   type CollectionSchema,
   type CollectionSnapshot,
   type ExplorerError,
@@ -38,6 +39,26 @@ const snapshot: CollectionSnapshot = {
   partial: false,
 };
 
+const catalog: CollectionCatalog = {
+  incomplete: false,
+  collections: [
+    {
+      label: 'Stories',
+      name: 'stories',
+      type: 'pageset',
+      group: 'content',
+      reference: {
+        instanceZuid: '8-abc123',
+        modelZuid: '6-model123',
+        deployment: 'production',
+        area: 'content',
+        apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+        managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+      },
+    },
+  ],
+};
+
 function tokenStore(): SessionTokenStore {
   const tokens = new Map<string, string>();
   return {
@@ -59,17 +80,19 @@ function api(
   loadSnapshot: ZestyApi['loadCollectionSnapshot'] = () => Effect.succeed(snapshot),
 ): ZestyApi {
   return {
+    loadCollectionCatalog: () => Effect.succeed(catalog),
     loadCollectionSchema: () => Effect.succeed(schema),
     loadCollectionSnapshot: loadSnapshot,
   };
 }
 
-function submitStartForm(collectionUrl: string, token = 'fixture-session-token') {
+async function submitStartForm(collectionUrl: string, token = 'fixture-session-token') {
   fireEvent.change(screen.getByLabelText('Zesty session token'), { target: { value: token } });
-  fireEvent.change(screen.getByLabelText('Root collection URL'), {
+  fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
     target: { value: collectionUrl },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Open collection' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
 }
 
 afterEach(() => {
@@ -85,9 +108,89 @@ describe('root collection browser', () => {
     expect(screen.getByRole('heading', { name: 'Open a Zesty collection' })).toBeInTheDocument();
   });
 
+  it('loads the catalog and waits for root confirmation before loading content', async () => {
+    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
+      Effect.succeed(snapshot),
+    );
+    render(<App api={api(loadCollectionSnapshot)} tokenStore={tokenStore()} />);
+
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'fixture-session-token' },
+    });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
+    );
+    expect(loadCollectionSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+  });
+
+  it('can open a recognized API model URL when the catalog is unavailable', async () => {
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionCatalog: () =>
+        Effect.fail({ kind: 'network', message: 'Catalog is unavailable.' }),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'fixture-session-token' },
+    });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
+
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /in Zesty Manager/ })).not.toBeInTheDocument();
+  });
+
+  it('refreshes the catalog and open collections, then keeps a failure indicator until retry succeeds', async () => {
+    let catalogAttempts = 0;
+    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
+      Effect.succeed(snapshot),
+    );
+    const testApi: ZestyApi = {
+      ...api(loadCollectionSnapshot),
+      loadCollectionCatalog: () => {
+        catalogAttempts += 1;
+        return catalogAttempts === 2
+          ? Effect.fail({ kind: 'network', message: 'Catalog refresh failed.' })
+          : Effect.succeed(catalog);
+      },
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect((await screen.findAllByText('Refresh failed')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAttribute('data-refresh-failed');
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAccessibleDescription(
+      'The last refresh failed. Activate Refresh to retry.',
+    );
+    expect(loadCollectionSnapshot.mock.calls.length).toBeGreaterThan(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry refresh' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Refresh' })).not.toHaveAttribute(
+        'data-refresh-failed',
+      ),
+    );
+    expect(catalogAttempts).toBe(3);
+  });
+
   it('opens an item URL, renders its collection, and opens item details', async () => {
     render(<App api={api()} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit');
+    await submitStartForm(
+      'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit',
+    );
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     const htmlCell = screen.getByRole('cell', { name: 'First story' });
@@ -120,19 +223,50 @@ describe('root collection browser', () => {
         : Effect.succeed(snapshot);
     });
     render(<App api={testApi} tokenStore={store} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
 
     expect(
       await screen.findByRole('heading', { name: 'Replace your session token' }),
     ).toBeInTheDocument();
     expect(clear).toHaveBeenCalledWith('production');
-    expect(screen.getByLabelText('Root collection URL')).toHaveValue(
+    expect(screen.getByLabelText('Zesty instance URL')).toHaveValue(
       'https://8-abc123.manager.zesty.io/content/6-model123',
     );
 
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'replacement-token');
+    await submitStartForm(
+      'https://8-abc123.manager.zesty.io/content/6-model123',
+      'replacement-token',
+    );
     await waitFor(() => expect(attempts).toBe(2));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+  });
+
+  it('requires a replacement token when the catalog rejects its credentials', async () => {
+    const store = tokenStore();
+    const clear = vi.spyOn(store, 'clear');
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionCatalog: () =>
+        Effect.fail({
+          kind: 'authentication',
+          status: 401,
+          message: 'The Zesty session token is invalid or expired.',
+        }),
+    };
+    render(<App api={testApi} tokenStore={store} />);
+
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'expired-token' },
+    });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+    expect(clear).toHaveBeenCalledWith('production');
   });
 
   it('reveals and copies safe technical details for a root load failure', async () => {
@@ -155,7 +289,7 @@ describe('root collection browser', () => {
       },
     };
     render(<App api={api(() => Effect.fail(failure))} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
 
     expect(await screen.findByRole('heading', { name: 'Collection could not load' })).toBeVisible();
     expect(screen.queryByText('Loading collection items')).not.toBeInTheDocument();
@@ -242,7 +376,7 @@ describe('root collection browser', () => {
   it('synchronizes settled table state with replaceState', async () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     render(<App api={api()} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
     fireEvent.change(screen.getByLabelText('Filter this table'), {
@@ -301,6 +435,30 @@ describe('root collection browser', () => {
       itemsById: new Map([[commentItem.id, commentItem]]),
     };
     const testApi: ZestyApi = {
+      loadCollectionCatalog: () =>
+        Effect.succeed({
+          incomplete: false,
+          collections: [
+            {
+              ...catalog.collections[0]!,
+              label: 'Articles',
+              name: 'articles',
+              reference: {
+                ...catalog.collections[0]!.reference,
+                modelZuid: '6-articles123',
+              },
+            },
+            {
+              ...catalog.collections[0]!,
+              label: 'Comments',
+              name: 'comments',
+              reference: {
+                ...catalog.collections[0]!.reference,
+                modelZuid: '6-comments123',
+              },
+            },
+          ],
+        }),
       loadCollectionSchema: (reference) =>
         Effect.succeed(
           reference.modelZuid === commentSchema.modelZuid ? commentSchema : articleSchema,
@@ -312,13 +470,12 @@ describe('root collection browser', () => {
     };
 
     render(<App api={testApi} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-articles123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-articles123');
     await screen.findByRole('heading', { name: 'Articles' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
-    fireEvent.change(screen.getByLabelText('Related collection URL'), {
-      target: { value: 'https://8-abc123.manager.zesty.io/content/6-comments123' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Show collections' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Comments.*6-comments123/ }));
 
     const nativeField = await screen.findByLabelText('Native field');
     expect(nativeField).toHaveDisplayValue('Article');
@@ -337,16 +494,62 @@ describe('root collection browser', () => {
     );
   });
 
+  it('switches explicitly to custom equality when a collection has no native relationship', async () => {
+    const relatedCatalogEntry: CollectionCatalog['collections'][number] = {
+      ...catalog.collections[0]!,
+      label: 'Authors',
+      name: 'authors',
+      type: 'future-kind',
+      group: 'other',
+      reference: {
+        ...catalog.collections[0]!.reference,
+        modelZuid: '6-authors123',
+        area: 'other',
+      },
+    };
+    const loadCollectionSchema = vi.fn<ZestyApi['loadCollectionSchema']>((reference) =>
+      Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),
+    );
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionCatalog: () =>
+        Effect.succeed({
+          collections: [...catalog.collections, relatedCatalogEntry],
+          incomplete: false,
+        }),
+      loadCollectionSchema,
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show collections' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Authors.*6-authors123/ }));
+
+    expect(
+      await screen.findByText(
+        'No native relationship targets this collection. Custom equality is selected.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Child field path')).toHaveValue('id');
+    expect(loadCollectionSchema).toHaveBeenCalledWith(
+      expect.objectContaining({ modelZuid: '6-authors123', area: 'other' }),
+      'fixture-session-token',
+    );
+  });
+
   it('rejects a related collection from another instance before loading its schema', async () => {
     const loadCollectionSchema = vi.fn<ZestyApi['loadCollectionSchema']>(() =>
       Effect.succeed(schema),
     );
     const testApi: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema,
       loadCollectionSnapshot: () => Effect.succeed(snapshot),
     };
     render(<App api={testApi} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
@@ -361,6 +564,7 @@ describe('root collection browser', () => {
   it('cancels related schema inspection when the add dialog closes', async () => {
     let interrupted = false;
     const testApi: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         reference.modelZuid === schema.modelZuid
           ? Effect.succeed(schema)
@@ -374,7 +578,7 @@ describe('root collection browser', () => {
       loadCollectionSnapshot: () => Effect.succeed(snapshot),
     };
     render(<App api={testApi} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
@@ -408,6 +612,7 @@ describe('root collection browser', () => {
     };
     let relatedAttempts = 0;
     const testApi: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) => {
         if (reference.modelZuid === rootSchema.modelZuid) return Effect.succeed(rootSchema);
         relatedAttempts += 1;
@@ -418,7 +623,7 @@ describe('root collection browser', () => {
       loadCollectionSnapshot: () => Effect.succeed(snapshot),
     };
     render(<App api={testApi} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
@@ -448,10 +653,13 @@ describe('root collection browser', () => {
       return Effect.succeed(snapshot);
     });
     render(<App api={testApi} tokenStore={store} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'production-token');
+    await submitStartForm(
+      'https://8-abc123.manager.zesty.io/content/6-model123',
+      'production-token',
+    );
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace root collection' }));
-    fireEvent.change(screen.getByLabelText('Root collection URL'), {
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('stage-token');
@@ -471,10 +679,10 @@ describe('root collection browser', () => {
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<App api={testApi} tokenStore={tokenStore()} />);
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'Clear saved token' }));
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
   });
 
@@ -538,6 +746,7 @@ describe('root collection browser', () => {
       }).fragment,
     );
     const testApi: ZestyApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),
       loadCollectionSnapshot: (reference) => {
@@ -554,7 +763,10 @@ describe('root collection browser', () => {
     };
     render(<App api={testApi} tokenStore={storedTokenStore()} />);
     await screen.findByRole('heading', { name: 'Replace your session token' });
-    submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'replacement-token');
+    await submitStartForm(
+      'https://8-abc123.manager.zesty.io/content/6-model123',
+      'replacement-token',
+    );
     await waitFor(() => expect(childAttempts).toBe(2));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });

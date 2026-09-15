@@ -114,14 +114,26 @@ async function fulfillApi(route: Route, state: FakeApiState) {
   }
 
   const url = new URL(request.url());
-  const model = url.pathname.match(/models\/(6-[^/]+)/)?.[1];
-  if (!model) throw new Error(`Unexpected fake API URL: ${url.toString()}`);
-  if (state.forbiddenModels.has(model)) {
-    await route.fulfill({ status: 403, headers: cors, json: {} });
+  if (url.pathname.endsWith('/content/models')) {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        data: [
+          { ZUID: '6-rootmodel', label: '6-rootmodel', name: 'root', type: 'pageset' },
+          { ZUID: '6-childmodel', label: '6-childmodel', name: 'child', type: 'pageset' },
+        ],
+      },
+    });
     return;
   }
+  const model = url.pathname.match(/models\/(6-[^/]+)/)?.[1];
+  if (!model) throw new Error(`Unexpected fake API URL: ${url.toString()}`);
   if (url.pathname.endsWith('/fields')) {
     await route.fulfill({ headers: cors, json: { data: fieldsByModel[model] ?? [] } });
+    return;
+  }
+  if (state.forbiddenModels.has(model)) {
+    await route.fulfill({ status: 403, headers: cors, json: {} });
     return;
   }
   const data = model === '6-childmodel' ? childItems : rootItems;
@@ -173,13 +185,14 @@ async function openRoot(page: Page) {
   await page.getByText('How to find the token').click();
   await expect(page.getByText(/Copy APP_SID for production/)).toBeVisible();
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await page.getByLabel('Root collection URL').fill(rootUrl);
-  await page.getByRole('button', { name: 'Open collection' }).click();
+  await page.getByLabel('Zesty instance URL').fill(rootUrl);
+  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
 
 async function addNativeChild(page: Page) {
-  await page.getByRole('button', { name: 'Add related collection' }).click();
+  await page.getByRole('button', { name: 'Add relationship' }).click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Children');
   await page.getByLabel('Native field').selectOption({ label: 'Primary child' });
@@ -229,6 +242,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await openRoot(page);
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
+  await page.getByLabel('Configure table filters').click();
   await page.getByLabel('Table filter relationship path').selectOption({ label: '6-rootmodel' });
   await page.getByLabel('Table filter field').selectOption('score');
   await page.getByLabel('Table filter operator').selectOption('greater-than');
@@ -242,7 +256,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
     .click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
-  await page.getByLabel('Published only').check();
+  await page.getByRole('button', { name: 'Published' }).click();
   await expect
     .poll(() => state.requests.some((request) => request.includes('_active=true')))
     .toBe(true);
@@ -260,8 +274,9 @@ test('reports the browser origin without claiming that CORS caused a network fai
   state.networkFailure = true;
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await page.getByLabel('Root collection URL').fill(rootUrl);
-  await page.getByRole('button', { name: 'Open collection' }).click();
+  await page.getByLabel('Zesty instance URL').fill(rootUrl);
+  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Open root collection' }).click();
 
   const alert = page.getByRole('alert');
   await expect(alert).toContainText('The Zesty request could not reach the server.');
@@ -292,7 +307,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await openRoot(page);
   await addNativeChild(page);
 
-  await page.getByRole('button', { name: 'Add related collection' }).first().click();
+  await page.getByRole('button', { name: 'Add relationship' }).first().click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Custom children');
   await page.getByLabel('Relationship type').selectOption('custom');
@@ -307,12 +322,13 @@ test('creates native and custom roles, expands related rows, and preserves detai
           (request) => request.startsWith('GET ') && request.includes('6-childmodel'),
         ).length,
     )
-    .toBe(2);
+    .toBe(4);
 
   await page.getByText('Columns', { exact: true }).first().click();
   await page.getByRole('checkbox', { name: 'ZUID' }).first().check();
   await expect(page.getByRole('columnheader', { name: 'ZUID' })).toBeVisible();
 
+  await page.getByLabel('Actions for Custom children').click();
   await page.getByRole('button', { name: 'Edit relationship for Custom children' }).click();
   await page.getByLabel('Parent field path').fill('legacy.path');
   await page.getByRole('button', { name: 'Save relationship' }).click();
@@ -337,14 +353,8 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
   await children.getByLabel('Filter Children').fill('no matching item');
-  await expect(children.getByText('Page 1 of 1')).toBeVisible();
+  await expect(children.getByText('0 related items')).toBeVisible();
   await children.getByLabel('Filter Children').fill('');
-
-  const preview = page.getByRole('button', { name: 'Preview full Title' }).first();
-  await preview.focus();
-  await preview.press('Enter');
-  await expect(page.locator('.value-popover')).toContainText('deliberately long title');
-  await page.locator('.value-popover').getByRole('button', { name: 'Close' }).click();
 
   const detailsTrigger = page.getByRole('button', { name: 'Open details for First story' });
   await detailsTrigger.focus();
@@ -360,7 +370,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await expect(detailsTrigger).toBeFocused();
 
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Remove Custom children' }).click();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(page.getByText('Custom children', { exact: true })).toHaveCount(0);
 });
 
@@ -371,6 +381,7 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
+  await page.getByLabel('View filters').locator('summary').click();
   await page
     .getByLabel('View filter relationship path')
     .selectOption({ label: '6-rootmodel → Children' });
@@ -388,7 +399,8 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await restored.goto(copied);
   await expect(restored.getByRole('heading', { name: 'Replace your session token' })).toBeVisible();
   await restored.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await restored.getByRole('button', { name: 'Open collection' }).click();
+  await restored.getByRole('button', { name: 'Load collections' }).click();
+  await restored.getByRole('button', { name: 'Open root collection' }).click();
   await expect(restored.getByText('1 items')).toBeVisible();
   await expect(restored.getByText(/active · true/)).toBeVisible();
   await restored.close();
@@ -413,12 +425,15 @@ test('recovers corrupt links and confirms root replacement and reset', async ({ 
   await page.getByLabel('Search the complete view').fill(longText);
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
   await page.getByLabel('Search the complete view').fill('');
-  await page.getByRole('button', { name: 'Replace root' }).click();
+  await page.getByLabel('View options').click();
+  await page.getByRole('button', { name: 'Replace root collection' }).click();
   await expect(page.getByRole('heading', { name: 'Replace the root collection' })).toBeVisible();
-  await page.getByLabel('Root collection URL').fill(childUrl);
+  await page.getByLabel('Zesty instance URL').fill(childUrl);
+  await page.getByRole('button', { name: 'Load collections' }).click();
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Open collection' }).click();
+  await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByRole('heading', { name: '6-childmodel' })).toBeVisible();
+  await page.getByLabel('View options').click();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Reset view' }).click();
   await expect(page).not.toHaveURL(/#view=/);
@@ -431,7 +446,7 @@ test('keeps partial roots and failed descendants usable with persistent recovery
   state.partialRoot = true;
   await openRoot(page);
   await expect(page.getByText(/incomplete collection data/i)).toBeVisible();
-  await expect(page.getByText('10000 items')).toBeVisible();
+  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
   state.forbiddenModels.add('6-childmodel');
   await addNativeChild(page);
@@ -440,7 +455,7 @@ test('keeps partial roots and failed descendants usable with persistent recovery
     .first()
     .click();
   await expect(page.getByRole('alert')).toContainText('Ask a Zesty administrator for read access');
-  await expect(page.getByText('10000 items')).toBeVisible();
+  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
   state.forbiddenModels.clear();
   await page.getByRole('alert').getByRole('button', { name: 'Retry' }).click();

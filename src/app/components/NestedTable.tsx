@@ -407,16 +407,18 @@ export function NestedTable(props: NestedTableProps) {
                           >
                             <Eye size={14} />
                           </button>
-                          <a
-                            className="button button--row"
-                            aria-label={`Open ${itemId} in Zesty Manager`}
-                            href={`${node.reference.managerBaseUrl}/${node.reference.area}/${node.reference.modelZuid}/${item.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Open in Zesty Manager in a new tab"
-                          >
-                            <ExternalLink size={14} />
-                          </a>
+                          {node.reference.area !== 'other' ? (
+                            <a
+                              className="button button--row"
+                              aria-label={`Open ${itemId} in Zesty Manager`}
+                              href={`${node.reference.managerBaseUrl}/${node.reference.area}/${node.reference.modelZuid}/${item.id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Open in Zesty Manager in a new tab"
+                            >
+                              <ExternalLink size={14} />
+                            </a>
+                          ) : null}
                         </div>
                       </td>
                       {visibleColumns.map((column) => (
