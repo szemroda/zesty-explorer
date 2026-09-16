@@ -165,7 +165,7 @@ Text inputs use a 200 ms debounce. An in-progress indicator appears only if anot
 - Available page sizes are 25, 50, and 100.
 - A nested page number belongs to one parent occurrence. Page numbers are not shared in the URL.
 
-All content fields are visible by default. Technical metadata and raw JSON are hidden by default but may be selected. Users may change column visibility and width. The table has horizontal scrolling and a sticky leading actions column. Arbitrary column pinning and drag reordering are outside the first version.
+All content fields and the content item ZUID are visible by default. ZUID is the first data column after row actions and the first option in the column menu. Users may hide it. Other technical metadata and raw JSON are hidden by default but may be selected. Users may change column visibility and width. The table has horizontal scrolling and a sticky leading actions column. ZUID scrolls with the other data columns. Arbitrary column pinning and drag reordering are outside the first version.
 
 Long cell values are truncated with an ellipsis. A keyboard-accessible Base UI popover can show the full value on hover or explicit interaction. The authoritative full value remains available in item details. HTML is displayed as text and never executed. Structured values are formatted for reading and copying.
 

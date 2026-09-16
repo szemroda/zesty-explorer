@@ -27,6 +27,7 @@ export function contentItemColumns(
   ].sort();
 
   return [
+    technicalColumn('$id', 'ZUID', 210, (item) => item.id),
     ...schema.fields.map((field) => ({
       id: field.name,
       label: field.label,
@@ -35,7 +36,6 @@ export function contentItemColumns(
       defaultWidth: defaultContentColumnWidth,
       read: (item: ContentItem) => item.fields[field.name],
     })),
-    technicalColumn('$id', 'ZUID', 210, (item) => item.id),
     technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
     technicalColumn('$modified', 'Modified', 180, (item) => item.metadata.modified),
     technicalColumn('$version', 'Version', 110, (item) => item.metadata.version),
@@ -82,7 +82,7 @@ export function initialColumnVisibility(
   return Object.fromEntries(
     columns.map((column) => [
       column.id,
-      usesDefaults ? !column.technical : savedColumnIds.includes(column.id),
+      usesDefaults ? column.id === '$id' || !column.technical : savedColumnIds.includes(column.id),
     ]),
   );
 }

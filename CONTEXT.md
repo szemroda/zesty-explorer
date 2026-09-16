@@ -65,7 +65,7 @@ A field defined by a collection's Zesty content model. Content fields are visibl
 _Avoid_: Property, column
 
 **Technical metadata**:
-System-managed identifiers, version data, timestamps, and API bookkeeping attached to a content item. Technical metadata and raw JSON are hidden in a table by default but remain available in item details.
+System-managed identifiers, version data, timestamps, and API bookkeeping attached to a content item. A content item's ZUID is visible by default as the first data column after row actions. Other technical metadata and raw JSON are hidden in a table by default but remain available in item details.
 _Avoid_: Content field
 
 **Root collection**:

@@ -325,7 +325,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
     .toBe(4);
 
   await page.getByText('Columns', { exact: true }).first().click();
-  await page.getByRole('checkbox', { name: 'ZUID' }).first().check();
+  await expect(page.getByRole('checkbox', { name: 'ZUID' }).first()).toBeChecked();
   await expect(page.getByRole('columnheader', { name: 'ZUID' })).toBeVisible();
 
   await page.getByLabel('Actions for Custom children').click();

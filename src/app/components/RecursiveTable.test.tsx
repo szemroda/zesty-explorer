@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
@@ -185,7 +185,7 @@ describe('recursive collection tables', () => {
     expect(technicalDetails).toHaveTextContent('$.data');
   });
 
-  it('keeps technical columns hidden by default and lets the user select them', () => {
+  it('shows ZUID first by default in root and nested tables and lets the user hide it', async () => {
     render(
       <RootTable
         schema={rootSchema}
@@ -199,12 +199,31 @@ describe('recursive collection tables', () => {
         onPresentationChange={vi.fn()}
       />,
     );
-    expect(screen.getByRole('checkbox', { name: 'Title' })).toBeChecked();
-    const zuid = screen.getByRole('checkbox', { name: 'ZUID' });
-    expect(zuid).not.toBeChecked();
+
+    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
+    const rootHeaders = within(rootTable).getAllByRole('columnheader');
+    expect(rootHeaders[1]).toHaveAccessibleName('ZUID');
+    expect(rootHeaders[2]).toHaveAccessibleName('Title');
+
+    const rootColumnControls = within(rootTable).getAllByRole('checkbox');
+    expect(rootColumnControls[0]).toHaveAccessibleName('ZUID');
+    const zuid = within(rootTable).getByRole('checkbox', { name: 'ZUID' });
+    expect(zuid).toBeChecked();
     fireEvent.click(zuid);
-    expect(screen.getByRole('columnheader', { name: /ZUID/i })).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: generated.parents.items[0]!.id })).toBeInTheDocument();
+    expect(within(rootTable).queryByRole('columnheader', { name: 'ZUID' })).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      }),
+    );
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+    const nestedHeaders = within(nestedTable).getAllByRole('columnheader');
+    expect(nestedHeaders[1]).toHaveAccessibleName('ZUID');
+    expect(nestedHeaders[2]).toHaveAccessibleName('Title');
+    const nestedColumnControls = within(nestedTable).getAllByRole('checkbox');
+    expect(nestedColumnControls[0]).toHaveAccessibleName('ZUID');
+    expect(within(nestedTable).getByRole('checkbox', { name: 'ZUID' })).toBeChecked();
   });
 
   it('does not guess a Manager item URL for an unrecognized collection type', () => {
@@ -243,6 +262,7 @@ describe('recursive collection tables', () => {
     );
     expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Title' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'ZUID' })).not.toBeChecked();
   });
 
   it('restores a nested technical metadata sort in the selector', async () => {

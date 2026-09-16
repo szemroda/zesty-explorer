@@ -36,9 +36,9 @@ describe('content item presentation', () => {
     const columns = contentItemColumns(schema, [item]);
 
     expect(columns.map(({ id, label, technical }) => ({ id, label, technical }))).toEqual([
+      { id: '$id', label: 'ZUID', technical: true },
       { id: 'title', label: 'Title', technical: false },
       { id: 'score', label: 'Score', technical: false },
-      { id: '$id', label: 'ZUID', technical: true },
       { id: '$created', label: 'Created', technical: true },
       { id: '$modified', label: 'Modified', technical: true },
       { id: '$version', label: 'Version', technical: true },
@@ -73,11 +73,14 @@ describe('content item presentation', () => {
     const columns = contentItemColumns(schema, [item]);
     const defaults = initialColumnVisibility(columns, ['*']);
 
-    expect(visibleColumnIds(columns, defaults)).toEqual(['title', 'score']);
+    expect(visibleColumnIds(columns, defaults)).toEqual(['$id', 'title', 'score']);
     expect(hiddenColumnIds(columns, ['*'])).toContain('$raw');
     expect(visibleColumnIds(columns, initialColumnVisibility(columns, ['title', '$id']))).toEqual([
-      'title',
       '$id',
+      'title',
+    ]);
+    expect(visibleColumnIds(columns, initialColumnVisibility(columns, ['title']))).toEqual([
+      'title',
     ]);
   });
 
