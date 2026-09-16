@@ -83,7 +83,7 @@ The `Published only` checkbox changes the state for the entire view and reloads 
 - The maximum relationship depth is five levels.
 - A view contains at most ten collection nodes.
 - The same collection may appear in several nodes, such as Author and Reviewer. Its data is fetched once, while each node owns its name, relationship, filters, columns, and sort.
-- A node initially uses the Zesty relationship-field label and can be renamed.
+- A new node uses the child collection label by default, regardless of the relationship field or relationship type. If the collection is absent from the catalog, its model ZUID is the fallback. The default may be replaced with a custom node name, duplicate node names are allowed, and names restored from existing views are never recalculated.
 - Attempting to add a collection from another instance or deployment is rejected before a request is sent.
 - Changing the root is a view reset. The application lists the nodes and settings that will be removed and requires confirmation.
 - Removing a node also removes its descendants and their presentation state. The confirmation lists everything that will be removed.
@@ -92,7 +92,7 @@ The `Published only` checkbox changes the state for the entire view and reloads 
 
 ## Relationships
 
-The `Add related collection` action belongs to a parent collection node. The user supplies a collection URL, which determines the child collection.
+The `Add related collection` action belongs to a parent collection node. The user chooses the child collection from the catalog or supplies its collection URL. The node-name field remains empty until the user enters a custom name and shows the current default in its placeholder. Custom names are trimmed; whitespace-only input uses the default.
 
 - The application reads both Zesty models and proposes native relationships declared on either the parent or child collection.
 - If several native relationship fields target the same model, the user must choose one. The application does not guess.

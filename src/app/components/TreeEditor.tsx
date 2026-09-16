@@ -127,6 +127,15 @@ function AddRelationship({
   const effectiveMode = loadedChildSchema && nativeCandidates.length === 0 ? 'custom' : mode;
   const effectiveChildPath =
     effectiveMode === 'custom' && loadedChildSchema && !childPath ? 'id' : childPath;
+  const catalogCollection = selectedReference
+    ? catalog.find(
+        (collection) =>
+          collection.reference.instanceZuid === selectedReference.instanceZuid &&
+          collection.reference.deployment === selectedReference.deployment &&
+          collection.reference.modelZuid === selectedReference.modelZuid,
+      )
+    : undefined;
+  const defaultNodeName = catalogCollection?.label ?? selectedReference?.modelZuid;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,7 +149,6 @@ function AddRelationship({
     }
 
     let relationship: RelationshipDefinition;
-    let defaultName: string;
     if (effectiveMode === 'native' && nativeCandidates.length > 0) {
       const selected =
         nativeCandidates.find((candidate) => candidate.field.id === nativeField) ??
@@ -150,7 +158,6 @@ function AddRelationship({
         return;
       }
       relationship = selected.relationship;
-      defaultName = selected.field.label;
     } else {
       if (!parentPath.trim() || !effectiveChildPath.trim()) {
         setError('Choose a parent field path and enter a child field path.');
@@ -162,12 +169,11 @@ function AddRelationship({
         parentField,
         childField: effectiveChildPath.split('.').filter(Boolean),
       };
-      defaultName =
-        schema.fields.find((field) => field.name === parentField[0])?.label ??
-        selectedReference.modelZuid;
     }
 
-    const problem = onAdd(parent.id, selectedReference, name || defaultName, relationship);
+    const customName = name.trim();
+    const nodeName = customName || defaultNodeName || selectedReference.modelZuid;
+    const problem = onAdd(parent.id, selectedReference, nodeName, relationship);
     if (problem) {
       setError(problem);
       return;
@@ -265,7 +271,11 @@ function AddRelationship({
               id={`child-name-${parent.id}`}
               type="text"
               value={name}
-              placeholder="Uses the relationship label by default"
+              placeholder={
+                defaultNodeName
+                  ? `Defaults to ${defaultNodeName}`
+                  : 'Defaults to the collection label'
+              }
               onChange={(event) => setName(event.target.value)}
             />
 

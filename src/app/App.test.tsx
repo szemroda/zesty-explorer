@@ -479,22 +479,118 @@ describe('root collection browser', () => {
 
     const nativeField = await screen.findByLabelText('Native field');
     expect(nativeField).toHaveDisplayValue('Article');
+    expect(screen.getByLabelText('Node name')).toHaveAttribute(
+      'placeholder',
+      'Defaults to Comments',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
 
-    await screen.findByText('Article', { selector: '.tree-node span' });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit relationship for Article' }));
-    expect(screen.getByLabelText('Relationship type')).toHaveValue('native');
-    expect(screen.getByLabelText('Native field')).toHaveDisplayValue('Article');
-    fireEvent.click(screen.getByRole('button', { name: 'Close relationship editor' }));
+    await screen.findByText('Comments', { selector: '.tree-node span' });
     fireEvent.click(
       screen.getByRole('button', { name: 'Expand relationships for 7-article-000001' }),
     );
-    expect(await screen.findByRole('region', { name: 'Article related items' })).toHaveTextContent(
+    expect(await screen.findByRole('region', { name: 'Comments related items' })).toHaveTextContent(
       'First comment',
     );
   });
 
-  it('switches explicitly to custom equality when a collection has no native relationship', async () => {
+  it('uses the catalog label for a pasted related collection URL', async () => {
+    const relatedCatalogEntry: CollectionCatalog['collections'][number] = {
+      ...catalog.collections[0]!,
+      label: 'Authors',
+      name: 'authors',
+      reference: {
+        ...catalog.collections[0]!.reference,
+        modelZuid: '6-authors123',
+      },
+    };
+    const relatedSchema: CollectionSchema = {
+      modelZuid: '6-authors123',
+      label: '6-authors123',
+      fields: [
+        {
+          id: '12-story123',
+          name: 'story',
+          label: 'Story',
+          kind: 'relationship',
+          relatedModelZuid: schema.modelZuid,
+        },
+      ],
+    };
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionCatalog: () =>
+        Effect.succeed({
+          collections: [...catalog.collections, relatedCatalogEntry],
+          incomplete: false,
+        }),
+      loadCollectionSchema: (reference) =>
+        Effect.succeed(reference.modelZuid === relatedSchema.modelZuid ? relatedSchema : schema),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-authors123' },
+    });
+
+    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+    expect(screen.getByLabelText('Node name')).toHaveAttribute(
+      'placeholder',
+      'Defaults to Authors',
+    );
+    fireEvent.change(screen.getByLabelText('Node name'), {
+      target: { value: '  Editorial authors  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
+
+    const nodeName = await screen.findByText('Editorial authors', { selector: '.tree-node span' });
+    expect(nodeName.textContent).toBe('Editorial authors');
+  });
+
+  it('uses the model ZUID when a pasted related collection is absent from the catalog', async () => {
+    const relatedSchema: CollectionSchema = {
+      modelZuid: '6-uncatalogued123',
+      label: '6-uncatalogued123',
+      fields: [
+        {
+          id: '12-story123',
+          name: 'story',
+          label: 'Story',
+          kind: 'relationship',
+          relatedModelZuid: schema.modelZuid,
+        },
+      ],
+    };
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionSchema: (reference) =>
+        Effect.succeed(reference.modelZuid === relatedSchema.modelZuid ? relatedSchema : schema),
+    };
+    render(<App api={testApi} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    fireEvent.change(screen.getByLabelText('Related collection URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-uncatalogued123' },
+    });
+
+    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+    expect(screen.getByLabelText('Node name')).toHaveAttribute(
+      'placeholder',
+      'Defaults to 6-uncatalogued123',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
+
+    expect(
+      await screen.findByText('6-uncatalogued123', { selector: '.tree-node span' }),
+    ).toBeInTheDocument();
+  });
+
+  it('uses custom equality and the collection label when no native relationship exists', async () => {
     const relatedCatalogEntry: CollectionCatalog['collections'][number] = {
       ...catalog.collections[0]!,
       label: 'Authors',
@@ -537,6 +633,11 @@ describe('root collection browser', () => {
       expect.objectContaining({ modelZuid: '6-authors123', area: 'other' }),
       'fixture-session-token',
     );
+    fireEvent.change(screen.getByLabelText('Parent field path'), { target: { value: 'id' } });
+    fireEvent.change(screen.getByLabelText('Node name'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
+
+    expect(await screen.findByText('Authors', { selector: '.tree-node span' })).toBeInTheDocument();
   });
 
   it('rejects a related collection from another instance before loading its schema', async () => {
