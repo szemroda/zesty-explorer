@@ -406,6 +406,13 @@ describe('recursive collection tables', () => {
       ...root.presentation,
       columnWidths: { title: 90 },
     });
+    fireEvent.mouseDown(rootResizeHandle, { clientX: 300 });
+    fireEvent.mouseMove(document, { clientX: -1000 });
+    fireEvent.mouseUp(document);
+    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
+      ...root.presentation,
+      columnWidths: { title: 90 },
+    });
     onPresentationChange.mockClear();
 
     fireEvent.click(
@@ -420,6 +427,15 @@ describe('recursive collection tables', () => {
     fireEvent.mouseMove(document, { clientX: 140 });
     fireEvent.mouseUp(document);
 
+    expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
+      ...child.presentation,
+      visibleColumns: ['$id', '$status', 'title', 'parentKey'],
+      statusColumnHidden: false,
+      columnWidths: { title: 90 },
+    });
+    fireEvent.mouseDown(resizeHandle, { clientX: 300 });
+    fireEvent.mouseMove(document, { clientX: -1000 });
+    fireEvent.mouseUp(document);
     expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
       ...child.presentation,
       visibleColumns: ['$id', '$status', 'title', 'parentKey'],

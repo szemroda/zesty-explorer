@@ -107,7 +107,17 @@ export function useContentTable({
     columns,
     state: { sorting, columnSizing, columnVisibility, pagination },
     onSortingChange,
-    onColumnSizingChange,
+    // TanStack clamps getSize(), but its resize handler can emit smaller raw widths.
+    onColumnSizingChange: (updater) =>
+      onColumnSizingChange((previous) => {
+        const next = typeof updater === 'function' ? updater(previous) : updater;
+        return Object.fromEntries(
+          Object.entries(next).map(([id, width]) => [
+            id,
+            Math.max(columnWidthLimits.min, Math.min(columnWidthLimits.max, width)),
+          ]),
+        );
+      }),
     onColumnVisibilityChange,
     onPaginationChange,
     manualSorting: true,
