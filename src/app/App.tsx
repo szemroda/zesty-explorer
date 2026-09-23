@@ -135,7 +135,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   );
   const [viewFiltersOpen, setViewFiltersOpen] = useState(Boolean(initial.view?.viewFilters.length));
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
-  const [shareMessage, setShareMessage] = useState<string>();
   const [changingRoot, setChangingRoot] = useState(false);
   const [selectingRoot, setSelectingRoot] = useState(false);
   const [catalogInstance, setCatalogInstance] = useState<InstanceReference | undefined>(() =>
@@ -465,13 +464,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   async function copyViewLink() {
     await navigator.clipboard.writeText(window.location.href);
-    setShareMessage('View link copied. The session token is not included.');
+    toast.success('View link copied', {
+      description: 'The session token is not included.',
+    });
   }
 
   async function copyRawView() {
     if (!viewDecodeError) return;
     await navigator.clipboard.writeText(viewDecodeError.raw);
-    setShareMessage('Raw view data copied.');
+    toast.success('Raw view data copied');
   }
 
   function cancelRootReplacement() {
@@ -693,14 +694,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             >
               This view link is {encodedView.length.toLocaleString()} characters and may be too long
               for some tools.
-            </p>
-          ) : null}
-          {shareMessage ? (
-            <p
-              className="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm"
-              role="status"
-            >
-              {shareMessage}
             </p>
           ) : null}
           {viewDecodeError ? (

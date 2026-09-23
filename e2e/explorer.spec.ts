@@ -398,6 +398,8 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await expect(page.getByText('1 items')).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy view link' }).click();
+  const copiedToast = page.locator('[data-sonner-toast]').filter({ hasText: 'View link copied' });
+  await expect(copiedToast).toContainText('The session token is not included.');
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain('#view=');
   expect(copied).not.toContain('synthetic-session-token');
