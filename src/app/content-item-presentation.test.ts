@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { CollectionSchema, ContentItem, SortState } from '../domain';
 import {
   columnIdForSort,
-  columnWidth,
   contentItemColumns,
   formatContentValue,
   hiddenColumnIds,
   initialColumnVisibility,
   sortForColumn,
   visibleColumnIds,
-  withColumnWidth,
 } from './content-item-presentation';
 
 const schema = {
@@ -64,9 +62,14 @@ describe('content item presentation', () => {
       direction: 'desc',
     });
     expect(sortForColumn('$modified', 'asc')).toEqual({
-      fieldPath: ['modified'],
+      fieldPath: ['metadata', 'modified'],
       direction: 'asc',
     });
+    expect(sortForColumn('id', 'asc')).toEqual({
+      fieldPath: ['fields', 'id'],
+      direction: 'asc',
+    });
+    expect(columnIdForSort({ fieldPath: ['fields', 'id'], direction: 'desc' })).toBe('id');
   });
 
   it('applies default and explicit column visibility consistently', () => {
@@ -84,15 +87,8 @@ describe('content item presentation', () => {
     ]);
   });
 
-  it('owns value formatting and validated width updates', () => {
-    const titleColumn = contentItemColumns(schema, [item]).find((column) => column.id === 'title');
-    expect(titleColumn).toBeDefined();
-    if (!titleColumn) throw new Error('Expected the title column.');
-
+  it('formats content values for table cells', () => {
     expect(formatContentValue('<p>Hello</p>   there')).toBe('Hello there');
     expect(formatContentValue({ nested: true })).toBe('{\n  "nested": true\n}');
-    expect(columnWidth(titleColumn, {})).toBe(190);
-    expect(withColumnWidth({}, titleColumn.id, '240')).toEqual({ title: 240 });
-    expect(withColumnWidth({}, titleColumn.id, '89')).toBeUndefined();
   });
 });

@@ -57,8 +57,14 @@ function technicalColumn(
 }
 
 export function columnIdForSort(sort: SortState): string {
+  if (sort.fieldPath[0] === 'fields' && sort.fieldPath[1]) {
+    return sort.fieldPath.slice(1).join('.');
+  }
   const path = sort.fieldPath.join('.');
   if (sort.fieldPath[0] === 'metadata' && sort.fieldPath[1]) {
+    if (fixedMetadataKeys.has(sort.fieldPath[1]) && sort.fieldPath.length === 2) {
+      return `$${sort.fieldPath[1]}`;
+    }
     return `$meta.${sort.fieldPath.slice(1).join('.')}`;
   }
   return ['id', 'created', 'modified', 'version'].includes(path) ? `$${path}` : path;
@@ -68,10 +74,11 @@ export function sortForColumn(columnId: string, direction: SortState['direction'
   if (columnId.startsWith('$meta.')) {
     return { fieldPath: ['metadata', columnId.slice('$meta.'.length)], direction };
   }
-  return {
-    fieldPath: columnId.startsWith('$') ? [columnId.slice(1)] : columnId.split('.'),
-    direction,
-  };
+  if (columnId === '$id') return { fieldPath: ['id'], direction };
+  if (columnId.startsWith('$')) {
+    return { fieldPath: ['metadata', columnId.slice(1)], direction };
+  }
+  return { fieldPath: ['fields', ...columnId.split('.')], direction };
 }
 
 export function initialColumnVisibility(
@@ -100,25 +107,6 @@ export function visibleColumnIds(
   visibility: Readonly<Record<string, boolean>>,
 ): readonly string[] {
   return columns.filter((column) => visibility[column.id] !== false).map((column) => column.id);
-}
-
-export function columnWidth(
-  column: ContentItemColumn,
-  savedWidths: NodePresentation['columnWidths'],
-): number {
-  return savedWidths[column.id] ?? column.defaultWidth;
-}
-
-export function withColumnWidth(
-  savedWidths: NodePresentation['columnWidths'],
-  columnId: string,
-  input: string,
-): NodePresentation['columnWidths'] | undefined {
-  const width = Number(input);
-  if (!Number.isFinite(width) || width < columnWidthLimits.min || width > columnWidthLimits.max) {
-    return undefined;
-  }
-  return { ...savedWidths, [columnId]: width };
 }
 
 export function formatContentValue(value: unknown): string {

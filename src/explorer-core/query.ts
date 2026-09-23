@@ -52,6 +52,7 @@ export function resolveFieldPath(item: ContentItem, path: FieldPath): ResolvedFi
 
   let value: unknown;
   if (head === 'id') value = item.id;
+  else if (head === 'fields') value = item.fields;
   else if (head === 'metadata') value = item.metadata;
   else if (head === 'raw') value = item.raw;
   else if (hasOwn(item.fields, head)) value = item.fields[head];
@@ -249,7 +250,8 @@ export function filterNodeItemIds(
 function sortableValue(item: ContentItem | undefined, fieldPath: FieldPath): Scalar | undefined {
   if (!item) return undefined;
   const resolved = resolveFieldPath(item, fieldPath);
-  return resolved.kind === 'scalar' ? resolved.value : undefined;
+  if (resolved.kind !== 'scalar' || resolved.value === '') return undefined;
+  return resolved.value;
 }
 
 function compareScalars(left: Scalar, right: Scalar): number {

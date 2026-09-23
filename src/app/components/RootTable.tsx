@@ -1,29 +1,11 @@
 import {
-  columnResizingFeature,
-  columnSizingFeature,
-  columnVisibilityFeature,
-  createColumnHelper,
-  createPaginatedRowModel,
-  rowPaginationFeature,
-  rowSortingFeature,
-  tableFeatures,
-  useTable,
   type ColumnSizingState,
   type ColumnVisibilityState,
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Eye,
-  ExternalLink,
-  ListFilter,
-  Search,
-  SlidersHorizontal,
-} from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { ListFilter, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -37,11 +19,13 @@ import type {
 } from '../../domain';
 import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
 import {
+  contentActionColumnWidth,
+  createContentTableColumns,
+  useContentTable,
+} from '../content-table-model';
+import {
   columnIdForSort,
-  columnWidthLimits,
   contentItemColumns,
-  defaultContentColumnWidth,
-  formatContentValue,
   initialColumnVisibility,
   sortForColumn,
   visibleColumnIds,
@@ -49,16 +33,13 @@ import {
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { buildLoadedViewGraph, type LoadedView } from '../load-view';
 import { CellValue } from './CellValue';
+import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { FilterBuilder } from './FilterBuilder';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { buttonVariants } from './ui/button-variants';
-import { Checkbox } from './ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Input } from './ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 interface RootTableProps {
   readonly schema: CollectionSchema;
@@ -74,20 +55,6 @@ interface RootTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
 }
 
-function itemLabel(item: ContentItem): string {
-  const label = formatContentValue(item.fields.title ?? item.fields.name);
-  return label === '—' ? item.id : label;
-}
-
-const features = tableFeatures({
-  columnSizingFeature,
-  columnResizingFeature,
-  columnVisibilityFeature,
-  rowSortingFeature,
-  rowPaginationFeature,
-  paginatedRowModel: createPaginatedRowModel(),
-});
-const columnHelper = createColumnHelper<typeof features, ContentItem>();
 export function RootTable({
   schema,
   snapshot,
@@ -101,7 +68,6 @@ export function RootTable({
   onRetry,
   onPresentationChange,
 }: RootTableProps) {
-  const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
   );
@@ -199,96 +165,26 @@ export function RootTable({
     viewFilters,
   ]);
   const hasManagerLink = reference.area !== 'other';
-  const actionColumnWidth =
-    treeRoot.children.length > 0 ? (hasManagerLink ? 140 : 102) : hasManagerLink ? 94 : 56;
+  const canExpand = treeRoot.children.length > 0;
+  const actionColumnWidth = contentActionColumnWidth(canExpand, hasManagerLink);
 
   const columns = useMemo(
     () =>
-      columnHelper.columns([
-        columnHelper.display({
-          id: 'actions',
-          header: '',
-          size: actionColumnWidth,
-          enableHiding: false,
-          enableResizing: false,
-          cell: ({ row }) => (
-            <div className="flex w-max items-center gap-1.5" role="group" aria-label="Item actions">
-              {treeRoot.children.length > 0 ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="relative mr-1.5 after:pointer-events-none after:absolute after:inset-y-1.5 after:-right-1.5 after:w-px after:bg-border"
-                  aria-label={`${expanded.has(row.original.id) ? 'Collapse' : 'Expand'} relationships for ${row.original.id}`}
-                  aria-expanded={expanded.has(row.original.id)}
-                  title={
-                    expanded.has(row.original.id) ? 'Hide related items' : 'Show related items'
-                  }
-                  onClick={() =>
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(row.original.id)) next.delete(row.original.id);
-                      else next.add(row.original.id);
-                      return next;
-                    })
-                  }
-                >
-                  {expanded.has(row.original.id) ? (
-                    <ChevronDown size={15} />
-                  ) : (
-                    <ChevronRight size={15} />
-                  )}
-                </Button>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Open details for ${itemLabel(row.original)}`}
-                title="Open item details"
-                onClick={(event) => onOpenDetails(row.original, event.currentTarget)}
-              >
-                <Eye size={15} />
-              </Button>
-              {hasManagerLink ? (
-                <a
-                  className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                  aria-label={`Open ${itemLabel(row.original)} in Zesty Manager`}
-                  href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open in Zesty Manager in a new tab"
-                >
-                  <ExternalLink size={15} />
-                </a>
-              ) : null}
-            </div>
-          ),
-        }),
-        ...itemColumnDefinitions.map((column) =>
-          columnHelper.accessor((item) => column.read(item), {
-            id: column.id,
-            header: column.label,
-            size: column.defaultWidth,
-            enableSorting: column.sortable,
-            cell: ({ getValue }) => <CellValue value={getValue()} />,
-          }),
-        ),
-      ]),
-    [
-      actionColumnWidth,
-      expanded,
-      hasManagerLink,
-      itemColumnDefinitions,
-      onOpenDetails,
-      reference,
-      treeRoot.children.length,
-    ],
+      createContentTableColumns({
+        definitions: itemColumnDefinitions,
+        actionColumnWidth,
+        renderValue: (value) => <CellValue value={value} />,
+      }),
+    [actionColumnWidth, itemColumnDefinitions],
   );
 
-  const table = useTable({
-    features,
+  const table = useContentTable({
     data: filteredItems,
     columns,
-    state: { sorting, columnSizing, columnVisibility, pagination },
+    sorting,
+    columnSizing,
+    columnVisibility,
+    pagination,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
       setSorting(next);
@@ -306,14 +202,6 @@ export function RootTable({
       });
     },
     onPaginationChange: setPagination,
-    manualSorting: true,
-    enableSortingRemoval: false,
-    defaultColumn: {
-      size: defaultContentColumnWidth,
-      minSize: columnWidthLimits.min,
-      maxSize: columnWidthLimits.max,
-    },
-    columnResizeMode: 'onChange',
   });
 
   function persistPresentation(patch: Partial<NodePresentation>) {
@@ -390,33 +278,11 @@ export function RootTable({
               />
             </DropdownMenuContent>
           </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="outline" aria-label="Choose visible columns">
-                  <SlidersHorizontal size={14} /> Columns
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="min-w-56 p-2">
-              {table
-                .getAllLeafColumns()
-                .filter((column) => column.getCanHide())
-                .map((column) => (
-                  <label
-                    className="flex items-center gap-2 rounded-md p-1.5 text-xs hover:bg-surface-menu-hover"
-                    key={column.id}
-                  >
-                    <Checkbox
-                      checked={column.getIsVisible()}
-                      onCheckedChange={(checked) => column.toggleVisibility(checked)}
-                    />
-                    {itemColumnDefinitions.find((definition) => definition.id === column.id)
-                      ?.label ?? column.id}
-                  </label>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ContentColumnsMenu
+            table={table}
+            columns={itemColumnDefinitions}
+            label="Choose visible columns"
+          />
         </div>
       </div>
       {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
@@ -435,152 +301,33 @@ export function RootTable({
           Showing a partial collection. Results may be incomplete.
         </p>
       ) : null}
-      <div className="w-full min-w-0 overflow-x-auto">
-        <Table
-          className="border-separate border-spacing-0 text-xs"
-          style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}
-        >
-          <colgroup>
-            {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
-              <col
-                key={column.id}
-                style={
-                  index === visibleColumns.length - 1 ? undefined : { width: column.getSize() }
-                }
+      <ContentTableGrid
+        table={table}
+        reference={reference}
+        canExpand={canExpand}
+        onOpenDetails={onOpenDetails}
+        renderExpandedRow={(item) => (
+          <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
+            {treeRoot.children.map((child) => (
+              <NestedTable
+                key={child.id}
+                node={child}
+                parentNode={treeRoot}
+                parentItemId={item.id}
+                graph={graph}
+                loadedView={loadedView}
+                contentState={contentState}
+                nodeStates={nodeStates}
+                updateNodeState={updateNodeState}
+                onPresentationChange={onPresentationChange}
+                onOpenDetails={onOpenDetails}
+                onRetry={onRetry}
               />
             ))}
-          </colgroup>
-          <TableHeader>
-            {table.getHeaderGroups().map((group) => (
-              <TableRow className="hover:bg-transparent" key={group.id}>
-                {group.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={`relative h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
-                      header.id === 'actions'
-                        ? 'sticky left-0 z-4 bg-surface-header shadow-sticky'
-                        : ''
-                    }`}
-                  >
-                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                      <Button
-                        variant="ghost"
-                        className="h-auto gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
-                        onClick={header.column.getToggleSortingHandler()}
-                      >
-                        <table.FlexRender header={header} />
-                        {header.column.getIsSorted() === 'asc' ? <ChevronUp size={13} /> : null}
-                        {header.column.getIsSorted() === 'desc' ? <ChevronDown size={13} /> : null}
-                      </Button>
-                    ) : (
-                      <table.FlexRender header={header} />
-                    )}
-                    {header.column.getCanResize() ? (
-                      <span
-                        className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
-                        onMouseDown={header.getResizeHandler()}
-                        onTouchStart={header.getResizeHandler()}
-                      />
-                    ) : null}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody className="[&_tr:last-child_td]:border-b-0">
-            {table.getRowModel().rows.map((row) => (
-              <Fragment key={row.original.id}>
-                <TableRow className="group hover:bg-transparent">
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
-                        cell.column.id === 'actions'
-                          ? 'sticky left-0 z-3 bg-panel px-2.5 shadow-sticky'
-                          : ''
-                      }`}
-                    >
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  ))}
-                </TableRow>
-                {expanded.has(row.original.id) ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      className="h-auto bg-surface-recessed p-0 hover:bg-surface-recessed"
-                      colSpan={table.getVisibleLeafColumns().length}
-                    >
-                      <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
-                        {treeRoot.children.map((child) => (
-                          <NestedTable
-                            key={child.id}
-                            node={child}
-                            parentNode={treeRoot}
-                            parentItemId={row.original.id}
-                            graph={graph}
-                            loadedView={loadedView}
-                            contentState={contentState}
-                            nodeStates={nodeStates}
-                            updateNodeState={updateNodeState}
-                            onPresentationChange={onPresentationChange}
-                            onOpenDetails={onOpenDetails}
-                            onRetry={onRetry}
-                          />
-                        ))}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </Fragment>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="flex min-h-12 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-        <span className="mr-auto">{filteredItems.length} items</span>
-        {table.getPageCount() > 1 ? (
-          <>
-            <Button
-              variant="outline"
-              disabled={!table.getCanPreviousPage()}
-              onClick={() => table.previousPage()}
-            >
-              Previous
-            </Button>
-            <span className="text-foreground/80">
-              Page {pagination.pageIndex + 1} of {table.getPageCount()}
-            </span>
-            <Button
-              variant="outline"
-              disabled={!table.getCanNextPage()}
-              onClick={() => table.nextPage()}
-            >
-              Next
-            </Button>
-          </>
-        ) : null}
-        <label className="flex items-center gap-2">
-          Items
-          <Select
-            items={[25, 50, 100].map((size) => ({ label: String(size), value: String(size) }))}
-            value={String(pagination.pageSize)}
-            onValueChange={(size) => {
-              if (size !== null) table.setPageSize(Number(size));
-            }}
-          >
-            <SelectTrigger className="min-w-20" size="sm" aria-label="Items per page">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {[25, 50, 100].map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      </div>
+          </div>
+        )}
+      />
+      <ContentTablePagination table={table} itemCount={filteredItems.length} itemLabel="items" />
     </section>
   );
 }

@@ -247,6 +247,35 @@ describe('sorting, facets, and pages', () => {
     );
   });
 
+  it('sorts a reserved-name numeric field and keeps every empty representation last', () => {
+    const source = snapshot([
+      item('7-a00000', { id: null }),
+      item('7-b00000', { id: 123_456 }),
+      item('7-c00000', { id: '' }),
+      item('7-d00000', { id: 999 }),
+      item('7-e00000', { id: 123.123 }),
+      item('7-f00000', {}),
+    ]);
+    const ids = source.items.map((entry) => entry.id);
+
+    expect(sortItemIds(source, ids, { fieldPath: ['fields', 'id'], direction: 'asc' })).toEqual([
+      '7-e00000',
+      '7-d00000',
+      '7-b00000',
+      '7-a00000',
+      '7-c00000',
+      '7-f00000',
+    ]);
+    expect(sortItemIds(source, ids, { fieldPath: ['fields', 'id'], direction: 'desc' })).toEqual([
+      '7-b00000',
+      '7-d00000',
+      '7-e00000',
+      '7-a00000',
+      '7-c00000',
+      '7-f00000',
+    ]);
+  });
+
   it('computes scalar facets on demand and selects page IDs', () => {
     expect(facetValues(snapshot(items), ['category'])).toEqual(['news', 'opinion']);
     expect(
