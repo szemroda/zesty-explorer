@@ -118,7 +118,7 @@ describe('recursive collection tables', () => {
     expect(
       await screen.findByRole('region', { name: 'Children related items' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveValue('$modified');
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveTextContent('Modified');
     expect(screen.getByText('Child 0')).toBeInTheDocument();
 
     fireEvent.click(
@@ -205,12 +205,17 @@ describe('recursive collection tables', () => {
     expect(rootHeaders[1]).toHaveAccessibleName('ZUID');
     expect(rootHeaders[2]).toHaveAccessibleName('Title');
 
-    const rootColumnControls = within(rootTable).getAllByRole('checkbox');
+    const rootColumnsButton = within(rootTable).getByRole('button', {
+      name: 'Choose visible columns',
+    });
+    fireEvent.click(rootColumnsButton);
+    const rootColumnControls = await screen.findAllByRole('checkbox');
     expect(rootColumnControls[0]).toHaveAccessibleName('ZUID');
-    const zuid = within(rootTable).getByRole('checkbox', { name: 'ZUID' });
+    const zuid = screen.getByRole('checkbox', { name: 'ZUID' });
     expect(zuid).toBeChecked();
     fireEvent.click(zuid);
     expect(within(rootTable).queryByRole('columnheader', { name: 'ZUID' })).not.toBeInTheDocument();
+    fireEvent.click(rootColumnsButton);
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -221,9 +226,14 @@ describe('recursive collection tables', () => {
     const nestedHeaders = within(nestedTable).getAllByRole('columnheader');
     expect(nestedHeaders[1]).toHaveAccessibleName('ZUID');
     expect(nestedHeaders[2]).toHaveAccessibleName('Title');
-    const nestedColumnControls = within(nestedTable).getAllByRole('checkbox');
+    fireEvent.click(
+      within(nestedTable).getByRole('button', {
+        name: 'Choose Children columns',
+      }),
+    );
+    const nestedColumnControls = await screen.findAllByRole('checkbox');
     expect(nestedColumnControls[0]).toHaveAccessibleName('ZUID');
-    expect(within(nestedTable).getByRole('checkbox', { name: 'ZUID' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'ZUID' })).toBeChecked();
   });
 
   it('does not guess a Manager item URL for an unrecognized collection type', () => {
@@ -246,7 +256,7 @@ describe('recursive collection tables', () => {
     expect(screen.queryByRole('link', { name: /in Zesty Manager/ })).not.toBeInTheDocument();
   });
 
-  it('preserves an explicit choice to hide every data column', () => {
+  it('preserves an explicit choice to hide every data column', async () => {
     render(
       <RootTable
         schema={rootSchema}
@@ -261,6 +271,8 @@ describe('recursive collection tables', () => {
       />,
     );
     expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
+    await screen.findAllByRole('checkbox');
     expect(screen.getByRole('checkbox', { name: 'Title' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'ZUID' })).not.toBeChecked();
   });
@@ -313,8 +325,8 @@ describe('recursive collection tables', () => {
       }),
     );
 
-    expect(await screen.findByRole('combobox', { name: 'Sort' })).toHaveValue(
-      '$meta.workflowStatus',
+    expect(await screen.findByRole('combobox', { name: 'Sort' })).toHaveTextContent(
+      'workflowStatus',
     );
   });
 });

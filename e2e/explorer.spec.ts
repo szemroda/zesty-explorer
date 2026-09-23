@@ -191,11 +191,16 @@ async function openRoot(page: Page) {
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
 
+async function chooseSelectOption(page: Page, label: string, option: string) {
+  await page.getByLabel(label).click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+}
+
 async function addNativeChild(page: Page) {
   await page.getByRole('button', { name: 'Add relationship' }).click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Children');
-  await page.getByLabel('Native field').selectOption({ label: 'Primary child' });
+  await chooseSelectOption(page, 'Native field', 'Primary child');
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Children', { exact: true })).toBeVisible();
 }
@@ -243,9 +248,9 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
   await page.getByLabel('Configure table filters').click();
-  await page.getByLabel('Table filter relationship path').selectOption({ label: '6-rootmodel' });
-  await page.getByLabel('Table filter field').selectOption('score');
-  await page.getByLabel('Table filter operator').selectOption('greater-than');
+  await chooseSelectOption(page, 'Table filter relationship path', '6-rootmodel');
+  await chooseSelectOption(page, 'Table filter field', 'Score');
+  await chooseSelectOption(page, 'Table filter operator', 'greater than');
   await page.getByLabel('Table filter value').fill('100');
   await page.getByLabel('Table filter').getByRole('button', { name: 'Add' }).click();
   await expect(page.getByText('4 items')).toBeVisible();
@@ -254,6 +259,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
     .getByLabel('Table filter')
     .getByRole('button', { name: /Remove filter score/ })
     .click();
+  await page.getByLabel('Configure table filters').click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Published' }).click();
@@ -291,7 +297,7 @@ test('detects a native relationship declared by the nested collection', async ({
   await page.getByRole('button', { name: 'Add relationship' }).click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Inverse children');
-  await page.getByLabel('Native field').selectOption({ label: 'Parent' });
+  await chooseSelectOption(page, 'Native field', 'Parent');
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Inverse children', { exact: true })).toBeVisible();
 
@@ -310,7 +316,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByRole('button', { name: 'Add relationship' }).first().click();
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Custom children');
-  await page.getByLabel('Relationship type').selectOption('custom');
+  await chooseSelectOption(page, 'Relationship type', 'Custom equality');
   await page.getByLabel('Parent field path').fill('rootKey');
   await page.getByLabel('Child field path').fill('parentKey');
   await page.getByRole('button', { name: 'Add collection node' }).click();
@@ -327,9 +333,10 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByText('Columns', { exact: true }).first().click();
   await expect(page.getByRole('checkbox', { name: 'ZUID' }).first()).toBeChecked();
   await expect(page.getByRole('columnheader', { name: 'ZUID' })).toBeVisible();
+  await page.getByLabel('Choose visible columns').click();
 
   await page.getByLabel('Actions for Custom children').click();
-  await page.getByRole('button', { name: 'Edit relationship for Custom children' }).click();
+  await page.getByRole('menuitem', { name: 'Edit relationship for Custom children' }).click();
   await page.getByLabel('Parent field path').fill('legacy.path');
   await page.getByRole('button', { name: 'Save relationship' }).click();
 
@@ -340,7 +347,8 @@ test('creates native and custom roles, expands related rows, and preserves detai
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Custom children related items' })).toBeVisible();
   await expect(page.getByText(/field path that is no longer/i)).toBeVisible();
-  await page.getByRole('button', { name: 'Edit relationship for Custom children' }).click();
+  await page.getByLabel('Actions for Custom children').click();
+  await page.getByRole('menuitem', { name: 'Edit relationship for Custom children' }).click();
   await page.getByLabel('Parent field path').fill('rootKey');
   await page.getByRole('button', { name: 'Save relationship' }).click();
   await expect(page.getByText(/field path that is no longer/i)).toHaveCount(0);
@@ -353,7 +361,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
   await children.getByLabel('Filter Children').fill('no matching item');
-  await expect(children.getByText('0 related items')).toBeVisible();
+  await expect(children.getByText('0 related items', { exact: true }).last()).toBeVisible();
   await children.getByLabel('Filter Children').fill('');
 
   const detailsTrigger = page.getByRole('button', { name: 'Open details for First story' });
@@ -365,12 +373,13 @@ test('creates native and custom roles, expands related rows, and preserves detai
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toContain('First story');
   await page.getByRole('tab', { name: 'Raw JSON' }).click();
-  await expect(page.locator('.raw-json')).toContainText('primaryChild');
+  await expect(page.getByRole('tabpanel')).toContainText('primaryChild');
   await page.getByRole('button', { name: 'Close item details' }).click();
   await expect(detailsTrigger).toBeFocused();
 
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByLabel('Actions for Custom children').click();
+  await page.getByRole('menuitem', { name: 'Remove', exact: true }).click();
   await expect(page.getByText('Custom children', { exact: true })).toHaveCount(0);
 });
 
@@ -381,12 +390,10 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
-  await page.getByLabel('View filters').locator('summary').click();
-  await page
-    .getByLabel('View filter relationship path')
-    .selectOption({ label: '6-rootmodel → Children' });
-  await page.getByLabel('View filter field').selectOption('active');
-  await page.getByLabel('View filter operator').selectOption('true');
+  await page.getByRole('button', { name: /View filters/ }).click();
+  await chooseSelectOption(page, 'View filter relationship path', '6-rootmodel → Children');
+  await chooseSelectOption(page, 'View filter field', 'Active');
+  await chooseSelectOption(page, 'View filter operator', 'true');
   await page.getByLabel('View filter').getByRole('button', { name: 'Add' }).click();
   await expect(page.getByText('1 items')).toBeVisible();
 
@@ -426,7 +433,7 @@ test('recovers corrupt links and confirms root replacement and reset', async ({ 
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
   await page.getByLabel('Search the complete view').fill('');
   await page.getByLabel('View options').click();
-  await page.getByRole('button', { name: 'Replace root collection' }).click();
+  await page.getByRole('menuitem', { name: 'Replace root collection' }).click();
   await expect(page.getByRole('heading', { name: 'Replace the root collection' })).toBeVisible();
   await page.getByLabel('Zesty instance URL').fill(childUrl);
   await page.getByRole('button', { name: 'Load collections' }).click();
@@ -435,7 +442,7 @@ test('recovers corrupt links and confirms root replacement and reset', async ({ 
   await expect(page.getByRole('heading', { name: '6-childmodel' })).toBeVisible();
   await page.getByLabel('View options').click();
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Reset view' }).click();
+  await page.getByRole('menuitem', { name: 'Reset view' }).click();
   await expect(page).not.toHaveURL(/#view=/);
 });
 

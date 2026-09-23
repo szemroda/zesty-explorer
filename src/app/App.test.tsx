@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Effect, Either } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -196,7 +196,6 @@ describe('root collection browser', () => {
     const htmlCell = screen.getByRole('cell', { name: 'First story' });
     expect(htmlCell).toBeInTheDocument();
     expect(htmlCell.querySelector('strong')).toBeNull();
-    expect(screen.getByRole('checkbox', { name: 'workflowStatus' })).not.toBeChecked();
     expect(screen.getByRole('dialog', { name: '7-000000-aaaaaa' })).toBeInTheDocument();
     const zestyLink = screen.getByRole('link', {
       name: /open first story in zesty manager/i,
@@ -206,6 +205,8 @@ describe('root collection browser', () => {
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa',
     );
     expect(zestyLink).toHaveAttribute('target', '_blank');
+    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
+    expect(screen.getByRole('checkbox', { name: 'workflowStatus' })).not.toBeChecked();
   });
 
   it('clears an expired token, preserves the root, and resumes with a replacement', async () => {
@@ -478,14 +479,16 @@ describe('root collection browser', () => {
     fireEvent.click(await screen.findByRole('option', { name: /Comments.*6-comments123/ }));
 
     const nativeField = await screen.findByLabelText('Native field');
-    expect(nativeField).toHaveDisplayValue('Article');
+    expect(nativeField).toHaveTextContent('Article');
     expect(screen.getByLabelText('Node name')).toHaveAttribute(
       'placeholder',
       'Defaults to Comments',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
 
-    await screen.findByText('Comments', { selector: '.tree-node span' });
+    await within(screen.getByRole('complementary', { name: 'Collection tree' })).findByText(
+      'Comments',
+    );
     fireEvent.click(
       screen.getByRole('button', { name: 'Expand relationships for 7-article-000001' }),
     );
@@ -536,7 +539,7 @@ describe('root collection browser', () => {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-authors123' },
     });
 
-    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+    expect(await screen.findByLabelText('Native field')).toHaveTextContent('Story');
     expect(screen.getByLabelText('Node name')).toHaveAttribute(
       'placeholder',
       'Defaults to Authors',
@@ -546,7 +549,9 @@ describe('root collection browser', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
 
-    const nodeName = await screen.findByText('Editorial authors', { selector: '.tree-node span' });
+    const nodeName = await within(
+      screen.getByRole('complementary', { name: 'Collection tree' }),
+    ).findByText('Editorial authors');
     expect(nodeName.textContent).toBe('Editorial authors');
   });
 
@@ -578,7 +583,7 @@ describe('root collection browser', () => {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-uncatalogued123' },
     });
 
-    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+    expect(await screen.findByLabelText('Native field')).toHaveTextContent('Story');
     expect(screen.getByLabelText('Node name')).toHaveAttribute(
       'placeholder',
       'Defaults to 6-uncatalogued123',
@@ -586,7 +591,9 @@ describe('root collection browser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
 
     expect(
-      await screen.findByText('6-uncatalogued123', { selector: '.tree-node span' }),
+      await within(screen.getByRole('complementary', { name: 'Collection tree' })).findByText(
+        '6-uncatalogued123',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -637,7 +644,11 @@ describe('root collection browser', () => {
     fireEvent.change(screen.getByLabelText('Node name'), { target: { value: '   ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add collection node' }));
 
-    expect(await screen.findByText('Authors', { selector: '.tree-node span' })).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole('complementary', { name: 'Collection tree' })).findByText(
+        'Authors',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('rejects a related collection from another instance before loading its schema', async () => {
@@ -735,7 +746,7 @@ describe('root collection browser', () => {
     const retry = await screen.findByRole('button', { name: 'Retry schema inspection' });
     expect(screen.getByRole('button', { name: 'Add collection node' })).toBeDisabled();
     fireEvent.click(retry);
-    expect(await screen.findByLabelText('Native field')).toHaveDisplayValue('Story');
+    expect(await screen.findByLabelText('Native field')).toHaveTextContent('Story');
   });
 
   it('does not load with replacement credentials until the new root is submitted', async () => {
@@ -759,7 +770,8 @@ describe('root collection browser', () => {
       'production-token',
     );
     await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'Replace root collection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Replace root collection' }));
     fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });
@@ -782,7 +794,8 @@ describe('root collection browser', () => {
     render(<App api={testApi} tokenStore={tokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
     await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear saved token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear saved token' }));
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
   });

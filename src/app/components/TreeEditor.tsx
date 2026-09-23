@@ -1,6 +1,5 @@
-import { Dialog } from '@base-ui/react/dialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { GitBranch, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
 import type {
@@ -19,6 +18,24 @@ import {
 } from '../../explorer-core';
 import { CollectionPicker } from './CollectionPicker';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
+import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from './ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface TreeEditorProps {
   readonly root: CollectionNode;
@@ -50,7 +67,15 @@ interface TreeEditorProps {
 }
 
 function schemaPaths(schema: CollectionSchema): readonly string[] {
-  return ['id', 'created', 'modified', 'version', ...schema.fields.map((field) => field.name)];
+  return [
+    ...new Set([
+      'id',
+      'created',
+      'modified',
+      'version',
+      ...schema.fields.map((field) => field.name),
+    ]),
+  ];
 }
 
 function sameFieldPath(left: readonly string[], right: readonly string[]): boolean {
@@ -186,193 +211,215 @@ function AddRelationship({
   }
 
   return (
-    <Dialog.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         if (!nextOpen) void queryClient.cancelQueries({ queryKey: schemaQueryKey, exact: true });
       }}
     >
-      <Dialog.Trigger className="tree-action">
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground w-full justify-start text-xs"
+          />
+        }
+      >
         <Plus size={13} /> Add relationship
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="dialog-backdrop" />
-        <Dialog.Popup className="dialog-popup">
-          <div className="dialog-heading">
-            <div>
-              <p className="eyebrow">Relationship</p>
-              <Dialog.Title>Add below {parent.name}</Dialog.Title>
+      </DialogTrigger>
+      <DialogContent
+        className="max-h-[85vh] overflow-y-auto sm:max-w-lg"
+        closeLabel="Close add relationship"
+      >
+        <DialogHeader className="pr-10 text-left">
+          <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+            Relationship
+          </p>
+          <DialogTitle>Add below {parent.name}</DialogTitle>
+        </DialogHeader>
+        <DialogDescription>
+          Add another collection from the same Zesty instance and deployment.
+        </DialogDescription>
+        <form className="grid gap-4" onSubmit={submit}>
+          <CollectionPicker
+            label="Related collection"
+            collections={catalog}
+            value={selectedReference?.modelZuid}
+            onChange={(collection) => {
+              if (!collection) {
+                setUrl('');
+                setSelectedCollection(undefined);
+                return;
+              }
+              const reference = collection.reference;
+              setSelectedCollection(collection);
+              setUrl(
+                reference.area === 'other'
+                  ? `${reference.apiBaseUrl}/content/models/${reference.modelZuid}`
+                  : `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`,
+              );
+              setNativeField('');
+              setMode('native');
+            }}
+          />
+          {catalogError ? (
+            <div
+              className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+              role="alert"
+            >
+              <p className="mb-2">{catalogError.message}</p>
+              <ErrorTechnicalDetails error={catalogError} />
+              <Button type="button" variant="outline" onClick={onRetryCatalog}>
+                Retry catalog
+              </Button>
             </div>
-            <Dialog.Close className="icon-button" aria-label="Close add relationship">
-              <X size={17} />
-            </Dialog.Close>
-          </div>
-          <Dialog.Description className="muted">
-            Add another collection from the same Zesty instance and deployment.
-          </Dialog.Description>
-          <form onSubmit={submit}>
-            <CollectionPicker
-              label="Related collection"
-              collections={catalog}
-              value={selectedReference?.modelZuid}
-              onChange={(collection) => {
-                if (!collection) {
-                  setUrl('');
-                  setSelectedCollection(undefined);
-                  return;
-                }
-                const reference = collection.reference;
-                setSelectedCollection(collection);
-                setUrl(
-                  reference.area === 'other'
-                    ? `${reference.apiBaseUrl}/content/models/${reference.modelZuid}`
-                    : `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`,
-                );
+          ) : null}
+          {catalogWarning ? (
+            <div
+              className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
+              role="status"
+            >
+              <p>{catalogWarning.message}</p>
+              <ErrorTechnicalDetails error={catalogWarning} />
+            </div>
+          ) : null}
+          <div className="grid gap-2 border-t pt-4">
+            <span className="text-muted-foreground text-xs font-medium">
+              Or paste a collection reference
+            </span>
+            <Label htmlFor={`child-url-${parent.id}`}>Related collection URL</Label>
+            <Input
+              id={`child-url-${parent.id}`}
+              type="url"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                setSelectedCollection(undefined);
                 setNativeField('');
-                setMode('native');
               }}
             />
-            {catalogError ? (
-              <div className="catalog-state catalog-state--error" role="alert">
-                <p>{catalogError.message}</p>
-                <ErrorTechnicalDetails error={catalogError} />
-                <button type="button" className="button" onClick={onRetryCatalog}>
-                  Retry catalog
-                </button>
-              </div>
-            ) : null}
-            {catalogWarning ? (
-              <div className="catalog-warning" role="status">
-                <p>{catalogWarning.message}</p>
-                <ErrorTechnicalDetails error={catalogWarning} />
-              </div>
-            ) : null}
-            <div className="manual-reference">
-              <span className="manual-reference__label">Or paste a collection reference</span>
-              <label className="field-label" htmlFor={`child-url-${parent.id}`}>
-                Related collection URL
-              </label>
-              <input
-                id={`child-url-${parent.id}`}
-                type="url"
-                value={url}
-                onChange={(event) => {
-                  setUrl(event.target.value);
-                  setSelectedCollection(undefined);
-                  setNativeField('');
-                }}
-              />
+          </div>
+          <Label htmlFor={`child-name-${parent.id}`}>Node name</Label>
+          <Input
+            id={`child-name-${parent.id}`}
+            type="text"
+            value={name}
+            placeholder={
+              defaultNodeName
+                ? `Defaults to ${defaultNodeName}`
+                : 'Defaults to the collection label'
+            }
+            onChange={(event) => setName(event.target.value)}
+          />
+
+          {schemaQuery.isFetching ? (
+            <p className="text-muted-foreground text-sm" role="status">
+              Checking native relationships…
+            </p>
+          ) : null}
+          {schemaQuery.error ? (
+            <div>
+              <p className="text-destructive text-sm">
+                Could not inspect the related collection schema: {schemaQuery.error.message}
+              </p>
+              <Button type="button" variant="outline" onClick={() => void schemaQuery.refetch()}>
+                Retry schema inspection
+              </Button>
             </div>
-            <label className="field-label" htmlFor={`child-name-${parent.id}`}>
-              Node name
-            </label>
-            <input
-              id={`child-name-${parent.id}`}
-              type="text"
-              value={name}
-              placeholder={
-                defaultNodeName
-                  ? `Defaults to ${defaultNodeName}`
-                  : 'Defaults to the collection label'
-              }
-              onChange={(event) => setName(event.target.value)}
-            />
+          ) : null}
+          {loadedChildSchema && nativeCandidates.length === 0 ? (
+            <p className="bg-muted text-muted-foreground rounded-md p-3 text-sm" role="status">
+              No native relationship targets this collection. Custom equality is selected.
+            </p>
+          ) : null}
 
-            {schemaQuery.isFetching ? (
-              <p className="muted" role="status">
-                Checking native relationships…
-              </p>
-            ) : null}
-            {schemaQuery.error ? (
-              <div>
-                <p className="error-message">
-                  Could not inspect the related collection schema: {schemaQuery.error.message}
-                </p>
-                <button type="button" className="button" onClick={() => void schemaQuery.refetch()}>
-                  Retry schema inspection
-                </button>
-              </div>
-            ) : null}
-            {loadedChildSchema && nativeCandidates.length === 0 ? (
-              <p className="catalog-state" role="status">
-                No native relationship targets this collection. Custom equality is selected.
-              </p>
-            ) : null}
+          {nativeCandidates.length > 0 ? (
+            <>
+              <Label htmlFor={`relation-mode-${parent.id}`}>Relationship type</Label>
+              <Select
+                items={[
+                  { label: 'Native relationship', value: 'native' },
+                  { label: 'Custom equality', value: 'custom' },
+                ]}
+                value={mode}
+                onValueChange={(nextMode) => {
+                  if (nextMode !== null) setMode(nextMode);
+                }}
+              >
+                <SelectTrigger className="w-full" id={`relation-mode-${parent.id}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="native">Native relationship</SelectItem>
+                  <SelectItem value="custom">Custom equality</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          ) : null}
 
-            {nativeCandidates.length > 0 ? (
-              <>
-                <label className="field-label" htmlFor={`relation-mode-${parent.id}`}>
-                  Relationship type
-                </label>
-                <select
-                  id={`relation-mode-${parent.id}`}
-                  value={mode}
-                  onChange={(event) => setMode(event.target.value as 'native' | 'custom')}
-                >
-                  <option value="native">Native relationship</option>
-                  <option value="custom">Custom equality</option>
-                </select>
-              </>
-            ) : null}
-
-            {effectiveMode === 'native' && nativeCandidates.length > 0 ? (
-              <>
-                <label className="field-label" htmlFor={`native-field-${parent.id}`}>
-                  Native field
-                </label>
-                <select
-                  id={`native-field-${parent.id}`}
-                  value={nativeField}
-                  onChange={(event) => setNativeField(event.target.value)}
-                >
-                  {nativeCandidates.length > 1 ? <option value="">Choose a field</option> : null}
+          {effectiveMode === 'native' && nativeCandidates.length > 0 ? (
+            <>
+              <Label htmlFor={`native-field-${parent.id}`}>Native field</Label>
+              <Select
+                items={nativeCandidates.map((candidate) => ({
+                  label: candidate.field.label,
+                  value: candidate.field.id,
+                }))}
+                value={
+                  nativeField ||
+                  (nativeCandidates.length === 1 ? nativeCandidates[0]?.field.id : null) ||
+                  null
+                }
+                onValueChange={(nextNativeField) => setNativeField(nextNativeField ?? '')}
+              >
+                <SelectTrigger className="w-full" id={`native-field-${parent.id}`}>
+                  <SelectValue placeholder="Choose a field" />
+                </SelectTrigger>
+                <SelectContent>
                   {nativeCandidates.map((candidate) => (
-                    <option key={candidate.field.id} value={candidate.field.id}>
+                    <SelectItem key={candidate.field.id} value={candidate.field.id}>
                       {candidate.field.label}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
-              </>
-            ) : (
-              <div className="field-pair">
-                <label className="field-label">
-                  Parent field path
-                  <input
-                    list={`parent-paths-${parent.id}`}
-                    value={parentPath}
-                    onChange={(event) => setParentPath(event.target.value)}
-                    placeholder="e.g. category.zuid"
-                  />
-                  <datalist id={`parent-paths-${parent.id}`}>
-                    {schemaPaths(schema).map((path) => (
-                      <option key={path} value={path} />
-                    ))}
-                  </datalist>
-                </label>
-                <label className="field-label">
-                  Child field path
-                  <input
-                    type="text"
-                    value={effectiveChildPath}
-                    placeholder="e.g. parent.zuid"
-                    onChange={(event) => setChildPath(event.target.value)}
-                  />
-                </label>
-              </div>
-            )}
-            {error ? <p className="error-message">{error}</p> : null}
-            <button
-              className="button button--primary"
-              type="submit"
-              disabled={schemaQuery.isFetching || schemaQuery.isError}
-            >
-              Add collection node
-            </button>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+                </SelectContent>
+              </Select>
+            </>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Label className="grid gap-2">
+                Parent field path
+                <Input
+                  list={`parent-paths-${parent.id}`}
+                  value={parentPath}
+                  onChange={(event) => setParentPath(event.target.value)}
+                  placeholder="e.g. category.zuid"
+                />
+                <datalist id={`parent-paths-${parent.id}`}>
+                  {schemaPaths(schema).map((path) => (
+                    <option key={path} value={path} />
+                  ))}
+                </datalist>
+              </Label>
+              <Label className="grid gap-2">
+                Child field path
+                <Input
+                  type="text"
+                  value={effectiveChildPath}
+                  placeholder="e.g. parent.zuid"
+                  onChange={(event) => setChildPath(event.target.value)}
+                />
+              </Label>
+            </div>
+          )}
+          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+          <Button type="submit" disabled={schemaQuery.isFetching || schemaQuery.isError}>
+            Add collection node
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -463,95 +510,114 @@ function EditRelationship({
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger className="tree-menu__item" aria-label={`Edit relationship for ${node.name}`}>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={<DropdownMenuItem aria-label={`Edit relationship for ${node.name}`} />}
+      >
         <Pencil size={12} />
         <span>Edit relationship</span>
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="dialog-backdrop" />
-        <Dialog.Popup className="dialog-popup">
-          <div className="dialog-heading">
-            <div>
-              <p className="eyebrow">Relationship</p>
-              <Dialog.Title>Repair {node.name}</Dialog.Title>
-            </div>
-            <Dialog.Close className="icon-button" aria-label="Close relationship editor">
-              <X size={17} />
-            </Dialog.Close>
-          </div>
-          <form onSubmit={submit}>
-            <label className="field-label">
-              Relationship type
-              <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg" closeLabel="Close relationship editor">
+        <DialogHeader className="pr-10 text-left">
+          <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+            Relationship
+          </p>
+          <DialogTitle>Repair {node.name}</DialogTitle>
+        </DialogHeader>
+        <form className="grid gap-4" onSubmit={submit}>
+          <Label className="grid gap-2">
+            Relationship type
+            <Select
+              items={[
+                ...(nativeCandidates.length > 0
+                  ? [{ label: 'Native relationship', value: 'native' as const }]
+                  : []),
+                { label: 'Custom equality', value: 'custom' as const },
+              ]}
+              value={mode}
+              onValueChange={(nextMode) => {
+                if (nextMode !== null) setMode(nextMode);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {nativeCandidates.length > 0 ? (
-                  <option value="native">Native relationship</option>
+                  <SelectItem value="native">Native relationship</SelectItem>
                 ) : null}
-                <option value="custom">Custom equality</option>
-              </select>
-            </label>
-            {mode === 'native' ? (
-              <label className="field-label">
-                Native field
-                <select
-                  value={
-                    nativeField ||
-                    (relationship?.kind === 'native'
-                      ? nativeCandidates.find((candidate) =>
-                          sameNativeRelationship(candidate.relationship, relationship),
-                        )?.field.id
-                      : '')
-                  }
-                  onChange={(event) => setNativeField(event.target.value)}
-                >
-                  {nativeCandidates.length > 1 && relationship?.kind !== 'native' ? (
-                    <option value="">Choose a field</option>
-                  ) : null}
+                <SelectItem value="custom">Custom equality</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+          {mode === 'native' ? (
+            <Label className="grid gap-2">
+              Native field
+              <Select
+                items={nativeCandidates.map((candidate) => ({
+                  label: candidate.field.label,
+                  value: candidate.field.id,
+                }))}
+                value={
+                  nativeField ||
+                  (relationship?.kind === 'native'
+                    ? nativeCandidates.find((candidate) =>
+                        sameNativeRelationship(candidate.relationship, relationship),
+                      )?.field.id
+                    : nativeCandidates.length === 1
+                      ? nativeCandidates[0]?.field.id
+                      : null) ||
+                  null
+                }
+                onValueChange={(nextNativeField) => setNativeField(nextNativeField ?? '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a field" />
+                </SelectTrigger>
+                <SelectContent>
                   {nativeCandidates.map((candidate) => (
-                    <option key={candidate.field.id} value={candidate.field.id}>
+                    <SelectItem key={candidate.field.id} value={candidate.field.id}>
                       {candidate.field.label}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
-              </label>
-            ) : (
-              <label className="field-label">
-                Parent field path
-                <input
-                  list={`edit-parent-paths-${node.id}`}
-                  value={parentPath}
-                  onChange={(event) => setParentPath(event.target.value)}
-                />
-                <datalist id={`edit-parent-paths-${node.id}`}>
-                  {schemaPaths(parentSchema).map((path) => (
-                    <option key={path} value={path} />
-                  ))}
-                </datalist>
-              </label>
-            )}
-            {mode === 'custom' ? (
-              <label className="field-label">
-                Child field path
-                <input
-                  list={`edit-child-paths-${node.id}`}
-                  value={childPath}
-                  onChange={(event) => setChildPath(event.target.value)}
-                />
-                <datalist id={`edit-child-paths-${node.id}`}>
-                  {childSchema
-                    ? schemaPaths(childSchema).map((path) => <option key={path} value={path} />)
-                    : null}
-                </datalist>
-              </label>
-            ) : null}
-            {error ? <p className="error-message">{error}</p> : null}
-            <button className="button button--primary" type="submit">
-              Save relationship
-            </button>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+                </SelectContent>
+              </Select>
+            </Label>
+          ) : (
+            <Label className="grid gap-2">
+              Parent field path
+              <Input
+                list={`edit-parent-paths-${node.id}`}
+                value={parentPath}
+                onChange={(event) => setParentPath(event.target.value)}
+              />
+              <datalist id={`edit-parent-paths-${node.id}`}>
+                {schemaPaths(parentSchema).map((path) => (
+                  <option key={path} value={path} />
+                ))}
+              </datalist>
+            </Label>
+          )}
+          {mode === 'custom' ? (
+            <Label className="grid gap-2">
+              Child field path
+              <Input
+                list={`edit-child-paths-${node.id}`}
+                value={childPath}
+                onChange={(event) => setChildPath(event.target.value)}
+              />
+              <datalist id={`edit-child-paths-${node.id}`}>
+                {childSchema
+                  ? schemaPaths(childSchema).map((path) => <option key={path} value={path} />)
+                  : null}
+              </datalist>
+            </Label>
+          ) : null}
+          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+          <Button type="submit">Save relationship</Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -595,10 +661,15 @@ function TreeNodeRow({
 
   return (
     <li>
-      <div className={node.id === root.id ? 'tree-node tree-node--root' : 'tree-node'}>
-        <span className="tree-node__dot" />
+      <div
+        className={`group flex min-h-9 items-center gap-2 rounded-md px-2 text-sm ${
+          node.id === root.id ? 'bg-accent/60 font-medium' : 'hover:bg-accent/40'
+        }`}
+      >
+        <span className="bg-primary size-1.5 shrink-0 rounded-full" />
         {editing ? (
-          <input
+          <Input
+            className="h-7 min-w-0 flex-1"
             aria-label={`Rename ${node.name}`}
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -615,16 +686,25 @@ function TreeNodeRow({
             }}
           />
         ) : (
-          <span>{node.name}</span>
+          <span className="min-w-0 flex-1 truncate">{node.name}</span>
         )}
-        <details className="tree-menu">
-          <summary className="tree-icon" aria-label={`Actions for ${node.name}`}>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                aria-label={`Actions for ${node.name}`}
+              />
+            }
+          >
             <MoreHorizontal size={15} />
-          </summary>
-          <div className="tree-menu__popup">
-            <button className="tree-menu__item" onClick={() => setEditing(true)}>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="right" keepMounted>
+            <DropdownMenuItem onClick={() => setEditing(true)}>
               <Pencil size={12} /> <span>Rename</span>
-            </button>
+            </DropdownMenuItem>
             {parent && schemas.get(parent.id) ? (
               <EditRelationship
                 node={node}
@@ -634,12 +714,12 @@ function TreeNodeRow({
               />
             ) : null}
             {node.id !== root.id ? (
-              <button className="tree-menu__item tree-menu__item--danger" onClick={remove}>
+              <DropdownMenuItem variant="destructive" onClick={remove}>
                 <Trash2 size={12} /> <span>Remove</span>
-              </button>
+              </DropdownMenuItem>
             ) : null}
-          </div>
-        </details>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {schemas.get(node.id) ? (
         <AddRelationship
@@ -654,7 +734,7 @@ function TreeNodeRow({
         />
       ) : null}
       {node.children.length > 0 ? (
-        <ul className="tree-children">
+        <ul className="border-border ml-3 border-l pl-2">
           {node.children.map((child) => (
             <TreeNodeRow
               key={child.id}
@@ -695,12 +775,12 @@ export function TreeEditor({
 }: TreeEditorProps) {
   const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
   return (
-    <div className="tree-editor">
-      <div className="tree-heading">
+    <div className="flex h-full flex-col">
+      <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
         <GitBranch size={15} aria-hidden="true" />
         <span>Collections</span>
       </div>
-      <ul className="tree-list">
+      <ul className="space-y-1">
         <TreeNodeRow
           node={root}
           root={root}

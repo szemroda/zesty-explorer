@@ -25,8 +25,11 @@ async function filterUntilPaint(
       );
       input.dispatchEvent(new Event('input', { bubbles: true }));
       while (performance.now() - started < 2_000) {
-        const settled = [...document.querySelectorAll('.pagination span')].some(
-          (candidate) => candidate.textContent === expected.count,
+        const settled = [...document.querySelectorAll('[aria-label$=" collection"]')].some(
+          (collection) =>
+            [...collection.querySelectorAll('span')].some(
+              (candidate) => candidate.textContent === expected.count,
+            ),
         );
         if (settled) {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

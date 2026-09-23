@@ -7,6 +7,14 @@ interface CellValueProps {
 export function CellValue({ value }: CellValueProps) {
   const text = formatContentValue(value);
   return (
-    <span className={text.length >= 56 ? 'cell-value cell-value--long' : 'cell-value'}>{text}</span>
+    <span
+      className={
+        text.length >= 56
+          ? 'block max-w-[440px] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-foreground'
+          : 'block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-foreground'
+      }
+    >
+      {text}
+    </span>
   );
 }

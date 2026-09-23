@@ -8,6 +8,11 @@ import type {
   Scalar,
   ViewFilter,
 } from '../../domain';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface FilterBuilderProps {
   readonly label: string;
@@ -21,6 +26,12 @@ interface PathChoice {
   readonly label: string;
   readonly node: CollectionNode;
   readonly path: readonly CollectionNodeId[];
+}
+
+const ROOT_PATH_VALUE = '$root';
+
+function pathValue(path: readonly CollectionNodeId[]): string {
+  return path.length === 0 ? ROOT_PATH_VALUE : path.join('/');
 }
 
 function pathChoices(root: CollectionNode): readonly PathChoice[] {
@@ -96,7 +107,7 @@ function filterIsInvalid(
 export function FilterBuilder({ label, root, schemas, filters, onChange }: FilterBuilderProps) {
   const choices = useMemo(() => pathChoices(root), [root]);
   const [path, setPath] = useState('');
-  const choice = choices.find((candidate) => candidate.path.join('/') === path) ?? choices[0];
+  const choice = choices.find((candidate) => pathValue(candidate.path) === path) ?? choices[0];
   const schema = choice ? schemas.get(choice.node.id) : undefined;
   const [fieldName, setFieldName] = useState('');
   const field =
@@ -109,7 +120,7 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
   function choosePath(nextPath: string) {
     setPath(nextPath);
     setFieldName('');
-    const nextChoice = choices.find((candidate) => candidate.path.join('/') === nextPath);
+    const nextChoice = choices.find((candidate) => pathValue(candidate.path) === nextPath);
     const nextField = nextChoice ? schemas.get(nextChoice.node.id)?.fields[0] : undefined;
     setOperator(operatorsFor(nextField)[0] ?? 'contains');
   }
@@ -134,78 +145,119 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
   }
 
   return (
-    <div className="filter-builder" aria-label={label}>
-      <div className="filter-builder__controls">
-        <label className="filter-control">
+    <div className="min-w-0 p-3.5" aria-label={label}>
+      <div className="grid grid-cols-[minmax(140px,1.2fr)_minmax(130px,1fr)_minmax(120px,.85fr)_minmax(160px,1.3fr)_auto] items-end gap-2.5 max-[1260px]:grid-cols-3">
+        <Label className="grid gap-1.5">
           <span>Collection</span>
-          <select
-            aria-label={`${label} relationship path`}
-            value={path}
-            onChange={(event) => choosePath(event.target.value)}
+          <Select
+            items={choices.map((candidate) => ({
+              label: candidate.label,
+              value: pathValue(candidate.path),
+            }))}
+            value={path || ROOT_PATH_VALUE}
+            onValueChange={(nextPath) => {
+              if (nextPath !== null) choosePath(nextPath);
+            }}
           >
-            {choices.map((candidate) => (
-              <option key={candidate.node.id} value={candidate.path.join('/')}>
-                {candidate.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="filter-control">
+            <SelectTrigger className="w-full" aria-label={`${label} relationship path`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {choices.map((candidate) => (
+                <SelectItem key={candidate.node.id} value={pathValue(candidate.path)}>
+                  {candidate.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Label>
+        <Label className="grid gap-1.5">
           <span>Field</span>
-          <select
-            aria-label={`${label} field`}
+          <Select
+            items={schema?.fields.map((candidate) => ({
+              label: candidate.label,
+              value: candidate.name,
+            }))}
             value={field?.name ?? ''}
-            onChange={(event) => {
-              setFieldName(event.target.value);
+            onValueChange={(nextFieldName) => {
+              if (nextFieldName === null) return;
+              setFieldName(nextFieldName);
               const nextField = schema?.fields.find(
-                (candidate) => candidate.name === event.target.value,
+                (candidate) => candidate.name === nextFieldName,
               );
               setOperator(operatorsFor(nextField)[0] ?? 'contains');
             }}
           >
-            {schema?.fields.map((candidate) => (
-              <option key={candidate.id} value={candidate.name}>
-                {candidate.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="filter-control">
+            <SelectTrigger className="w-full" aria-label={`${label} field`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {schema?.fields.map((candidate) => (
+                <SelectItem key={candidate.id} value={candidate.name}>
+                  {candidate.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Label>
+        <Label className="grid gap-1.5">
           <span>Condition</span>
-          <select
-            aria-label={`${label} operator`}
+          <Select
+            items={operators.map((candidate) => ({
+              label: candidate.replaceAll('-', ' '),
+              value: candidate,
+            }))}
             value={operator}
-            onChange={(event) => setOperator(event.target.value as ViewFilter['operator'])}
+            onValueChange={(nextOperator) => {
+              if (nextOperator !== null) setOperator(nextOperator);
+            }}
           >
-            {operators.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {candidate.replaceAll('-', ' ')}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger className="w-full" aria-label={`${label} operator`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {operators.map((candidate) => (
+                <SelectItem key={candidate} value={candidate}>
+                  {candidate.replaceAll('-', ' ')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Label>
         {needsValue ? (
-          <label className="filter-control filter-control--value">
+          <Label className="grid gap-1.5">
             <span>Value</span>
             {field?.options?.length && operator === 'one-of' ? (
-              <select
+              <Select
+                items={field.options.map((option) => ({
+                  label: String(option),
+                  value: String(option),
+                }))}
                 multiple
-                aria-label={`${label} value`}
                 value={value ? value.split(',') : []}
-                onChange={(event) =>
-                  setValue(
-                    [...event.target.selectedOptions].map((option) => option.value).join(','),
-                  )
-                }
+                onValueChange={(selected) => setValue(selected.join(','))}
               >
-                {field.options.map((option) => (
-                  <option key={String(option)} value={String(option)}>
-                    {String(option)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full" aria-label={`${label} value`}>
+                  <SelectValue>
+                    {(selected: string[]) =>
+                      selected.length === 0
+                        ? 'Choose values'
+                        : selected.length === 1
+                          ? selected[0]
+                          : `${selected.length} selected`
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {field.options.map((option) => (
+                    <SelectItem key={String(option)} value={String(option)}>
+                      {String(option)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             ) : (
-              <input
+              <Input
                 aria-label={`${label} value`}
                 value={value}
                 placeholder={operator === 'between' ? 'lower, upper' : 'Enter a value'}
@@ -213,37 +265,41 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
                 onChange={(event) => setValue(event.target.value)}
               />
             )}
-          </label>
+          </Label>
         ) : null}
-        <button
-          className="button button--primary filter-add"
+        <Button
+          className="max-[1260px]:justify-self-start"
           type="button"
           disabled={!field}
           onClick={add}
         >
           <Plus size={14} /> Add filter
-        </button>
+        </Button>
       </div>
       {filters.length > 0 ? (
-        <div className="filter-chips">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {filters.map((filter) => (
-            <span
-              className={
+            <Badge
+              variant={
                 filter.invalid || filterIsInvalid(filter, choices, schemas)
-                  ? 'filter-chip filter-chip--invalid'
-                  : 'filter-chip'
+                  ? 'destructive'
+                  : 'outline'
               }
+              className="gap-1.5 py-1 pr-1 pl-2 font-medium"
               key={filter.id}
             >
               {filterSummary(filter, choices)}
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-5 rounded-full"
                 type="button"
                 aria-label={`Remove filter ${filter.fieldPath.join('.')}`}
                 onClick={() => onChange(filters.filter((candidate) => candidate.id !== filter.id))}
               >
                 <X size={12} />
-              </button>
-            </span>
+              </Button>
+            </Badge>
           ))}
         </div>
       ) : null}

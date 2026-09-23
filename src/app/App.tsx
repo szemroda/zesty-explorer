@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
 import type {
   CollectionNode,
@@ -51,8 +52,20 @@ import { createChildNode } from './view-state';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
-import { Toaster } from './components/ui/toast';
-import { ToastProvider, useAppToastManager } from './components/ui/toast-context';
+import { Badge } from './components/ui/badge';
+import { Button } from './components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './components/ui/dropdown-menu';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import { Toaster } from './components/ui/sonner';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -97,7 +110,6 @@ function instanceReference(reference: CollectionReference): InstanceReference {
 }
 
 function Explorer({ api, tokenStore }: ExplorerProps) {
-  const toastManager = useAppToastManager();
   const [initial] = useState(initialSharedView);
   const [initialToken] = useState(() =>
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
@@ -134,7 +146,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   );
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
-  const topMenu = useRef<HTMLDetailsElement>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -223,19 +234,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       }
       setRefreshFailed(!succeeded);
       if (succeeded) {
-        toastManager.close('refresh-failed');
+        toast.dismiss('refresh-failed');
         return;
       }
-      toastManager.add({
+      toast.error('Refresh failed', {
         id: 'refresh-failed',
-        title: 'Refresh failed',
         description: 'Some data could not be refreshed. The current view remains available.',
-        priority: 'low',
-        timeout: 8_000,
-        data: { retry: () => void refreshAllRequests() },
+        duration: 8_000,
+        action: {
+          label: 'Retry refresh',
+          onClick: () => void refreshAllRequests(),
+        },
       });
     },
-    [catalogQuery, isRefreshing, refreshCollections, toastManager],
+    [catalogQuery, isRefreshing, refreshCollections],
   );
   const rootFailure = loadStatus.kind === 'failed' ? loadStatus.failure : undefined;
   const queryErrorMessage = rootFailure
@@ -504,23 +516,31 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, []);
 
   return (
-    <main className="app-shell">
-      <header className="top-bar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
+    <main className="bg-background text-foreground flex min-h-screen flex-col">
+      <header className="border-border bg-card/95 sticky top-0 z-30 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 shadow-xs backdrop-blur lg:px-6">
+        <div className="flex items-center gap-3">
+          <span
+            className="bg-primary text-primary-foreground flex size-9 items-center justify-center rounded-lg"
+            aria-hidden="true"
+          >
             <Database size={17} />
           </span>
           <div>
-            <h1>Zesty Explorer</h1>
-            <span>Read-only content browser</span>
+            <h1 className="text-sm font-semibold">Zesty Explorer</h1>
+            <span className="text-muted-foreground text-xs">Read-only content browser</span>
           </div>
         </div>
-        <div className="top-actions">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {reference ? (
             <>
-              <label className="search-control global-search">
-                <Search size={15} aria-hidden="true" />
-                <input
+              <label className="relative order-last flex w-full items-center md:order-none md:w-64">
+                <Search
+                  className="text-muted-foreground absolute left-3"
+                  size={15}
+                  aria-hidden="true"
+                />
+                <Input
+                  className="pl-9"
                   type="search"
                   aria-label="Search the complete view"
                   placeholder="Search all collections"
@@ -528,89 +548,96 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onChange={(event) => setGlobalFreeText(event.target.value)}
                 />
               </label>
-              <div className="segmented-control" role="group" aria-label="Content version">
-                <button
-                  className="segmented-control__option"
+              <div
+                className="bg-muted flex rounded-md p-0.5"
+                role="group"
+                aria-label="Content version"
+              >
+                <Button
+                  variant={contentState === 'latest' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2.5"
                   aria-pressed={contentState === 'latest'}
                   onClick={() => setContentState('latest')}
                 >
                   Latest
-                </button>
-                <button
-                  className="segmented-control__option"
+                </Button>
+                <Button
+                  variant={contentState === 'published' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2.5"
                   aria-pressed={contentState === 'published'}
                   onClick={() => setContentState('published')}
                 >
                   Published
-                </button>
+                </Button>
               </div>
-              <button
-                className="button button--quiet refresh-button"
+              <Button
+                variant="outline"
+                size="sm"
+                className="relative"
                 onClick={() => void refreshAll()}
                 disabled={isRefreshing}
                 aria-describedby={refreshFailed ? 'refresh-status' : undefined}
                 {...(refreshFailed ? { 'data-refresh-failed': '' } : {})}
               >
                 <RefreshCw
-                  className={isRefreshing ? 'refresh-icon refresh-icon--spinning' : 'refresh-icon'}
+                  className={isRefreshing ? 'animate-spin' : undefined}
                   size={14}
                   aria-hidden="true"
                 />
                 Refresh
-                {refreshFailed ? <span className="refresh-failure-dot" aria-hidden="true" /> : null}
-              </button>
+                {refreshFailed ? (
+                  <span
+                    className="bg-destructive absolute -top-1 -right-1 size-2 rounded-full"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </Button>
               {refreshFailed ? (
                 <span id="refresh-status" className="sr-only" role="status">
                   The last refresh failed. Activate Refresh to retry.
                 </span>
               ) : null}
-              <button className="button button--quiet" onClick={() => void copyViewLink()}>
+              <Button variant="outline" size="sm" onClick={() => void copyViewLink()}>
                 <Copy size={14} aria-hidden="true" /> Copy view link
-              </button>
-              <details ref={topMenu} className="toolbar-menu top-menu">
-                <summary className="icon-button" aria-label="View options">
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<Button variant="ghost" size="icon" aria-label="View options" />}
+                >
                   <MoreHorizontal size={17} />
-                </summary>
-                <div className="toolbar-menu__popup top-menu__popup">
-                  <button
-                    className="menu-action"
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
                     onClick={() => {
-                      topMenu.current?.removeAttribute('open');
                       setCollectionInput(collectionUrl(reference));
                       setChangingRoot(true);
                     }}
                   >
                     <Database size={14} /> Replace root collection
-                  </button>
-                  <button
-                    className="menu-action"
-                    onClick={() => {
-                      topMenu.current?.removeAttribute('open');
-                      resetView();
-                    }}
-                  >
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={resetView}>
                     <RotateCcw size={14} /> Reset view
-                  </button>
-                  <button
-                    className="menu-action menu-action--danger"
-                    onClick={() => {
-                      topMenu.current?.removeAttribute('open');
-                      clearToken();
-                    }}
-                  >
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={clearToken}>
                     <Trash2 size={14} /> Clear saved token
-                  </button>
-                </div>
-              </details>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : (
-            <span className="status-dot">No collection open</span>
+            <Badge variant="outline">No collection open</Badge>
           )}
         </div>
       </header>
 
-      <div className="workspace">
-        <aside className="tree-panel" aria-label="Collection tree">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)]">
+        <aside
+          className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
+          aria-label="Collection tree"
+        >
           {treeRoot && loadedView?.schemas.get(treeRoot.id) ? (
             <TreeEditor
               root={{
@@ -642,275 +669,324 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             />
           ) : reference ? (
             <>
-              <div className="tree-heading">
+              <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
                 <Database size={15} /> <span>Collections</span>
               </div>
-              <div className="tree-node tree-node--root">
-                <span className="tree-node__dot" />
+              <div className="bg-accent/60 flex min-h-9 items-center gap-2 rounded-md px-2 text-sm font-medium">
+                <span className="bg-primary size-1.5 rounded-full" />
                 <span>{reference.modelZuid}</span>
               </div>
             </>
           ) : (
-            <div className="tree-empty">
+            <div className="text-muted-foreground flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-center text-sm">
               <Database size={18} />
               <p>Your collections will appear here.</p>
             </div>
           )}
         </aside>
 
-        <section className="main-panel" aria-live="polite">
+        <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
           {encodedView && encodedView.length > 8_000 ? (
-            <p className="share-message" role="status">
+            <p
+              className="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm"
+              role="status"
+            >
               This view link is {encodedView.length.toLocaleString()} characters and may be too long
               for some tools.
             </p>
           ) : null}
           {shareMessage ? (
-            <p className="share-message" role="status">
+            <p
+              className="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm"
+              role="status"
+            >
               {shareMessage}
             </p>
           ) : null}
           {viewDecodeError ? (
-            <div className="state-card state-card--error" role="alert">
-              <h2>Shared view could not be restored</h2>
-              <p>{viewDecodeError.reason}</p>
-              <div className="button-row">
-                <button className="button" onClick={() => void copyRawView()}>
+            <Card
+              className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"
+              role="alert"
+            >
+              <CardHeader>
+                <h2 className="text-lg font-semibold">Shared view could not be restored</h2>
+                <p className="text-muted-foreground text-sm">{viewDecodeError.reason}</p>
+              </CardHeader>
+              <CardFooter className="flex-wrap gap-2">
+                <Button variant="outline" onClick={() => void copyRawView()}>
                   Copy raw view data
-                </button>
-                <button className="button button--primary" onClick={resetView}>
-                  Reset view
-                </button>
-              </div>
-            </div>
+                </Button>
+                <Button onClick={resetView}>Reset view</Button>
+              </CardFooter>
+            </Card>
           ) : showStart ? (
             selectingRoot ? (
-              <form
-                className="start-card"
-                aria-labelledby="root-picker-title"
-                onSubmit={confirmRoot}
-              >
-                <p className="eyebrow">Choose a root</p>
-                <h2 id="root-picker-title">Choose the root collection</h2>
-                {catalogQuery.isLoading ? (
-                  <p className="muted" role="status">
-                    Loading collection catalog…
+              <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
+                <form
+                  className="grid gap-4 p-6"
+                  aria-labelledby="root-picker-title"
+                  onSubmit={confirmRoot}
+                >
+                  <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+                    Choose a root
                   </p>
-                ) : null}
-                {catalogQuery.error ? (
-                  <div className="catalog-state catalog-state--error" role="alert">
-                    <p>{catalogQuery.error.message}</p>
-                    <ErrorTechnicalDetails error={catalogQuery.error} />
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => void catalogQuery.refresh()}
+                  <h2 className="text-xl font-semibold" id="root-picker-title">
+                    Choose the root collection
+                  </h2>
+                  {catalogQuery.isLoading ? (
+                    <p className="text-muted-foreground text-sm" role="status">
+                      Loading collection catalog…
+                    </p>
+                  ) : null}
+                  {catalogQuery.error ? (
+                    <div
+                      className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+                      role="alert"
                     >
-                      Retry catalog
-                    </button>
+                      <p>{catalogQuery.error.message}</p>
+                      <ErrorTechnicalDetails error={catalogQuery.error} />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void catalogQuery.refresh()}
+                      >
+                        Retry catalog
+                      </Button>
+                    </div>
+                  ) : null}
+                  {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
+                    <p
+                      className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
+                      role="status"
+                    >
+                      This session returned an empty collection catalog.
+                    </p>
+                  ) : null}
+                  <CollectionPicker
+                    label="Root collection"
+                    collections={rootPickerCollections}
+                    value={selectedRootZuid}
+                    onChange={(collection) => setSelectedRootZuid(collection?.reference.modelZuid)}
+                    disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
+                  />
+                  {catalogQuery.catalog?.warning ? (
+                    <div
+                      className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
+                      role="status"
+                    >
+                      <p>{catalogQuery.catalog.warning.message}</p>
+                      <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                    </div>
+                  ) : null}
+                  <div className="grid gap-2 border-t pt-4">
+                    <span className="text-muted-foreground text-xs font-medium">
+                      Or paste a collection reference
+                    </span>
+                    <Input
+                      type="url"
+                      aria-label="Root collection reference"
+                      value={collectionInput}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setCollectionInput(value);
+                        const parsed = parseCollectionReference(value);
+                        if (
+                          parsed.ok &&
+                          parsed.value.instanceZuid === catalogInstance?.instanceZuid &&
+                          parsed.value.deployment === catalogInstance.deployment
+                        ) {
+                          setSelectedRootZuid(parsed.value.modelZuid);
+                        }
+                      }}
+                    />
                   </div>
-                ) : null}
-                {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
-                  <p className="catalog-state" role="status">
-                    This session returned an empty collection catalog.
+                  {inputError ? <p className="text-destructive text-sm">{inputError}</p> : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      type="button"
+                      onClick={() => {
+                        setSelectingRoot(false);
+                        if (!reference) setCatalogInstance(undefined);
+                      }}
+                    >
+                      Back
+                    </Button>
+                    <Button type="submit" disabled={!selectedRootZuid}>
+                      Open root collection
+                    </Button>
+                  </div>
+                </form>
+              </Card>
+            ) : (
+              <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
+                <form
+                  className="grid gap-4 p-6"
+                  aria-labelledby="start-title"
+                  onSubmit={loadCatalog}
+                >
+                  <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+                    {tokenRequired
+                      ? 'Session expired'
+                      : changingRoot
+                        ? 'Change this view'
+                        : 'Start a view'}
                   </p>
-                ) : null}
-                <CollectionPicker
-                  label="Root collection"
-                  collections={rootPickerCollections}
-                  value={selectedRootZuid}
-                  onChange={(collection) => setSelectedRootZuid(collection?.reference.modelZuid)}
-                  disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
-                />
-                {catalogQuery.catalog?.warning ? (
-                  <div className="catalog-warning" role="status">
-                    <p>{catalogQuery.catalog.warning.message}</p>
-                    <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                  <h2 className="text-xl font-semibold" id="start-title">
+                    {tokenRequired
+                      ? 'Replace your session token'
+                      : changingRoot
+                        ? 'Replace the root collection'
+                        : 'Open a Zesty collection'}
+                  </h2>
+
+                  <Label htmlFor="session-token">Zesty session token</Label>
+                  <div className="relative">
+                    <Input
+                      className="pr-10"
+                      id="session-token"
+                      type={showToken ? 'text' : 'password'}
+                      value={token}
+                      autoComplete="off"
+                      onChange={(event) => {
+                        setToken(event.target.value);
+                        const parsed = parseCollectionReference(collectionInput);
+                        if (parsed.ok) setTokenDeployment(parsed.value.deployment);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-1 right-1 size-7"
+                      aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
+                      onClick={() => setShowToken((visible) => !visible)}
+                    >
+                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </Button>
                   </div>
-                ) : null}
-                <div className="manual-reference">
-                  <span className="manual-reference__label">Or paste a collection reference</span>
-                  <input
+                  <Collapsible>
+                    <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
+                      How to find the token
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="text-muted-foreground pt-2 text-xs leading-relaxed">
+                      Copy APP_SID for production, STAGE_APP_SID for stage, or DEV_APP_SID for
+                      development from your Zesty Manager cookies. It carries your permissions. Do
+                      not share it.
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  <Label htmlFor="collection-url">Zesty instance URL</Label>
+                  <Input
+                    id="collection-url"
                     type="url"
-                    aria-label="Root collection reference"
                     value={collectionInput}
+                    placeholder="https://8-….manager.zesty.io/content/6-…"
                     onChange={(event) => {
                       const value = event.target.value;
                       setCollectionInput(value);
-                      const parsed = parseCollectionReference(value);
-                      if (
-                        parsed.ok &&
-                        parsed.value.instanceZuid === catalogInstance?.instanceZuid &&
-                        parsed.value.deployment === catalogInstance.deployment
-                      ) {
-                        setSelectedRootZuid(parsed.value.modelZuid);
+                      const parsed = parseInstanceReference(value);
+                      if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
+                      if (!tokenDeployment) {
+                        setTokenDeployment(parsed.value.deployment);
+                        return;
                       }
-                    }}
-                  />
-                </div>
-                {inputError ? <p className="error-message">{inputError}</p> : null}
-                <div className="start-card__actions">
-                  <button
-                    className="button button--quiet"
-                    type="button"
-                    onClick={() => {
-                      setSelectingRoot(false);
-                      if (!reference) setCatalogInstance(undefined);
-                    }}
-                  >
-                    Back
-                  </button>
-                  <button
-                    className="button button--primary"
-                    type="submit"
-                    disabled={!selectedRootZuid}
-                  >
-                    Open root collection
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form className="start-card" aria-labelledby="start-title" onSubmit={loadCatalog}>
-                <p className="eyebrow">
-                  {tokenRequired
-                    ? 'Session expired'
-                    : changingRoot
-                      ? 'Change this view'
-                      : 'Start a view'}
-                </p>
-                <h2 id="start-title">
-                  {tokenRequired
-                    ? 'Replace your session token'
-                    : changingRoot
-                      ? 'Replace the root collection'
-                      : 'Open a Zesty collection'}
-                </h2>
-
-                <label className="field-label" htmlFor="session-token">
-                  Zesty session token
-                </label>
-                <div className="input-with-action">
-                  <input
-                    id="session-token"
-                    type={showToken ? 'text' : 'password'}
-                    value={token}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setToken(event.target.value);
-                      const parsed = parseCollectionReference(collectionInput);
-                      if (parsed.ok) setTokenDeployment(parsed.value.deployment);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
-                    onClick={() => setShowToken((visible) => !visible)}
-                  >
-                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <details className="help-text">
-                  <summary>How to find the token</summary>
-                  Copy APP_SID for production, STAGE_APP_SID for stage, or DEV_APP_SID for
-                  development from your Zesty Manager cookies. It carries your permissions. Do not
-                  share it.
-                </details>
-
-                <label className="field-label" htmlFor="collection-url">
-                  Zesty instance URL
-                </label>
-                <input
-                  id="collection-url"
-                  type="url"
-                  value={collectionInput}
-                  placeholder="https://8-….manager.zesty.io/content/6-…"
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setCollectionInput(value);
-                    const parsed = parseInstanceReference(value);
-                    if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
-                    if (!tokenDeployment) {
+                      setToken(tokenStore.read(parsed.value.deployment) ?? '');
                       setTokenDeployment(parsed.value.deployment);
-                      return;
-                    }
-                    setToken(tokenStore.read(parsed.value.deployment) ?? '');
-                    setTokenDeployment(parsed.value.deployment);
-                  }}
-                />
-                <p className="help-text">
-                  Paste any URL from an allowed Zesty Manager host, or a recognized Instances API
-                  instance or model URL.
-                </p>
-                {inputError ? <p className="error-message">{inputError}</p> : null}
-                <div className="start-card__actions">
-                  {changingRoot ? (
-                    <button
-                      className="button button--quiet"
-                      type="button"
-                      onClick={cancelRootReplacement}
-                    >
-                      Cancel
-                    </button>
-                  ) : null}
-                  <button className="button button--primary" type="submit">
-                    Load collections
-                  </button>
-                </div>
-              </form>
+                    }}
+                  />
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Paste any URL from an allowed Zesty Manager host, or a recognized Instances API
+                    instance or model URL.
+                  </p>
+                  {inputError ? <p className="text-destructive text-sm">{inputError}</p> : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {changingRoot ? (
+                      <Button variant="outline" type="button" onClick={cancelRootReplacement}>
+                        Cancel
+                      </Button>
+                    ) : null}
+                    <Button type="submit">Load collections</Button>
+                  </div>
+                </form>
+              </Card>
             )
           ) : null}
 
           {!showStart && loadStatus.kind === 'loading-root' ? (
-            <div className="state-card">Loading collection…</div>
+            <Card className="mx-auto my-[8vh] max-w-2xl">
+              <CardContent className="text-sm">Loading collection…</CardContent>
+            </Card>
           ) : null}
           {!showStart && rootFailure ? (
-            <div className="state-card state-card--error" role="alert">
-              <h2>Collection could not load</h2>
-              <p>{queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}</p>
-              {queryErrorMessage ? <p>{queryErrorMessage.recovery}</p> : null}
-              <ErrorTechnicalDetails error={rootFailure} />
-              <button className="button" onClick={() => void retryRoot()}>
-                Retry
-              </button>
-            </div>
+            <Card
+              className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"
+              role="alert"
+            >
+              <CardHeader>
+                <h2 className="text-lg font-semibold">Collection could not load</h2>
+                <p className="text-muted-foreground text-sm">
+                  {queryErrorMessage?.message ?? 'The collection request failed unexpectedly.'}
+                </p>
+                {queryErrorMessage ? (
+                  <p className="text-muted-foreground text-sm">{queryErrorMessage.recovery}</p>
+                ) : null}
+              </CardHeader>
+              <CardContent>
+                <ErrorTechnicalDetails error={rootFailure} />
+              </CardContent>
+              <CardFooter>
+                <Button variant="outline" onClick={() => void retryRoot()}>
+                  Retry
+                </Button>
+              </CardFooter>
+            </Card>
           ) : null}
           {!showStart && loadedView && treeRoot && rootSnapshot && rootSchema ? (
             <>
-              <details
-                className="view-filters"
-                aria-label="View filters"
-                open={viewFiltersOpen}
-                onToggle={(event) => setViewFiltersOpen(event.currentTarget.open)}
-              >
-                <summary>
-                  <span className="view-filters__title">
-                    <ListFilter size={15} />
-                    <strong>View filters</strong>
-                    <span>Filter results across the collection tree</span>
-                  </span>
-                  {viewFilters.length > 0 ? (
-                    <span className="control-count">{viewFilters.length}</span>
-                  ) : null}
-                </summary>
-                <div className="view-filters__panel">
-                  <FilterBuilder
-                    label="View filter"
-                    root={treeRoot}
-                    schemas={loadedView.schemas}
-                    filters={viewFilters}
-                    onChange={setViewFilters}
-                  />
-                </div>
-              </details>
+              <Card className="mb-4 gap-0 py-0">
+                <Collapsible
+                  aria-label="View filters"
+                  open={viewFiltersOpen}
+                  onOpenChange={setViewFiltersOpen}
+                >
+                  <CollapsibleTrigger className="hover:bg-accent/40 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors">
+                    <span className="flex items-center gap-2">
+                      <ListFilter size={15} />
+                      <strong>View filters</strong>
+                      <span className="text-muted-foreground hidden text-sm font-normal sm:inline">
+                        Filter results across the collection tree
+                      </span>
+                    </span>
+                    {viewFilters.length > 0 ? (
+                      <Badge variant="outline">{viewFilters.length}</Badge>
+                    ) : null}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="border-border border-t p-4">
+                    <FilterBuilder
+                      label="View filter"
+                      root={treeRoot}
+                      schemas={loadedView.schemas}
+                      filters={viewFilters}
+                      onChange={setViewFilters}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
               {descendantResultsPending ? (
-                <p className="partial-warning" role="status">
+                <p
+                  className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
+                  role="status"
+                >
                   Related data is loading. Descendant-dependent results will appear when it is
                   ready.
                 </p>
               ) : null}
               {viewIsIncomplete ? (
-                <p className="partial-warning" role="status">
+                <p
+                  className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
+                  role="status"
+                >
                   This view contains incomplete collection data. Related results and filters may be
                   incomplete.
                 </p>
@@ -957,10 +1033,8 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider limit={2}>
-        <Explorer api={api} tokenStore={resolvedTokenStore} />
-        <Toaster />
-      </ToastProvider>
+      <Explorer api={api} tokenStore={resolvedTokenStore} />
+      <Toaster />
     </QueryClientProvider>
   );
 }

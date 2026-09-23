@@ -2,6 +2,7 @@ import { Check, ChevronsUpDown, X } from 'lucide-react';
 import { useId, useMemo } from 'react';
 import type { CollectionCatalogEntry, CollectionCatalogGroup, ModelZuid } from '../../domain';
 import { Combobox } from './ui/combobox';
+import { Label } from './ui/label';
 
 interface PickerGroup {
   readonly value: string;
@@ -60,17 +61,22 @@ export function CollectionPicker({
       }}
       disabled={disabled}
     >
-      <label className="field-label" htmlFor={id}>
-        {label}
-      </label>
-      <Combobox.InputGroup className="collection-picker__input-group">
-        <Combobox.Input id={id} placeholder="Search collections" />
-        <div className="collection-picker__input-actions">
-          <Combobox.Clear className="collection-picker__input-action" aria-label="Clear selection">
+      <Label htmlFor={id}>{label}</Label>
+      <Combobox.InputGroup className="relative flex items-center">
+        <Combobox.Input
+          id={id}
+          className="border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring h-9 w-full rounded-md border px-3 pr-16 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          placeholder="Search collections"
+        />
+        <div className="absolute right-1 flex items-center gap-0.5">
+          <Combobox.Clear
+            className="text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex size-7 items-center justify-center rounded-sm outline-none focus-visible:ring-2"
+            aria-label="Clear selection"
+          >
             <X size={14} />
           </Combobox.Clear>
           <Combobox.Trigger
-            className="collection-picker__input-action"
+            className="text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex size-7 items-center justify-center rounded-sm outline-none focus-visible:ring-2"
             aria-label="Show collections"
           >
             <ChevronsUpDown size={14} />
@@ -78,19 +84,17 @@ export function CollectionPicker({
         </div>
       </Combobox.InputGroup>
       <Combobox.Portal>
-        <Combobox.Positioner className="collection-picker__positioner" sideOffset={5}>
-          <Combobox.Popup className="collection-picker__popup">
-            <Combobox.Empty className="collection-picker__empty">
-              No collections found.
+        <Combobox.Positioner className="z-50" sideOffset={5}>
+          <Combobox.Popup className="bg-popover text-popover-foreground max-h-80 min-w-[var(--anchor-width)] overflow-hidden rounded-md border shadow-md">
+            <Combobox.Empty>
+              <div className="text-muted-foreground px-3 py-6 text-center text-sm">
+                No collections found.
+              </div>
             </Combobox.Empty>
-            <Combobox.List className="collection-picker__list">
+            <Combobox.List className="max-h-72 overflow-y-auto p-1 outline-none">
               {(group: PickerGroup) => (
-                <Combobox.Group
-                  key={group.value}
-                  items={group.items}
-                  className="collection-picker__group"
-                >
-                  <Combobox.GroupLabel className="collection-picker__group-label">
+                <Combobox.Group key={group.value} items={group.items} className="py-1">
+                  <Combobox.GroupLabel className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
                     {group.value}
                   </Combobox.GroupLabel>
                   <Combobox.Collection>
@@ -98,14 +102,14 @@ export function CollectionPicker({
                       <Combobox.Item
                         key={collection.reference.modelZuid}
                         value={collection}
-                        className="collection-picker__item"
+                        className="data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground hover:bg-surface-menu-hover relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                       >
-                        <Combobox.ItemIndicator className="collection-picker__indicator">
+                        <Combobox.ItemIndicator className="flex size-4 shrink-0 items-center justify-center">
                           <Check size={14} />
                         </Combobox.ItemIndicator>
-                        <span className="collection-picker__item-copy">
-                          <strong>{collection.label}</strong>
-                          <span>
+                        <span className="flex min-w-0 flex-col">
+                          <strong className="truncate font-medium">{collection.label}</strong>
+                          <span className="text-muted-foreground truncate text-xs">
                             {collection.name} · {collection.reference.modelZuid}
                           </span>
                         </span>

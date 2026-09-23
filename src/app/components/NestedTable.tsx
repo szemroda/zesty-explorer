@@ -13,6 +13,8 @@ import { Fragment, useState } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
+  CollectionSchema,
+  CollectionSnapshot,
   ContentItem,
   ContentState,
   ItemZuid,
@@ -44,6 +46,14 @@ import {
 import { CellValue } from './CellValue';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FilterBuilder } from './FilterBuilder';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { buttonVariants } from './ui/button-variants';
+import { Checkbox } from './ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 export interface SharedNodeTableState {
   readonly freeText: string;
@@ -65,6 +75,109 @@ interface NestedTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
+}
+
+type ContentItemColumns = ReturnType<typeof contentItemColumns>;
+
+const emptyColumns: ContentItemColumns = [];
+const columnsWithoutSnapshot = new WeakMap<CollectionSchema, ContentItemColumns>();
+const columnsBySnapshot = new WeakMap<
+  CollectionSnapshot,
+  WeakMap<CollectionSchema, ContentItemColumns>
+>();
+const pathsWithoutSnapshot = new WeakMap<CollectionSchema, readonly string[]>();
+const pathsBySnapshot = new WeakMap<
+  CollectionSnapshot,
+  WeakMap<CollectionSchema, readonly string[]>
+>();
+
+function cachedContentItemColumns(
+  schema: CollectionSchema,
+  snapshot?: CollectionSnapshot,
+): ContentItemColumns {
+  if (!snapshot) {
+    const cached = columnsWithoutSnapshot.get(schema);
+    if (cached) return cached;
+    const columns = contentItemColumns(schema, []);
+    columnsWithoutSnapshot.set(schema, columns);
+    return columns;
+  }
+
+  const bySchema = columnsBySnapshot.get(snapshot) ?? new WeakMap();
+  const cached = bySchema.get(schema);
+  if (cached) return cached;
+  const columns = contentItemColumns(schema, snapshot.items);
+  bySchema.set(schema, columns);
+  columnsBySnapshot.set(snapshot, bySchema);
+  return columns;
+}
+
+function cachedScalarFieldPaths(
+  schema: CollectionSchema,
+  snapshot?: CollectionSnapshot,
+): readonly string[] {
+  if (!snapshot) {
+    const cached = pathsWithoutSnapshot.get(schema);
+    if (cached) return cached;
+    const paths = scalarFieldPaths(schema);
+    pathsWithoutSnapshot.set(schema, paths);
+    return paths;
+  }
+
+  const bySchema = pathsBySnapshot.get(snapshot) ?? new WeakMap();
+  const cached = bySchema.get(schema);
+  if (cached) return cached;
+  const paths = scalarFieldPaths(schema, snapshot);
+  bySchema.set(schema, paths);
+  pathsBySnapshot.set(snapshot, bySchema);
+  return paths;
+}
+
+interface SortedIdsInput {
+  readonly state: SnapshotLoadState | undefined;
+  readonly graph: ExplorerGraph;
+  readonly nodeId: CollectionNodeId;
+  readonly parentItemId: ItemZuid;
+  readonly filters: readonly ViewFilter[];
+  readonly freeText: string;
+  readonly sort: SortState;
+}
+
+function createSortedIdsMemo() {
+  let previousInput: SortedIdsInput | undefined;
+  let previousResult: readonly ItemZuid[] = [];
+
+  return (input: SortedIdsInput): readonly ItemZuid[] => {
+    if (
+      previousInput !== undefined &&
+      previousInput.state === input.state &&
+      previousInput.graph === input.graph &&
+      previousInput.nodeId === input.nodeId &&
+      previousInput.parentItemId === input.parentItemId &&
+      previousInput.filters === input.filters &&
+      previousInput.freeText === input.freeText &&
+      previousInput.sort === input.sort
+    ) {
+      return previousResult;
+    }
+
+    previousInput = input;
+    if (!input.state || (input.state.status !== 'complete' && input.state.status !== 'partial')) {
+      previousResult = [];
+      return previousResult;
+    }
+
+    const related = input.graph.relatedItemIds(input.nodeId, input.parentItemId);
+    const filtered = filterNodeItemIds(
+      input.graph,
+      input.nodeId,
+      related,
+      input.filters,
+      input.freeText,
+    );
+    previousResult = sortItemIds(input.state.snapshot, filtered, input.sort);
+    return previousResult;
+  };
 }
 
 function stateFor(
@@ -108,13 +221,9 @@ export function NestedTable(props: NestedTableProps) {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [expanded, setExpanded] = useState<ReadonlySet<ItemZuid>>(new Set());
+  const [deriveSortedIds] = useState(createSortedIdsMemo);
   const state = snapshotState(node, loadedView, contentState);
   const schema = loadedView.schemas.get(node.id);
-  const loadedItems =
-    state?.status === 'complete' || state?.status === 'partial' ? state.snapshot.items : [];
-  const columns = contentItemColumns({ fields: schema?.fields ?? [] }, loadedItems);
-  const sharedState = stateFor(node, nodeStates, columns);
-  const deferredText = useDebouncedValue(sharedState.freeText);
   const parentSchema = loadedView.schemas.get(parentNode.id);
   const parentState = snapshotState(parentNode, loadedView, contentState);
   const parentSnapshot =
@@ -123,48 +232,51 @@ export function NestedTable(props: NestedTableProps) {
       : undefined;
   const childSnapshot =
     state?.status === 'complete' || state?.status === 'partial' ? state.snapshot : undefined;
+  const columns = schema ? cachedContentItemColumns(schema, childSnapshot) : emptyColumns;
+  const sharedState = stateFor(node, nodeStates, columns);
+  const deferredText = useDebouncedValue(sharedState.freeText);
   const relationshipIsStale = Boolean(
     !node.relationship ||
     !parentSchema ||
     !schema ||
     !validateRelationshipPaths(
       node.relationship,
-      parentSchema ? scalarFieldPaths(parentSchema, parentSnapshot) : [],
-      schema ? scalarFieldPaths(schema, childSnapshot) : [],
+      cachedScalarFieldPaths(parentSchema, parentSnapshot),
+      cachedScalarFieldPaths(schema, childSnapshot),
     ).valid,
   );
 
-  const sortedIds = (() => {
-    if (!state || (state.status !== 'complete' && state.status !== 'partial')) return [];
-    const related = graph.relatedItemIds(node.id, parentItemId);
-    const filtered = filterNodeItemIds(
-      graph,
-      node.id,
-      related,
-      sharedState.filters,
-      deferredText.value,
-    );
-    return sortItemIds(state.snapshot, filtered, sharedState.sort);
-  })();
+  const sortedIds = deriveSortedIds({
+    state,
+    graph,
+    nodeId: node.id,
+    parentItemId,
+    filters: sharedState.filters,
+    freeText: deferredText.value,
+    sort: sharedState.sort,
+  });
 
   if (!state) {
-    return <div className="nested-state">Loading {node.name}…</div>;
+    return <div className="m-0 p-4.5 text-xs text-muted-foreground">Loading {node.name}...</div>;
   }
   if (state.status === 'failed' || !schema) {
     const failure = state.status === 'failed' ? state.error : loadedView.schemaErrors.get(node.id);
     const message = failure ? describeExplorerError(failure, window.location.origin) : undefined;
     return (
-      <div className="nested-state nested-state--error" role="alert">
-        <div className="nested-state__message">
+      <div
+        className="m-0 flex items-start justify-between gap-4 p-4.5 text-xs text-danger"
+        role="alert"
+      >
+        <div className="min-w-0">
           <span>
             {node.name}: {message?.message ?? 'The collection schema could not load.'}{' '}
             {message?.recovery}
           </span>
           {failure ? <ErrorTechnicalDetails error={failure} /> : null}
         </div>
-        <button className="button button--quiet" onClick={onRetry}>
+        <Button variant="outline" onClick={onRetry}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -174,7 +286,9 @@ export function NestedTable(props: NestedTableProps) {
   const currentPageIndex = Math.min(pageIndex, pageCount - 1);
   const pageIds = pageItemIds(sortedIds, currentPageIndex, pageSize);
   const visibleColumns = columns.filter((column) => !sharedState.hiddenColumns.has(column.id));
-  const actionColumnWidth = node.children.length > 0 ? 116 : 78;
+  const hasManagerLink = node.reference.area !== 'other';
+  const actionColumnWidth =
+    node.children.length > 0 ? (hasManagerLink ? 140 : 102) : hasManagerLink ? 94 : 56;
 
   function updateSharedState(next: SharedNodeTableState) {
     updateNodeState(node.id, next);
@@ -190,16 +304,27 @@ export function NestedTable(props: NestedTableProps) {
   }
 
   return (
-    <section className="nested-table" aria-label={`${node.name} related items`}>
-      <div className="nested-toolbar">
-        <div className="nested-title">
-          <strong>{node.name}</strong>
-          <span>{sortedIds.length} linked items</span>
+    <section
+      className="min-w-0 overflow-visible rounded-lg border border-divider-emphasis bg-surface-nested"
+      aria-label={`${node.name} related items`}
+    >
+      <div className="flex min-h-14 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
+        <div className="min-w-28">
+          <strong className="text-xs">{node.name}</strong>
+          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+            {sortedIds.length} related items
+          </span>
         </div>
-        <div className="nested-tools">
-          <label className="search-control search-control--compact">
-            <Search size={14} aria-hidden="true" />
-            <input
+        <div className="flex items-center gap-2 max-lg:w-full">
+          <label className="flex h-9 w-42.5 min-w-36 items-center gap-2 rounded-lg border border-input bg-surface-control pl-3 text-muted-foreground transition-[border-color,box-shadow] focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/10">
+            <Search
+              className="text-foreground/70"
+              size={14}
+              strokeWidth={2.25}
+              aria-hidden="true"
+            />
+            <Input
+              className="h-8.5 min-h-0 min-w-0 border-0 bg-transparent px-0 pr-2.5 shadow-none focus-visible:border-0 focus-visible:ring-0"
               type="search"
               aria-label={`Filter ${node.name}`}
               placeholder="Search"
@@ -209,14 +334,21 @@ export function NestedTable(props: NestedTableProps) {
               }
             />
           </label>
-          <details className="toolbar-menu">
-            <summary className="button button--quiet" aria-label={`Configure ${node.name} filters`}>
-              <ListFilter size={14} /> Filters
-              {sharedState.filters.length > 0 ? (
-                <span className="control-count">{sharedState.filters.length}</span>
-              ) : null}
-            </summary>
-            <div className="toolbar-menu__popup toolbar-menu__popup--wide">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" aria-label={`Configure ${node.name} filters`}>
+                  <ListFilter size={14} /> Filters
+                  {sharedState.filters.length > 0 ? (
+                    <Badge>{sharedState.filters.length}</Badge>
+                  ) : null}
+                </Button>
+              }
+            />
+            <DropdownMenuContent
+              align="end"
+              className="w-[min(760px,calc(100vw-2rem))] min-w-0 p-0 lg:w-[min(760px,calc(100vw-330px))]"
+            >
               <FilterBuilder
                 label={`${node.name} table filter`}
                 root={node}
@@ -224,29 +356,33 @@ export function NestedTable(props: NestedTableProps) {
                 filters={sharedState.filters}
                 onChange={(filters) => updateSharedState({ ...sharedState, filters })}
               />
-            </div>
-          </details>
-          <details className="toolbar-menu">
-            <summary className="button button--quiet" aria-label={`Choose ${node.name} columns`}>
-              <SlidersHorizontal size={14} /> Columns
-            </summary>
-            <div className="toolbar-menu__popup columns-menu__popup">
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" aria-label={`Choose ${node.name} columns`}>
+                  <SlidersHorizontal size={14} /> Columns
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" className="min-w-64 p-2">
               {columns.map((column) => (
-                <div className="nested-column-control" key={column.id}>
-                  <label>
-                    <input
-                      type="checkbox"
+                <div className="grid grid-cols-[1fr_68px] items-center gap-2" key={column.id}>
+                  <label className="flex items-center gap-2 rounded-md p-1.5 text-xs hover:bg-surface-menu-hover">
+                    <Checkbox
                       checked={!sharedState.hiddenColumns.has(column.id)}
-                      onChange={(event) => {
+                      onCheckedChange={(checked) => {
                         const hiddenColumns = new Set(sharedState.hiddenColumns);
-                        if (event.target.checked) hiddenColumns.delete(column.id);
+                        if (checked) hiddenColumns.delete(column.id);
                         else hiddenColumns.add(column.id);
                         updateSharedState({ ...sharedState, hiddenColumns });
                       }}
                     />
                     {column.label}
                   </label>
-                  <input
+                  <Input
+                    className="h-7.5 min-h-7.5 w-17 px-2 py-1"
                     type="number"
                     aria-label={`${column.label} column width`}
                     min={columnWidthLimits.min}
@@ -267,38 +403,58 @@ export function NestedTable(props: NestedTableProps) {
                   />
                 </div>
               ))}
-            </div>
-          </details>
-          <div className="sort-control" role="group" aria-label={`Sort ${node.name}`}>
-            <select
-              aria-label="Sort"
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div className="flex items-stretch" role="group" aria-label={`Sort ${node.name}`}>
+            <Select
+              items={[
+                { label: 'Modified', value: '$modified' },
+                { label: 'ZUID', value: '$id' },
+                { label: 'Created', value: '$created' },
+                { label: 'Version', value: '$version' },
+                ...columns
+                  .filter((column) => column.id.startsWith('$meta.'))
+                  .map((column) => ({ label: column.label, value: column.id })),
+                ...currentSchema.fields.map((field) => ({
+                  label: field.label,
+                  value: field.name,
+                })),
+              ]}
               value={columnIdForSort(sharedState.sort)}
-              onChange={(event) =>
+              onValueChange={(columnId) => {
+                if (columnId === null) return;
                 updateSharedState({
                   ...sharedState,
-                  sort: sortForColumn(event.target.value, sharedState.sort.direction),
-                })
-              }
+                  sort: sortForColumn(columnId, sharedState.sort.direction),
+                });
+              }}
             >
-              <option value="$modified">Modified</option>
-              <option value="$id">ZUID</option>
-              <option value="$created">Created</option>
-              <option value="$version">Version</option>
-              {columns
-                .filter((column) => column.id.startsWith('$meta.'))
-                .map((column) => (
-                  <option key={column.id} value={column.id}>
-                    {column.label}
-                  </option>
+              <SelectTrigger className="w-44 rounded-r-none" size="sm" aria-label="Sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="$modified">Modified</SelectItem>
+                <SelectItem value="$id">ZUID</SelectItem>
+                <SelectItem value="$created">Created</SelectItem>
+                <SelectItem value="$version">Version</SelectItem>
+                {columns
+                  .filter((column) => column.id.startsWith('$meta.'))
+                  .map((column) => (
+                    <SelectItem key={column.id} value={column.id}>
+                      {column.label}
+                    </SelectItem>
+                  ))}
+                {currentSchema.fields.map((field) => (
+                  <SelectItem key={field.id} value={field.name}>
+                    {field.label}
+                  </SelectItem>
                 ))}
-              {currentSchema.fields.map((field) => (
-                <option key={field.id} value={field.name}>
-                  {field.label}
-                </option>
-              ))}
-            </select>
-            <button
-              className="icon-button"
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="rounded-l-none border-l-0"
               aria-label={
                 sharedState.sort.direction === 'asc' ? 'Sort ascending' : 'Sort descending'
               }
@@ -319,24 +475,30 @@ export function NestedTable(props: NestedTableProps) {
               ) : (
                 <ArrowDown size={14} />
               )}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
       {state.status === 'partial' ? (
-        <p className="partial-warning">Incomplete related results</p>
+        <p className="m-0 border-b border-warning-border bg-warning px-3.5 py-2 text-xs text-warning-foreground">
+          Incomplete related results
+        </p>
       ) : null}
       {relationshipIsStale ? (
-        <p className="stale-warning" role="status">
+        <p
+          className="m-0 border-b border-stale-border bg-stale px-3.5 py-2 text-xs text-stale-foreground"
+          role="status"
+        >
           This relationship uses a field path that is no longer in the collection schema. Edit the
           relationship to repair it.
         </p>
       ) : null}
       {pageIds.length === 0 ? (
-        <p className="nested-empty">No related items match.</p>
+        <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
       ) : (
-        <div className="table-scroll">
-          <table
+        <div className="w-full min-w-0 overflow-x-auto">
+          <Table
+            className="border-separate border-spacing-0 text-xs"
             style={{
               tableLayout: 'fixed',
               width: `max(100%, ${
@@ -361,29 +523,40 @@ export function NestedTable(props: NestedTableProps) {
                 />
               ))}
             </colgroup>
-            <thead>
-              <tr>
-                <th className="sticky-cell">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="sticky left-0 z-4 h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase shadow-sticky">
                   <span className="sr-only">Item actions</span>
-                </th>
+                </TableHead>
                 {visibleColumns.map((column) => (
-                  <th key={column.id}>{column.label}</th>
+                  <TableHead
+                    className="relative h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase"
+                    key={column.id}
+                  >
+                    {column.label}
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="[&_tr:last-child_td]:border-b-0">
               {pageIds.map((itemId) => {
                 const item = state.snapshot.itemsById.get(itemId);
                 if (!item) return null;
                 const isExpanded = expanded.has(itemId);
                 return (
                   <Fragment key={itemId}>
-                    <tr>
-                      <td className="sticky-cell">
-                        <div className="row-actions" role="group" aria-label="Item actions">
+                    <TableRow className="group hover:bg-transparent">
+                      <TableCell className="sticky left-0 z-3 h-11 max-w-[520px] border-b border-divider-subtle bg-panel px-2.5 py-2 align-middle whitespace-nowrap shadow-sticky group-hover:bg-surface-hover">
+                        <div
+                          className="flex w-max items-center gap-1.5"
+                          role="group"
+                          aria-label="Item actions"
+                        >
                           {node.children.length > 0 ? (
-                            <button
-                              className="button button--row button--relationship"
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="relative mr-1.5 after:pointer-events-none after:absolute after:inset-y-1.5 after:-right-1.5 after:w-px after:bg-border"
                               aria-label={`${isExpanded ? 'Collapse' : 'Expand'} relationships for ${itemId}`}
                               aria-expanded={isExpanded}
                               title={isExpanded ? 'Hide related items' : 'Show related items'}
@@ -397,19 +570,20 @@ export function NestedTable(props: NestedTableProps) {
                               }
                             >
                               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            </button>
+                            </Button>
                           ) : null}
-                          <button
-                            className="button button--row"
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
                             aria-label={`Open details for ${itemId}`}
                             title="Open item details"
                             onClick={(event) => onOpenDetails(item, event.currentTarget)}
                           >
                             <Eye size={14} />
-                          </button>
-                          {node.reference.area !== 'other' ? (
+                          </Button>
+                          {hasManagerLink ? (
                             <a
-                              className="button button--row"
+                              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
                               aria-label={`Open ${itemId} in Zesty Manager`}
                               href={`${node.reference.managerBaseUrl}/${node.reference.area}/${node.reference.modelZuid}/${item.id}`}
                               target="_blank"
@@ -420,20 +594,24 @@ export function NestedTable(props: NestedTableProps) {
                             </a>
                           ) : null}
                         </div>
-                      </td>
+                      </TableCell>
                       {visibleColumns.map((column) => (
-                        <td
+                        <TableCell
+                          className="h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover"
                           key={column.id}
                           style={{ width: columnWidth(column, sharedState.columnWidths) }}
                         >
                           <CellValue value={column.read(item)} />
-                        </td>
+                        </TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                     {isExpanded ? (
-                      <tr className="nested-host-row">
-                        <td colSpan={visibleColumns.length + 1}>
-                          <div className="nested-stack">
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          className="h-auto bg-surface-recessed p-0 hover:bg-surface-recessed"
+                          colSpan={visibleColumns.length + 1}
+                        >
+                          <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
                             {node.children.map((child) => (
                               <NestedTable
                                 key={child.id}
@@ -444,52 +622,61 @@ export function NestedTable(props: NestedTableProps) {
                               />
                             ))}
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ) : null}
                   </Fragment>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
-      <div className="pagination">
-        <span>{sortedIds.length} related items</span>
+      <div className="flex min-h-12 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+        <span className="mr-auto">{sortedIds.length} related items</span>
         {pageCount > 1 ? (
           <>
-            <button
-              className="button button--quiet"
+            <Button
+              variant="outline"
               disabled={currentPageIndex === 0}
               onClick={() => setPageIndex(currentPageIndex - 1)}
             >
               Previous
-            </button>
-            <span>
+            </Button>
+            <span className="text-foreground/80">
               Page {currentPageIndex + 1} of {pageCount}
             </span>
-            <button
-              className="button button--quiet"
+            <Button
+              variant="outline"
               disabled={currentPageIndex + 1 >= pageCount}
               onClick={() => setPageIndex(currentPageIndex + 1)}
             >
               Next
-            </button>
+            </Button>
           </>
         ) : null}
-        <label>
-          Rows
-          <select
-            value={pageSize}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value));
+        <label className="flex items-center gap-2">
+          Items
+          <Select
+            items={[25, 50, 100].map((size) => ({ label: String(size), value: String(size) }))}
+            value={String(pageSize)}
+            onValueChange={(size) => {
+              if (size === null) return;
+              setPageSize(Number(size));
               setPageIndex(0);
             }}
           >
-            {[25, 50, 100].map((size) => (
-              <option key={size}>{size}</option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-20" size="sm" aria-label="Items per page">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {[25, 50, 100].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
       </div>
     </section>

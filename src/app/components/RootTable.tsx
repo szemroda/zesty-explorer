@@ -51,6 +51,14 @@ import { buildLoadedViewGraph, type LoadedView } from '../load-view';
 import { CellValue } from './CellValue';
 import { FilterBuilder } from './FilterBuilder';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { buttonVariants } from './ui/button-variants';
+import { Checkbox } from './ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 interface RootTableProps {
   readonly schema: CollectionSchema;
@@ -190,7 +198,9 @@ export function RootTable({
     treeRoot.id,
     viewFilters,
   ]);
-  const actionColumnWidth = treeRoot.children.length > 0 ? 116 : 78;
+  const hasManagerLink = reference.area !== 'other';
+  const actionColumnWidth =
+    treeRoot.children.length > 0 ? (hasManagerLink ? 140 : 102) : hasManagerLink ? 94 : 56;
 
   const columns = useMemo(
     () =>
@@ -202,10 +212,12 @@ export function RootTable({
           enableHiding: false,
           enableResizing: false,
           cell: ({ row }) => (
-            <div className="row-actions" role="group" aria-label="Item actions">
+            <div className="flex w-max items-center gap-1.5" role="group" aria-label="Item actions">
               {treeRoot.children.length > 0 ? (
-                <button
-                  className="button button--row button--relationship"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="relative mr-1.5 after:pointer-events-none after:absolute after:inset-y-1.5 after:-right-1.5 after:w-px after:bg-border"
                   aria-label={`${expanded.has(row.original.id) ? 'Collapse' : 'Expand'} relationships for ${row.original.id}`}
                   aria-expanded={expanded.has(row.original.id)}
                   title={
@@ -225,19 +237,20 @@ export function RootTable({
                   ) : (
                     <ChevronRight size={15} />
                   )}
-                </button>
+                </Button>
               ) : null}
-              <button
-                className="button button--row"
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 aria-label={`Open details for ${itemLabel(row.original)}`}
                 title="Open item details"
                 onClick={(event) => onOpenDetails(row.original, event.currentTarget)}
               >
                 <Eye size={15} />
-              </button>
-              {reference.area !== 'other' ? (
+              </Button>
+              {hasManagerLink ? (
                 <a
-                  className="button button--row"
+                  className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
                   aria-label={`Open ${itemLabel(row.original)} in Zesty Manager`}
                   href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${row.original.id}`}
                   target="_blank"
@@ -263,6 +276,7 @@ export function RootTable({
     [
       actionColumnWidth,
       expanded,
+      hasManagerLink,
       itemColumnDefinitions,
       onOpenDetails,
       reference,
@@ -315,21 +329,34 @@ export function RootTable({
   }
 
   if (snapshot.items.length === 0)
-    return <div className="state-card">This collection has no content items.</div>;
+    return (
+      <div className="rounded-xl border border-border bg-panel p-7 text-center text-sm text-muted-foreground">
+        This collection has no content items.
+      </div>
+    );
 
   return (
-    <section className="table-card" aria-label={`${schema.label} collection`}>
-      <div className="table-toolbar">
-        <div className="table-title">
-          <h2>{schema.label}</h2>
-          <span>
+    <section
+      className="relative min-w-0 overflow-visible rounded-xl border border-border bg-panel shadow-panel"
+      aria-label={`${schema.label} collection`}
+    >
+      <div className="flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col">
+        <div className="min-w-36">
+          <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
+          <span className="mt-0.5 block text-[10px] text-muted-foreground">
             {filteredItems.length} of {snapshot.items.length} items
           </span>
         </div>
-        <div className="table-tools">
-          <label className="search-control">
-            <Search size={15} aria-hidden="true" />
-            <input
+        <div className="flex items-center gap-2 max-lg:w-full">
+          <label className="flex h-10 min-w-56 items-center gap-2 rounded-lg border border-input bg-surface-control pl-3 text-muted-foreground transition-[border-color,box-shadow] focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/10">
+            <Search
+              className="text-foreground/70"
+              size={15}
+              strokeWidth={2.25}
+              aria-hidden="true"
+            />
+            <Input
+              className="h-[38px] min-h-0 min-w-0 border-0 bg-transparent px-0 pr-2.5 shadow-none focus-visible:border-0 focus-visible:ring-0"
               type="search"
               aria-label="Filter this table"
               placeholder="Search this collection"
@@ -337,12 +364,19 @@ export function RootTable({
               onChange={(event) => setTableFreeText(event.target.value)}
             />
           </label>
-          <details className="toolbar-menu">
-            <summary className="button button--quiet" aria-label="Configure table filters">
-              <ListFilter size={14} /> Filters
-              {filters.length > 0 ? <span className="control-count">{filters.length}</span> : null}
-            </summary>
-            <div className="toolbar-menu__popup toolbar-menu__popup--wide">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" aria-label="Configure table filters">
+                  <ListFilter size={14} /> Filters
+                  {filters.length > 0 ? <Badge>{filters.length}</Badge> : null}
+                </Button>
+              }
+            />
+            <DropdownMenuContent
+              align="end"
+              className="w-[min(760px,calc(100vw-2rem))] min-w-0 p-0 lg:w-[min(760px,calc(100vw-330px))]"
+            >
               <FilterBuilder
                 label="Table filter"
                 root={treeRoot}
@@ -354,43 +388,58 @@ export function RootTable({
                   setPagination((current) => ({ ...current, pageIndex: 0 }));
                 }}
               />
-            </div>
-          </details>
-          <details className="toolbar-menu">
-            <summary className="button button--quiet" aria-label="Choose visible columns">
-              <SlidersHorizontal size={14} /> Columns
-            </summary>
-            <div className="toolbar-menu__popup columns-menu__popup">
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" aria-label="Choose visible columns">
+                  <SlidersHorizontal size={14} /> Columns
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" className="min-w-56 p-2">
               {table
                 .getAllLeafColumns()
                 .filter((column) => column.getCanHide())
                 .map((column) => (
-                  <label key={column.id}>
-                    <input
-                      type="checkbox"
+                  <label
+                    className="flex items-center gap-2 rounded-md p-1.5 text-xs hover:bg-surface-menu-hover"
+                    key={column.id}
+                  >
+                    <Checkbox
                       checked={column.getIsVisible()}
-                      onChange={column.getToggleVisibilityHandler()}
+                      onCheckedChange={(checked) => column.toggleVisibility(checked)}
                     />
                     {itemColumnDefinitions.find((definition) => definition.id === column.id)
                       ?.label ?? column.id}
                   </label>
                 ))}
-            </div>
-          </details>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
-        <div className="table-progress" role="status">
+        <div
+          className="absolute top-16 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
+          role="status"
+        >
           Updating results...
         </div>
       ) : null}
       {snapshot.partial ? (
-        <p className="partial-warning" role="status">
+        <p
+          className="m-0 border-b border-warning-border bg-warning px-3.5 py-2 text-xs text-warning-foreground"
+          role="status"
+        >
           Showing a partial collection. Results may be incomplete.
         </p>
       ) : null}
-      <div className="table-scroll">
-        <table style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}>
+      <div className="w-full min-w-0 overflow-x-auto">
+        <Table
+          className="border-separate border-spacing-0 text-xs"
+          style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}
+        >
           <colgroup>
             {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
               <col
@@ -401,55 +450,67 @@ export function RootTable({
               />
             ))}
           </colgroup>
-          <thead>
+          <TableHeader>
             {table.getHeaderGroups().map((group) => (
-              <tr key={group.id}>
+              <TableRow className="hover:bg-transparent" key={group.id}>
                 {group.headers.map((header) => (
-                  <th
+                  <TableHead
                     key={header.id}
-                    className={header.id === 'actions' ? 'sticky-cell' : undefined}
+                    className={`relative h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
+                      header.id === 'actions'
+                        ? 'sticky left-0 z-4 bg-surface-header shadow-sticky'
+                        : ''
+                    }`}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                      <button
-                        className="sort-button"
+                      <Button
+                        variant="ghost"
+                        className="h-auto gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         <table.FlexRender header={header} />
                         {header.column.getIsSorted() === 'asc' ? <ChevronUp size={13} /> : null}
                         {header.column.getIsSorted() === 'desc' ? <ChevronDown size={13} /> : null}
-                      </button>
+                      </Button>
                     ) : (
                       <table.FlexRender header={header} />
                     )}
                     {header.column.getCanResize() ? (
                       <span
-                        className="column-resizer"
+                        className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
                         onMouseDown={header.getResizeHandler()}
                         onTouchStart={header.getResizeHandler()}
                       />
                     ) : null}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </thead>
-          <tbody>
+          </TableHeader>
+          <TableBody className="[&_tr:last-child_td]:border-b-0">
             {table.getRowModel().rows.map((row) => (
               <Fragment key={row.original.id}>
-                <tr>
+                <TableRow className="group hover:bg-transparent">
                   {row.getVisibleCells().map((cell) => (
-                    <td
+                    <TableCell
                       key={cell.id}
-                      className={cell.column.id === 'actions' ? 'sticky-cell' : undefined}
+                      className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
+                        cell.column.id === 'actions'
+                          ? 'sticky left-0 z-3 bg-panel px-2.5 shadow-sticky'
+                          : ''
+                      }`}
                     >
                       <table.FlexRender cell={cell} />
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
                 {expanded.has(row.original.id) ? (
-                  <tr className="nested-host-row">
-                    <td colSpan={table.getVisibleLeafColumns().length}>
-                      <div className="nested-stack">
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      className="h-auto bg-surface-recessed p-0 hover:bg-surface-recessed"
+                      colSpan={table.getVisibleLeafColumns().length}
+                    >
+                      <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
                         {treeRoot.children.map((child) => (
                           <NestedTable
                             key={child.id}
@@ -467,49 +528,57 @@ export function RootTable({
                           />
                         ))}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : null}
               </Fragment>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
-      <div className="pagination">
-        <span>{filteredItems.length} items</span>
+      <div className="flex min-h-12 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+        <span className="mr-auto">{filteredItems.length} items</span>
         {table.getPageCount() > 1 ? (
           <>
-            <button
-              className="button button--quiet"
+            <Button
+              variant="outline"
               disabled={!table.getCanPreviousPage()}
               onClick={() => table.previousPage()}
             >
               Previous
-            </button>
-            <span>
+            </Button>
+            <span className="text-foreground/80">
               Page {pagination.pageIndex + 1} of {table.getPageCount()}
             </span>
-            <button
-              className="button button--quiet"
+            <Button
+              variant="outline"
               disabled={!table.getCanNextPage()}
               onClick={() => table.nextPage()}
             >
               Next
-            </button>
+            </Button>
           </>
         ) : null}
-        <label>
-          Rows
-          <select
-            value={pagination.pageSize}
-            onChange={(event) => table.setPageSize(Number(event.target.value))}
+        <label className="flex items-center gap-2">
+          Items
+          <Select
+            items={[25, 50, 100].map((size) => ({ label: String(size), value: String(size) }))}
+            value={String(pagination.pageSize)}
+            onValueChange={(size) => {
+              if (size !== null) table.setPageSize(Number(size));
+            }}
           >
-            {[25, 50, 100].map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-20" size="sm" aria-label="Items per page">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {[25, 50, 100].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
       </div>
     </section>
