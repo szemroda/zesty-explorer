@@ -435,8 +435,8 @@ test('recovers corrupt links and confirms root replacement and reset', async ({ 
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
   await page.getByLabel('Search the complete view').fill('');
   await page.getByLabel('View options').click();
-  await page.getByRole('menuitem', { name: 'Replace root collection' }).click();
-  await expect(page.getByRole('heading', { name: 'Replace the root collection' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Change view setup' }).click();
+  await expect(page.getByRole('heading', { name: 'Change view setup' })).toBeVisible();
   await page.getByLabel('Zesty instance URL').fill(childUrl);
   await page.getByRole('button', { name: 'Load collections' }).click();
   page.once('dialog', (dialog) => dialog.accept());

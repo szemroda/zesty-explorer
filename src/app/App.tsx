@@ -487,6 +487,16 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedRootZuid(reference.modelZuid);
   }
 
+  function openRootPicker() {
+    if (!reference) return;
+    setCollectionInput(collectionUrl(reference));
+    setInputError(undefined);
+    setCatalogInstance(instanceReference(reference));
+    setSelectedRootZuid(reference.modelZuid);
+    setChangingRoot(false);
+    setSelectingRoot(true);
+  }
+
   const showStart = !reference || tokenRequired || changingRoot || selectingRoot;
 
   function addRelatedCollection(
@@ -616,7 +626,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       setChangingRoot(true);
                     }}
                   >
-                    <Database size={14} /> Replace root collection
+                    <Database size={14} /> Change view setup
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={resetView}>
                     <RotateCcw size={14} /> Reset view
@@ -659,6 +669,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
               }
+              onChangeRoot={openRootPicker}
               onRemove={(nodeId) =>
                 setTreeRoot((root) => (root ? removeCollectionNode(root, nodeId) : root))
               }
@@ -829,7 +840,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     {tokenRequired
                       ? 'Replace your session token'
                       : changingRoot
-                        ? 'Replace the root collection'
+                        ? 'Change view setup'
                         : 'Open a Zesty collection'}
                   </h2>
 

@@ -130,6 +130,18 @@ describe('root collection browser', () => {
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });
 
+  it('opens the root picker directly from the root collection menu', async () => {
+    render(<App api={api()} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
+
+    expect(screen.getByRole('heading', { name: 'Choose the root collection' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Zesty instance URL')).not.toBeInTheDocument();
+  });
+
   it('can open a recognized API model URL when the catalog is unavailable', async () => {
     const testApi: ZestyApi = {
       ...api(),
@@ -771,7 +783,7 @@ describe('root collection browser', () => {
     );
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Replace root collection' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change view setup' }));
     fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
       target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
     });

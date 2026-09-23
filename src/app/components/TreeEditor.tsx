@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Database, GitBranch, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
 import type {
@@ -59,6 +59,7 @@ interface TreeEditorProps {
     relationship: RelationshipDefinition,
   ) => string | undefined;
   readonly onRename: (nodeId: CollectionNodeId, name: string) => void;
+  readonly onChangeRoot: () => void;
   readonly onRemove: (nodeId: CollectionNodeId) => void;
   readonly onRelationshipChange: (
     nodeId: CollectionNodeId,
@@ -625,6 +626,7 @@ function TreeNodeRow({
   node,
   root,
   onRename,
+  onChangeRoot,
   onRemove,
   schemas,
   catalog,
@@ -639,6 +641,7 @@ function TreeNodeRow({
   readonly node: CollectionNode;
   readonly root: CollectionNode;
   readonly onRename: TreeEditorProps['onRename'];
+  readonly onChangeRoot: TreeEditorProps['onChangeRoot'];
   readonly onRemove: TreeEditorProps['onRemove'];
   readonly schemas: TreeEditorProps['schemas'];
   readonly catalog: TreeEditorProps['catalog'];
@@ -705,6 +708,11 @@ function TreeNodeRow({
             <DropdownMenuItem onClick={() => setEditing(true)}>
               <Pencil size={12} /> <span>Rename</span>
             </DropdownMenuItem>
+            {node.id === root.id ? (
+              <DropdownMenuItem onClick={onChangeRoot}>
+                <Database size={12} /> <span>Change root collection</span>
+              </DropdownMenuItem>
+            ) : null}
             {parent && schemas.get(parent.id) ? (
               <EditRelationship
                 node={node}
@@ -741,6 +749,7 @@ function TreeNodeRow({
               node={child}
               root={root}
               onRename={onRename}
+              onChangeRoot={onChangeRoot}
               onRemove={onRemove}
               schemas={schemas}
               catalog={catalog}
@@ -770,6 +779,7 @@ export function TreeEditor({
   loadSchema,
   onAdd,
   onRename,
+  onChangeRoot,
   onRemove,
   onRelationshipChange,
 }: TreeEditorProps) {
@@ -785,6 +795,7 @@ export function TreeEditor({
           node={root}
           root={root}
           onRename={onRename}
+          onChangeRoot={onChangeRoot}
           onRemove={onRemove}
           schemas={availableSchemas}
           catalog={catalog}
