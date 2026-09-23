@@ -133,4 +133,50 @@ describe('ItemDetails version preview', () => {
     expect(screen.getByLabelText('Technical error details')).toHaveTextContent('HTTP status: 401');
     await waitFor(() => expect(onAuthenticationFailure).toHaveBeenCalled());
   });
+
+  it('compares two saved versions as changed fields and a raw JSON diff', async () => {
+    const version = (number: number, title: string, raw: Record<string, unknown>) => ({
+      number,
+      item: { ...currentItem, fields: { title }, metadata: { version: number }, raw },
+    });
+    renderDetails({
+      loadItemVersions: () =>
+        Effect.succeed([
+          version(3, 'Revised title', { title: 'Revised raw title', published: true }),
+          version(2, 'Revised title', { title: 'Revised raw title' }),
+        ]),
+      loadItemPublishings: () => Effect.succeed([]),
+      loadInstanceUsers: () => Effect.succeed([]),
+    });
+    await screen.findByRole('button', { name: /Version 3/ });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+    const comparison = screen.getByRole('region', { name: 'Version comparison' });
+    expect(screen.getByRole('heading', { name: 'Version 1 → 2' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Before' })).toHaveValue('1');
+    expect(comparison).toHaveTextContent(
+      '1 content field differs · 1 technical metadata value differs',
+    );
+    expect(comparison).toHaveTextContent('Current title');
+    expect(comparison).toHaveTextContent('Revised title');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'After' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Before' }), { target: { value: '2' } });
+    expect(screen.getByRole('heading', { name: 'Version 2 → 3' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('combobox', { name: 'Before' })).getByRole('option', {
+        name: /Version 3/,
+      }),
+    ).toBeDisabled();
+    expect(comparison).toHaveTextContent('No content field differences');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Raw JSON' }));
+    const rawDiff = screen.getByRole('table', { name: 'Raw JSON comparison' });
+    expect(rawDiff).toHaveTextContent('Before · version 2');
+    expect(rawDiff).toHaveTextContent('After · version 3');
+    expect(rawDiff).toHaveTextContent('"published": true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    expect(screen.getByRole('heading', { name: 'Version 1' })).toBeInTheDocument();
+  });
 });

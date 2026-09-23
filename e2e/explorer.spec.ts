@@ -449,6 +449,13 @@ test('creates native and custom roles, expands related rows, and preserves detai
     .toContain('First story');
   await page.getByRole('tab', { name: 'Raw JSON' }).click();
   await expect(page.getByRole('tabpanel')).toContainText('Archived First story');
+  await page.getByRole('button', { name: 'Compare' }).click();
+  await expect(page.getByRole('heading', { name: 'Version 1 → 2' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Raw JSON comparison' })).toContainText(
+    '"title": "Archived First story"',
+  );
+  await page.getByRole('tab', { name: 'Fields' }).click();
+  await expect(page.getByRole('region', { name: 'Content fields' })).toContainText('Removed');
   await page.getByRole('button', { name: 'Close item history' }).click();
   await expect(detailsTrigger).toBeFocused();
 

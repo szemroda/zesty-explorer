@@ -4,8 +4,16 @@ import type { ContentItem, ContentItemReference, ExplorerError } from '../../dom
 import type { ItemVersionApi } from '../../zesty-api';
 import { describeExplorerError } from '../error-message';
 import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
+import {
+  compareContentItems,
+  describeComparison,
+  resolveVersionPair,
+  type VersionNumberPair,
+  type VersionPair,
+} from '../item-version-comparison';
 import { matchesVersionPreviewOption, type VersionPreviewOption } from '../item-version-preview';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
+import { FieldsComparison, RawJsonComparison } from './ItemVersionComparison';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -48,6 +56,8 @@ function savedDescription(value: string | undefined): string {
 function isDetailFormat(value: unknown): value is 'fields' | 'raw' {
   return value === 'fields' || value === 'raw';
 }
+
+type HistoryMode = 'view' | 'compare';
 
 function authorLabel(option: VersionPreviewOption): string {
   if (option.author) return option.author;
@@ -159,6 +169,109 @@ function ResourceNotice({
   );
 }
 
+function VersionSelect({
+  label,
+  options,
+  selected,
+  isDisabled,
+  onChange,
+}: {
+  readonly label: string;
+  readonly options: readonly VersionPreviewOption[];
+  readonly selected: VersionPreviewOption;
+  readonly isDisabled: (number: number) => boolean;
+  readonly onChange: (number: number) => void;
+}) {
+  return (
+    <div>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</span>
+        <select
+          className="h-9 w-full rounded-md border border-input bg-surface-control px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          value={selected.number}
+          onChange={(event) => onChange(Number(event.target.value))}
+        >
+          {options.map((option) => (
+            <option key={option.number} value={option.number} disabled={isDisabled(option.number)}>
+              {`Version ${option.number}${option.latestSaved ? ' · latest saved' : ''}${option.currentlyPublished ? ' · published' : ''}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-1.5 px-1 text-[11px] leading-4 text-muted-foreground">
+        {formattedDate(selected.savedAt)} · {authorLabel(selected)}
+      </p>
+    </div>
+  );
+}
+
+// Before must stay older than After, so each select disables versions that would invert them.
+function VersionPairSelect({
+  options,
+  pair,
+  onChange,
+}: {
+  readonly options: readonly VersionPreviewOption[];
+  readonly pair: VersionPair;
+  readonly onChange: (pair: VersionNumberPair) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <VersionSelect
+        label="Before"
+        options={options}
+        selected={pair.before}
+        isDisabled={(number) => number >= pair.after.number}
+        onChange={(before) => onChange({ before, after: pair.after.number })}
+      />
+      <VersionSelect
+        label="After"
+        options={options}
+        selected={pair.after}
+        isDisabled={(number) => number <= pair.before.number}
+        onChange={(after) => onChange({ before: pair.before.number, after })}
+      />
+    </div>
+  );
+}
+
+const HISTORY_MODES: readonly { readonly value: HistoryMode; readonly label: string }[] = [
+  { value: 'view', label: 'View' },
+  { value: 'compare', label: 'Compare' },
+];
+
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  readonly mode: HistoryMode;
+  readonly onChange: (mode: HistoryMode) => void;
+}) {
+  return (
+    <div
+      className="inline-flex h-9 items-center rounded-lg bg-muted p-1"
+      role="group"
+      aria-label="Item history mode"
+    >
+      {HISTORY_MODES.map(({ value, label }) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={mode === value}
+          className={`inline-flex h-7 items-center rounded-md px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 ${
+            mode === value
+              ? 'bg-panel-raised text-foreground shadow-sm'
+              : 'text-muted-foreground hover:bg-surface-menu-hover hover:text-foreground'
+          }`}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ValuesList({ values }: { readonly values: Readonly<Record<string, unknown>> }) {
   return (
     <dl className="m-0 divide-y divide-border border-y border-border">
@@ -190,6 +303,8 @@ function ItemDetailsPanel({
 }) {
   const [format, setFormat] = useState<'fields' | 'raw'>('fields');
   const [search, setSearch] = useState('');
+  const [mode, setMode] = useState<HistoryMode>('view');
+  const [chosenPair, setChosenPair] = useState<VersionNumberPair>();
   const preview = useItemVersionPreview({
     api,
     reference,
@@ -211,6 +326,21 @@ function ItemDetailsPanel({
     [preview.history.isLoading, preview.options, search],
   );
   const selected = preview.selectedOption;
+  const historyLoaded = !preview.history.isLoading && !preview.history.error;
+  const pair =
+    mode === 'compare' && historyLoaded
+      ? resolveVersionPair(preview.options, selected?.number, chosenPair)
+      : undefined;
+  const comparison = pair ? compareContentItems(pair.before.item, pair.after.item) : undefined;
+  const comparisonUnavailable = preview.history.isLoading
+    ? 'Loading saved versions…'
+    : preview.history.error
+      ? 'Saved versions could not load.'
+      : 'This item has only one saved version.';
+  function selectMode(next: HistoryMode) {
+    setMode(next);
+    setChosenPair(undefined);
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -253,21 +383,23 @@ function ItemDetailsPanel({
                   {preview.history.isLoading ? '…' : preview.options.length} total
                 </span>
               </div>
-              <label className="relative block">
-                <Search
-                  className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-                  size={14}
-                  aria-hidden="true"
-                />
-                <Input
-                  className="pl-9 text-xs"
-                  type="search"
-                  aria-label="Search saved versions"
-                  placeholder="Search version, author, or status"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </label>
+              {mode === 'view' ? (
+                <label className="relative block">
+                  <Search
+                    className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                    size={14}
+                    aria-hidden="true"
+                  />
+                  <Input
+                    className="pl-9 text-xs"
+                    type="search"
+                    aria-label="Search saved versions"
+                    placeholder="Search version, author, or status"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </label>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
               {preview.history.isLoading ? (
@@ -300,32 +432,66 @@ function ItemDetailsPanel({
                   retry={preview.authors.retry}
                 />
               ) : null}
-              {visibleOptions.map((option) => (
-                <VersionCard
-                  key={option.number}
-                  option={option}
-                  selected={selected?.number === option.number}
-                  onSelect={() => preview.selectVersion(option.number)}
-                />
-              ))}
-              {!preview.history.isLoading && visibleOptions.length === 0 ? (
-                <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                  No saved versions match this search.
-                </p>
-              ) : null}
+              {mode === 'compare' ? (
+                pair ? (
+                  <VersionPairSelect
+                    options={preview.options}
+                    pair={pair}
+                    onChange={setChosenPair}
+                  />
+                ) : historyLoaded ? (
+                  <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                    {comparisonUnavailable}
+                  </p>
+                ) : null
+              ) : (
+                <>
+                  {visibleOptions.map((option) => (
+                    <VersionCard
+                      key={option.number}
+                      option={option}
+                      selected={selected?.number === option.number}
+                      onSelect={() => preview.selectVersion(option.number)}
+                    />
+                  ))}
+                  {!preview.history.isLoading && visibleOptions.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                      No saved versions match this search.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           </aside>
 
-          <section className="min-h-0 overflow-y-auto p-5 md:p-6" aria-label="Version preview">
+          <section
+            className="min-h-0 overflow-y-auto p-5 md:p-6"
+            aria-label={mode === 'compare' ? 'Version comparison' : 'Version preview'}
+          >
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
-              <div>
-                <h2 className="text-2xl font-bold">Version {selected?.number ?? '—'}</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {savedDescription(selected?.savedAt)} ·{' '}
-                  {selected ? authorLabel(selected) : 'Author unavailable'}
-                </p>
-              </div>
-              {selected ? <VersionBadges option={selected} /> : null}
+              {mode === 'compare' ? (
+                <div>
+                  <h2 className="text-2xl font-bold">
+                    {pair
+                      ? `Version ${pair.before.number} → ${pair.after.number}`
+                      : 'Compare versions'}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {comparison ? describeComparison(comparison) : comparisonUnavailable}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <h2 className="text-2xl font-bold">Version {selected?.number ?? '—'}</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {savedDescription(selected?.savedAt)} ·{' '}
+                      {selected ? authorLabel(selected) : 'Author unavailable'}
+                    </p>
+                  </div>
+                  {selected ? <VersionBadges option={selected} /> : null}
+                </>
+              )}
             </div>
 
             <Tabs
@@ -335,24 +501,44 @@ function ItemDetailsPanel({
                 setFormat(value);
               }}
             >
-              <TabsList aria-label="Item detail format">
-                <TabsTrigger value="fields">Fields</TabsTrigger>
-                <TabsTrigger value="raw">Raw JSON</TabsTrigger>
-              </TabsList>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <TabsList aria-label="Item detail format">
+                  <TabsTrigger value="fields">Fields</TabsTrigger>
+                  <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+                </TabsList>
+                <ModeToggle mode={mode} onChange={selectMode} />
+              </div>
               <TabsContent value="raw">
-                <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
-                  {JSON.stringify(preview.selectedItem.raw, null, 2)}
-                </pre>
+                {mode === 'view' ? (
+                  <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
+                    {JSON.stringify(preview.selectedItem.raw, null, 2)}
+                  </pre>
+                ) : pair ? (
+                  <RawJsonComparison
+                    key={`${pair.before.number}-${pair.after.number}`}
+                    pair={pair}
+                  />
+                ) : null}
               </TabsContent>
               <TabsContent value="fields">
-                <h3 className="mt-3 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
-                  Content fields
-                </h3>
-                <ValuesList values={preview.selectedItem.fields} />
-                <h3 className="mt-6 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
-                  Technical metadata
-                </h3>
-                <ValuesList values={preview.selectedItem.metadata} />
+                {mode === 'view' ? (
+                  <>
+                    <h3 className="mt-3 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                      Content fields
+                    </h3>
+                    <ValuesList values={preview.selectedItem.fields} />
+                    <h3 className="mt-6 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                      Technical metadata
+                    </h3>
+                    <ValuesList values={preview.selectedItem.metadata} />
+                  </>
+                ) : pair && comparison ? (
+                  <FieldsComparison
+                    key={`${pair.before.number}-${pair.after.number}`}
+                    comparison={comparison}
+                    pair={pair}
+                  />
+                ) : null}
               </TabsContent>
             </Tabs>
           </section>
