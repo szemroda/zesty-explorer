@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
 import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalog, ExplorerError, InstanceReference } from '../../domain';
-import type { ZestyApi } from '../../zesty-api';
+import type { CollectionApi } from '../../zesty-api';
 
 interface CollectionCatalogQueryOptions {
-  readonly api: ZestyApi;
+  readonly api: CollectionApi;
   readonly reference: InstanceReference | undefined;
   readonly sessionToken: string;
   readonly enabled: boolean;

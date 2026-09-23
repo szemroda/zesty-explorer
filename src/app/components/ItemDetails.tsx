@@ -1,19 +1,57 @@
-import { Check, Copy, X } from 'lucide-react';
-import { useState, type RefObject } from 'react';
-import type { ContentItem } from '../../domain';
+import { Check, Clock3, Copy, History, LoaderCircle, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
+import type { ContentItem, ContentItemReference, ExplorerError } from '../../domain';
+import type { ItemVersionApi } from '../../zesty-api';
+import { describeExplorerError } from '../error-message';
+import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
+import { matchesVersionPreviewOption, type VersionPreviewOption } from '../item-version-preview';
+import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 interface ItemDetailsProps {
+  readonly api: ItemVersionApi;
+  readonly reference: ContentItemReference | undefined;
+  readonly sessionToken: string;
+  readonly credentialRevision: string;
   readonly item: ContentItem | undefined;
   readonly onClose: () => void;
+  readonly onAuthenticationFailure: () => void;
   readonly finalFocus: RefObject<HTMLElement | null>;
 }
 
 function formatted(value: unknown): string {
   if (typeof value === 'string') return value;
   return JSON.stringify(value, null, 2) ?? '';
+}
+
+function formattedDate(value: string | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return 'Save time unavailable';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(new Date(value));
+}
+
+function savedDescription(value: string | undefined): string {
+  const date = formattedDate(value);
+  return value && Number.isFinite(Date.parse(value)) ? `Saved ${date}` : date;
+}
+
+function isDetailFormat(value: unknown): value is 'fields' | 'raw' {
+  return value === 'fields' || value === 'raw';
+}
+
+function authorLabel(option: VersionPreviewOption): string {
+  if (option.author) return option.author;
+  return option.authorState === 'loading' ? 'Loading author…' : 'Author unavailable';
 }
 
 function CopyValue({ value, name }: { readonly value: unknown; readonly name: string }) {
@@ -36,89 +74,295 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
   );
 }
 
-export function ItemDetails({ item, onClose, finalFocus }: ItemDetailsProps) {
-  const [raw, setRaw] = useState(false);
-  if (!item) return null;
+function VersionBadges({ option }: { readonly option: VersionPreviewOption }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {option.latestSaved ? (
+        <Badge className="border-sky-500/40 bg-sky-500/10 text-sky-300">Latest saved</Badge>
+      ) : null}
+      {option.currentlyPublished ? (
+        <Badge className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+          Currently published
+        </Badge>
+      ) : null}
+      {option.scheduledAt ? (
+        <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-300">Scheduled</Badge>
+      ) : null}
+      {option.currentInView ? <Badge variant="outline">Current in view</Badge> : null}
+    </div>
+  );
+}
+
+function VersionCard({
+  option,
+  selected,
+  onSelect,
+}: {
+  readonly option: VersionPreviewOption;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/50 ${
+        selected
+          ? 'border-primary/70 bg-primary/10'
+          : 'border-transparent hover:border-border hover:bg-accent/40'
+      }`}
+      onClick={onSelect}
+    >
+      <span className="flex items-center justify-between gap-3">
+        <strong className="text-sm">Version {option.number}</strong>
+        {selected ? <Check className="text-primary" size={16} aria-hidden="true" /> : null}
+      </span>
+      <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
+        {formattedDate(option.savedAt)} · {authorLabel(option)}
+      </span>
+      <span className="mt-2 block">
+        <VersionBadges option={option} />
+      </span>
+      {option.scheduledAt ? (
+        <span className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-amber-300">
+          <Clock3 className="mt-0.5 shrink-0" size={12} aria-hidden="true" />
+          Publishes {formattedDate(option.scheduledAt)}
+          {option.additionalSchedules > 0 ? ` · +${option.additionalSchedules} more` : ''}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function ResourceNotice({
+  label,
+  error,
+  retry,
+}: {
+  readonly label: string;
+  readonly error: ExplorerError;
+  readonly retry: () => Promise<void>;
+}) {
+  const description = describeExplorerError(error, window.location.origin);
+  return (
+    <div
+      className="rounded-md border border-destructive/35 bg-destructive/10 p-2 text-xs"
+      role="alert"
+    >
+      <p>{label}</p>
+      <p className="mt-1 text-muted-foreground">{description.recovery}</p>
+      <ErrorTechnicalDetails error={error} />
+      <Button className="mt-2 h-7" size="sm" variant="outline" onClick={() => void retry()}>
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+function ValuesList({ values }: { readonly values: Readonly<Record<string, unknown>> }) {
+  return (
+    <dl className="m-0 divide-y divide-border border-y border-border">
+      {Object.entries(values).map(([name, value]) => (
+        <div className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10" key={name}>
+          <dt className="text-xs text-muted-foreground">{name}</dt>
+          <dd className="m-0 min-w-0 text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
+            {formatted(value)}
+          </dd>
+          <CopyValue name={name} value={value} />
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ItemDetailsPanel({
+  api,
+  reference,
+  sessionToken,
+  credentialRevision,
+  item,
+  onClose,
+  onAuthenticationFailure,
+  finalFocus,
+}: Omit<ItemDetailsProps, 'item' | 'reference'> & {
+  readonly item: ContentItem;
+  readonly reference: ContentItemReference;
+}) {
+  const [format, setFormat] = useState<'fields' | 'raw'>('fields');
+  const [search, setSearch] = useState('');
+  const preview = useItemVersionPreview({
+    api,
+    reference,
+    currentItem: item,
+    sessionToken,
+    credentialRevision,
+  });
+  const authenticationFailed = [preview.history, preview.publishings, preview.authors].some(
+    (resource) => resource.error?.kind === 'authentication',
+  );
+  useEffect(() => {
+    if (authenticationFailed) onAuthenticationFailure();
+  }, [authenticationFailed, onAuthenticationFailure]);
+  const visibleOptions = useMemo(
+    () =>
+      preview.history.isLoading
+        ? []
+        : preview.options.filter((option) => matchesVersionPreviewOption(option, search)),
+    [preview.history.isLoading, preview.options, search],
+  );
+  const selected = preview.selectedOption;
 
   return (
-    <Dialog open modal={false} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className="top-0 right-0 bottom-0 left-auto flex h-screen w-[min(520px,100vw)] translate-x-0 translate-y-0 flex-col gap-0 overflow-auto rounded-none border-y-0 border-r-0 p-0"
+        className="grid h-[min(820px,calc(100vh-32px))] w-[min(1120px,calc(100vw-32px))] grid-rows-[65px_minmax(0,1fr)] gap-0 overflow-hidden p-0"
         aria-labelledby="details-title"
         finalFocus={finalFocus}
-        overlay={false}
         showCloseButton={false}
       >
-        <DialogHeader className="sticky top-0 z-10 flex grid-cols-none flex-row items-center justify-between border-b border-border bg-popover/95 px-5 py-4 backdrop-blur">
-          <div>
-            <span className="text-[10px] font-bold tracking-[.12em] text-primary uppercase">
-              Item details
+        <DialogHeader className="flex grid-cols-none flex-row items-center justify-between border-b border-border px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="shrink-0 text-[10px] font-bold tracking-[.12em] text-primary uppercase">
+              Item history
             </span>
-            <DialogTitle id="details-title" className="mt-1 text-base font-bold">
+            <span className="h-4 w-px bg-border" aria-hidden="true" />
+            <DialogTitle id="details-title" className="truncate text-base">
               {item.id}
             </DialogTitle>
           </div>
           <DialogClose
             render={<Button variant="ghost" size="icon-sm" />}
-            aria-label="Close item details"
+            aria-label="Close item history"
           >
             <X size={18} />
           </DialogClose>
         </DialogHeader>
-        <Tabs
-          value={raw ? 'raw' : 'fields'}
-          onValueChange={(value) => setRaw(value === 'raw')}
-          className="p-5"
-        >
-          <TabsList aria-label="Item detail format">
-            <TabsTrigger value="fields">Fields</TabsTrigger>
-            <TabsTrigger value="raw">Raw JSON</TabsTrigger>
-          </TabsList>
-          <TabsContent value="raw">
-            <pre className="text-code-content max-h-[calc(100vh-130px)] overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap">
-              {JSON.stringify(item.raw, null, 2)}
-            </pre>
-          </TabsContent>
-          <TabsContent value="fields">
-            <>
-              <h3 className="mt-3 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
-                Content fields
-              </h3>
-              <dl className="m-0 divide-y divide-border border-y border-border">
-                {Object.entries(item.fields).map(([name, value]) => (
-                  <div
-                    className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10"
-                    key={name}
-                  >
-                    <dt className="text-xs text-muted-foreground">{name}</dt>
-                    <dd className="m-0 min-w-0 [overflow-wrap:anywhere] text-xs leading-5 text-foreground">
-                      {formatted(value)}
-                    </dd>
-                    <CopyValue name={name} value={value} />
-                  </div>
-                ))}
-              </dl>
-              <h3 className="mt-6 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
-                Technical metadata
-              </h3>
-              <dl className="m-0 divide-y divide-border border-y border-border">
-                {Object.entries(item.metadata).map(([name, value]) => (
-                  <div
-                    className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10"
-                    key={name}
-                  >
-                    <dt className="text-xs text-muted-foreground">{name}</dt>
-                    <dd className="m-0 min-w-0 [overflow-wrap:anywhere] text-xs leading-5 text-foreground">
-                      {formatted(value)}
-                    </dd>
-                    <CopyValue name={name} value={value} />
-                  </div>
-                ))}
-              </dl>
-            </>
-          </TabsContent>
-        </Tabs>
+
+        <div className="grid min-h-0 grid-cols-[285px_minmax(0,1fr)]">
+          <aside
+            className="flex min-h-0 flex-col border-r border-border bg-background/70"
+            aria-label="Saved versions"
+            role="region"
+          >
+            <div className="border-b border-border p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-xs font-bold tracking-wide uppercase">
+                  <History className="text-primary" size={14} aria-hidden="true" /> Saved versions
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {preview.history.isLoading ? '…' : preview.options.length} total
+                </span>
+              </div>
+              <label className="relative block">
+                <Search
+                  className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                  size={14}
+                  aria-hidden="true"
+                />
+                <Input
+                  className="pl-9 text-xs"
+                  type="search"
+                  aria-label="Search saved versions"
+                  placeholder="Search version, author, or status"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {preview.history.isLoading ? (
+                <p
+                  className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  <LoaderCircle className="animate-spin" size={14} aria-hidden="true" /> Loading
+                  saved versions…
+                </p>
+              ) : null}
+              {preview.history.error ? (
+                <ResourceNotice
+                  label="Saved versions could not load."
+                  error={preview.history.error}
+                  retry={preview.history.retry}
+                />
+              ) : null}
+              {preview.publishings.error ? (
+                <ResourceNotice
+                  label="Publishing statuses could not load."
+                  error={preview.publishings.error}
+                  retry={preview.publishings.retry}
+                />
+              ) : null}
+              {preview.authors.error ? (
+                <ResourceNotice
+                  label="Authors could not load."
+                  error={preview.authors.error}
+                  retry={preview.authors.retry}
+                />
+              ) : null}
+              {visibleOptions.map((option) => (
+                <VersionCard
+                  key={option.number}
+                  option={option}
+                  selected={selected?.number === option.number}
+                  onSelect={() => preview.selectVersion(option.number)}
+                />
+              ))}
+              {!preview.history.isLoading && visibleOptions.length === 0 ? (
+                <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                  No saved versions match this search.
+                </p>
+              ) : null}
+            </div>
+          </aside>
+
+          <section className="min-h-0 overflow-y-auto p-5 md:p-6" aria-label="Version preview">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+              <div>
+                <h2 className="text-2xl font-bold">Version {selected?.number ?? '—'}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {savedDescription(selected?.savedAt)} ·{' '}
+                  {selected ? authorLabel(selected) : 'Author unavailable'}
+                </p>
+              </div>
+              {selected ? <VersionBadges option={selected} /> : null}
+            </div>
+
+            <Tabs
+              value={format}
+              onValueChange={(value) => {
+                if (!isDetailFormat(value)) return;
+                setFormat(value);
+              }}
+            >
+              <TabsList aria-label="Item detail format">
+                <TabsTrigger value="fields">Fields</TabsTrigger>
+                <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+              </TabsList>
+              <TabsContent value="raw">
+                <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
+                  {JSON.stringify(preview.selectedItem.raw, null, 2)}
+                </pre>
+              </TabsContent>
+              <TabsContent value="fields">
+                <h3 className="mt-3 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                  Content fields
+                </h3>
+                <ValuesList values={preview.selectedItem.fields} />
+                <h3 className="mt-6 mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                  Technical metadata
+                </h3>
+                <ValuesList values={preview.selectedItem.metadata} />
+              </TabsContent>
+            </Tabs>
+          </section>
+        </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+export function ItemDetails(props: ItemDetailsProps) {
+  if (!props.item || !props.reference) return null;
+  return <ItemDetailsPanel {...props} item={props.item} reference={props.reference} />;
 }

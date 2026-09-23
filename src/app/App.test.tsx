@@ -83,6 +83,9 @@ function api(
     loadCollectionCatalog: () => Effect.succeed(catalog),
     loadCollectionSchema: () => Effect.succeed(schema),
     loadCollectionSnapshot: loadSnapshot,
+    loadItemVersions: () => Effect.succeed([]),
+    loadItemPublishings: () => Effect.succeed([]),
+    loadInstanceUsers: () => Effect.succeed([]),
   };
 }
 
@@ -282,6 +285,30 @@ describe('root collection browser', () => {
     expect(clear).toHaveBeenCalledWith('production');
   });
 
+  it('requires a replacement token when item-history enrichment rejects its credentials', async () => {
+    const store = tokenStore();
+    const clear = vi.spyOn(store, 'clear');
+    const testApi: ZestyApi = {
+      ...api(),
+      loadInstanceUsers: () =>
+        Effect.fail({
+          kind: 'authentication',
+          status: 401,
+          message: 'The Zesty session token is invalid or expired.',
+        }),
+    };
+    render(<App api={testApi} tokenStore={store} />);
+    await submitStartForm(
+      'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+    expect(clear).toHaveBeenCalledWith('production');
+    expect(screen.queryByRole('dialog', { name: '7-000000-aaaaaa' })).not.toBeInTheDocument();
+  });
+
   it('reveals and copies safe technical details for a root load failure', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
@@ -448,6 +475,7 @@ describe('root collection browser', () => {
       itemsById: new Map([[commentItem.id, commentItem]]),
     };
     const testApi: ZestyApi = {
+      ...api(),
       loadCollectionCatalog: () =>
         Effect.succeed({
           incomplete: false,
@@ -668,6 +696,7 @@ describe('root collection browser', () => {
       Effect.succeed(schema),
     );
     const testApi: ZestyApi = {
+      ...api(),
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema,
       loadCollectionSnapshot: () => Effect.succeed(snapshot),
@@ -688,6 +717,7 @@ describe('root collection browser', () => {
   it('cancels related schema inspection when the add dialog closes', async () => {
     let interrupted = false;
     const testApi: ZestyApi = {
+      ...api(),
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         reference.modelZuid === schema.modelZuid
@@ -736,6 +766,7 @@ describe('root collection browser', () => {
     };
     let relatedAttempts = 0;
     const testApi: ZestyApi = {
+      ...api(),
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) => {
         if (reference.modelZuid === rootSchema.modelZuid) return Effect.succeed(rootSchema);
@@ -872,6 +903,7 @@ describe('root collection browser', () => {
       }).fragment,
     );
     const testApi: ZestyApi = {
+      ...api(),
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),

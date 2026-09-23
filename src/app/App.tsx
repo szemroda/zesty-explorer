@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
 import {
   Copy,
@@ -20,6 +20,7 @@ import type {
   CollectionNodeId,
   CollectionReference,
   ContentItem,
+  ContentItemReference,
   ContentState,
   InstanceReference,
   ModelZuid,
@@ -41,7 +42,7 @@ import {
   createBrowserSessionTokenStore,
   type SessionTokenStore,
 } from '../view-codec/session-token-store';
-import { createZestyApi, fetchZestyTransport, type ZestyApi } from '../zesty-api';
+import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } from '../zesty-api';
 import { FilterBuilder } from './components/FilterBuilder';
 import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
@@ -52,6 +53,11 @@ import { createChildNode } from './view-state';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
+import {
+  clearItemVersionPreviewCacheOutsideScope,
+  refreshActiveItemVersionPreviews,
+} from './hooks/useItemVersionPreview';
+import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
@@ -110,12 +116,17 @@ function instanceReference(reference: CollectionReference): InstanceReference {
 }
 
 function Explorer({ api, tokenStore }: ExplorerProps) {
+  const queryClient = useQueryClient();
   const [initial] = useState(initialSharedView);
   const [initialToken] = useState(() =>
     initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
   );
   const [token, setToken] = useState(initialToken);
   const [activeToken, setActiveToken] = useState(initialToken);
+  const credentialRevision = useMemo(
+    () => (activeToken ? crypto.randomUUID() : 'no-credentials'),
+    [activeToken],
+  );
   const [tokenDeployment, setTokenDeployment] = useState(initial.view?.root.reference.deployment);
   const [showToken, setShowToken] = useState(false);
   const [collectionInput, setCollectionInput] = useState(() =>
@@ -144,6 +155,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initial.view?.root.reference.modelZuid,
   );
   const [selectedItemId, setSelectedItemId] = useState<string>();
+  const [previewAuthenticationFailureRevision, setPreviewAuthenticationFailureRevision] =
+    useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -215,17 +228,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     enabled: Boolean(catalogInstance && activeToken),
   });
 
+  useEffect(() => {
+    clearItemVersionPreviewCacheOutsideScope(queryClient, {
+      credentialRevision,
+      deployment: reference?.deployment,
+      instanceZuid: reference?.instanceZuid,
+    });
+  }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
+
   const refreshAll = useCallback(
     async function refreshAllRequests() {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
       try {
-        const [catalogSucceeded, collectionsSucceeded] = await Promise.all([
+        const [catalogSucceeded, collectionsSucceeded, previewSucceeded] = await Promise.all([
           catalogQuery.refresh(),
           refreshCollections(),
+          refreshActiveItemVersionPreviews(queryClient),
         ]);
-        succeeded = catalogSucceeded && collectionsSucceeded;
+        succeeded = catalogSucceeded && collectionsSucceeded && previewSucceeded;
       } catch {
         succeeded = false;
       } finally {
@@ -246,7 +268,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         },
       });
     },
-    [catalogQuery, isRefreshing, refreshCollections],
+    [catalogQuery, isRefreshing, queryClient, refreshCollections],
   );
   const rootFailure = loadStatus.kind === 'failed' ? loadStatus.failure : undefined;
   const queryErrorMessage = rootFailure
@@ -256,7 +278,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   useEffect(() => {
     const failedDeployment = catalogAuthenticationFailed
       ? catalogInstance?.deployment
-      : authenticationFailed
+      : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
         ? reference?.deployment
         : undefined;
     if (!failedDeployment) return;
@@ -267,25 +289,38 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setTokenRequired(true);
       setCatalogInstance(undefined);
       setSelectingRoot(false);
+      setSelectedItemId(undefined);
     }, 0);
     return () => window.clearTimeout(update);
   }, [
     authenticationFailed,
     catalogAuthenticationFailed,
     catalogInstance?.deployment,
+    credentialRevision,
+    previewAuthenticationFailureRevision,
     reference?.deployment,
     tokenStore,
   ]);
 
-  const selectedItem = useMemo(() => {
-    if (!selectedItemId || !loadedView) return undefined;
-    for (const state of loadedView.snapshots.snapshots.values()) {
+  const selectedItemContext = useMemo(() => {
+    if (!selectedItemId || !loadedView || !treeRoot) return undefined;
+    for (const node of flattenCollectionNodes(treeRoot)) {
+      const state = loadedView.snapshots.snapshots.get(
+        snapshotQueryKey(node.reference, contentState),
+      );
+      if (!state) continue;
       if (state.status !== 'complete' && state.status !== 'partial') continue;
       const item = state.snapshot.itemsById.get(selectedItemId as ContentItem['id']);
-      if (item) return item;
+      if (item) {
+        const itemReference: ContentItemReference = {
+          ...node.reference,
+          itemZuid: item.id,
+        };
+        return { item, reference: itemReference };
+      }
     }
     return undefined;
-  }, [loadedView, selectedItemId]);
+  }, [contentState, loadedView, selectedItemId, treeRoot]);
 
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
   const loadRelationshipSchema = useCallback(
@@ -1017,7 +1052,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       </div>
 
       <ItemDetails
-        item={selectedItem}
+        api={api}
+        item={selectedItemContext?.item}
+        reference={selectedItemContext?.reference}
+        sessionToken={activeToken}
+        credentialRevision={credentialRevision}
+        onAuthenticationFailure={() => setPreviewAuthenticationFailureRevision(credentialRevision)}
         finalFocus={detailsTrigger}
         onClose={() => {
           setSelectedItemId(undefined);

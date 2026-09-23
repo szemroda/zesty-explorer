@@ -412,6 +412,175 @@ describe('ZestyApi', () => {
     ]);
   });
 
+  it('loads complete content item versions with save metadata', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            {
+              data: { title: 'Earlier title' },
+              meta: {
+                ZUID: '7-documented-item',
+                createdAt: '2026-01-03T12:00:00.000Z',
+                updatedAt: '2026-02-03T12:00:00.000Z',
+                version: 2,
+              },
+              web: {
+                versionZUID: '9-version-two',
+                createdAt: '2026-02-03T12:00:00.000Z',
+                createdByUserZUID: '5-author-one',
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const versions = await Effect.runPromise(
+      createZestyApi(fake.transport).loadItemVersions(
+        { ...reference, itemZuid: '7-documented-item' },
+        'private-token',
+      ),
+    );
+
+    expect(versions).toEqual([
+      {
+        number: 2,
+        savedAt: '2026-02-03T12:00:00.000Z',
+        authorZuid: '5-author-one',
+        item: {
+          id: '7-documented-item',
+          fields: { title: 'Earlier title' },
+          metadata: {
+            created: '2026-01-03T12:00:00.000Z',
+            modified: '2026-02-03T12:00:00.000Z',
+            version: 2,
+          },
+          raw: {
+            data: { title: 'Earlier title' },
+            meta: {
+              ZUID: '7-documented-item',
+              createdAt: '2026-01-03T12:00:00.000Z',
+              updatedAt: '2026-02-03T12:00:00.000Z',
+              version: 2,
+            },
+            web: {
+              versionZUID: '9-version-two',
+              createdAt: '2026-02-03T12:00:00.000Z',
+              createdByUserZUID: '5-author-one',
+            },
+          },
+        },
+      },
+    ]);
+    expect(fake.requests).toEqual([
+      {
+        method: 'GET',
+        url: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/7-documented-item/versions',
+        headers: { authorization: 'Bearer private-token', accept: 'application/json' },
+      },
+    ]);
+  });
+
+  it('loads publishing records used for current and scheduled version statuses', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            {
+              ZUID: '25-active-publishing',
+              version: 2,
+              versionZUID: '9-version-two',
+              publishAt: '2026-02-03T12:00:00.000Z',
+              unpublishAt: null,
+              _active: true,
+            },
+            {
+              ZUID: '25-scheduled-publishing',
+              version: 3,
+              versionZUID: '9-version-three',
+              publishAt: '2026-10-03T12:00:00.000Z',
+              unpublishAt: null,
+              _active: false,
+            },
+          ],
+        },
+      }),
+    );
+
+    const publishings = await Effect.runPromise(
+      createZestyApi(fake.transport).loadItemPublishings(
+        { ...reference, itemZuid: '7-documented-item' },
+        'private-token',
+      ),
+    );
+
+    expect(publishings).toEqual([
+      {
+        version: 2,
+        publishAt: '2026-02-03T12:00:00.000Z',
+        active: true,
+      },
+      {
+        version: 3,
+        publishAt: '2026-10-03T12:00:00.000Z',
+        active: false,
+      },
+    ]);
+    expect(fake.requests[0]?.url).toBe(
+      'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/7-documented-item/publishings',
+    );
+  });
+
+  it('loads instance users from the deployment-specific Accounts API', async () => {
+    const fake = fakeTransport(() =>
+      Effect.succeed({
+        status: 200,
+        headers: {},
+        body: {
+          data: [
+            {
+              ZUID: '5-author-one',
+              firstName: 'Casey',
+              lastName: 'Ng',
+              email: 'casey@example.test',
+            },
+            {
+              ZUID: '55-service-account',
+              firstName: 'Service',
+              lastName: 'Account',
+              email: 'service@example.test',
+            },
+          ],
+        },
+      }),
+    );
+
+    const users = await Effect.runPromise(
+      createZestyApi(fake.transport).loadInstanceUsers(instance, 'private-token'),
+    );
+
+    expect(users).toEqual([
+      {
+        id: '5-author-one',
+        firstName: 'Casey',
+        lastName: 'Ng',
+        email: 'casey@example.test',
+      },
+      {
+        id: '55-service-account',
+        firstName: 'Service',
+        lastName: 'Account',
+        email: 'service@example.test',
+      },
+    ]);
+    expect(fake.requests[0]?.url).toBe('https://accounts.api.zesty.io/v1/instances/8-abc123/users');
+  });
+
   it('retries transient failures but does not retry permission errors', async () => {
     const transient = fakeTransport((_request, attempt) =>
       attempt === 1

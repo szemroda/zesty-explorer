@@ -2,6 +2,7 @@ import { Either } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   decodeCollectionPage,
+  decodeItemVersions,
   fixtureCollectionPage,
   generateRelationshipGraph,
   serializeFixture,
@@ -70,6 +71,36 @@ describe('collection snapshot contracts', () => {
       ],
     });
     expect(Either.isLeft(decoded)).toBe(true);
+  });
+
+  it('keeps version history usable when an author is null', () => {
+    const decoded = decodeItemVersions({
+      data: [
+        {
+          data: { title: 'Saved title' },
+          meta: {
+            ZUID: '7-versioned-item',
+            createdAt: '2026-01-01T12:00:00.000Z',
+            updatedAt: '2026-01-02T12:00:00.000Z',
+            version: 1,
+          },
+          web: {
+            versionZUID: '9-version-one',
+            createdAt: '2026-01-02T12:00:00.000Z',
+            createdByUserZUID: null,
+          },
+        },
+      ],
+    });
+
+    expect(Either.isRight(decoded)).toBe(true);
+    if (Either.isLeft(decoded)) return;
+    expect(decoded.right[0]).toMatchObject({
+      number: 1,
+      savedAt: '2026-01-02T12:00:00.000Z',
+      item: { fields: { title: 'Saved title' } },
+    });
+    expect(decoded.right[0]).not.toHaveProperty('authorZuid');
   });
 
   it('generates deterministic relationship graphs at requested sizes', () => {

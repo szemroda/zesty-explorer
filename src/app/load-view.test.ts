@@ -6,7 +6,7 @@ import {
   type CollectionSchema,
   type CollectionSnapshot,
 } from '../domain';
-import type { ZestyApi } from '../zesty-api';
+import type { CollectionApi } from '../zesty-api';
 import { loadCollection, loadView, ViewLoadError } from './load-view';
 
 const generated = generateRelationshipGraph(3);
@@ -98,7 +98,7 @@ describe('view loading', () => {
   it('interrupts Effect work when its query signal is aborted', async () => {
     let interrupted = false;
     const root = node('node-root', '6-root');
-    const api: ZestyApi = {
+    const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () => Effect.succeed(schema),
       loadCollectionSnapshot: () =>
@@ -119,7 +119,7 @@ describe('view loading', () => {
   });
 
   it('surfaces typed root failures', async () => {
-    const api: ZestyApi = {
+    const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () => Effect.fail({ kind: 'network', message: 'Offline' }),
       loadCollectionSnapshot: () => Effect.succeed(snapshot('6-root')),

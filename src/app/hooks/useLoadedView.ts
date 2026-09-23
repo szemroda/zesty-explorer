@@ -7,7 +7,7 @@ import type {
   ContentState,
   ExplorerError,
 } from '../../domain';
-import { snapshotQueryKey, type ZestyApi } from '../../zesty-api';
+import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
 import {
   loadCollection,
   loadView,
@@ -19,7 +19,7 @@ import {
 } from '../load-view';
 
 interface LoadedViewQueryOptions {
-  readonly api: ZestyApi;
+  readonly api: CollectionApi;
   readonly root: CollectionNode | undefined;
   readonly contentState: ContentState;
   readonly sessionToken: string;

@@ -128,6 +128,47 @@ async function fulfillApi(route: Route, state: FakeApiState) {
   }
   const model = url.pathname.match(/models\/(6-[^/]+)/)?.[1];
   if (!model) throw new Error(`Unexpected fake API URL: ${url.toString()}`);
+  if (url.pathname.endsWith('/versions')) {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        data: [
+          {
+            ...rawItem('7-root-000000', 'Archived First story', { rootKey: 'root-0' }),
+            meta: {
+              ...rawItem('7-root-000000', '').meta,
+              updatedAt: '2026-09-22T12:35:00.000Z',
+              version: 2,
+            },
+            web: {
+              versionZUID: '9-version-two',
+              createdAt: '2026-09-22T12:35:00.000Z',
+              createdByUserZUID: '5-fixture-author',
+            },
+          },
+        ],
+      },
+    });
+    return;
+  }
+  if (url.pathname.endsWith('/publishings')) {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        data: [
+          {
+            ZUID: '25-active-version-two',
+            version: 2,
+            versionZUID: '9-version-two',
+            publishAt: '2026-09-22T12:35:00.000Z',
+            unpublishAt: null,
+            _active: true,
+          },
+        ],
+      },
+    });
+    return;
+  }
   if (url.pathname.endsWith('/fields')) {
     await route.fulfill({ headers: cors, json: { data: fieldsByModel[model] ?? [] } });
     return;
@@ -176,6 +217,33 @@ async function installFakeApi(page: Page): Promise<FakeApiState> {
     else await route.abort('blockedbyclient');
   });
   await page.route('https://8-fixture.api.zesty.io/**', (route) => fulfillApi(route, state));
+  await page.route('https://accounts.api.zesty.io/**', async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'access-control-allow-origin': 'http://localhost:5173',
+          'access-control-allow-headers': 'authorization,content-type',
+          'access-control-allow-methods': 'GET,OPTIONS',
+        },
+      });
+      return;
+    }
+    expect(route.request().headers().authorization).toBe('Bearer synthetic-session-token');
+    await route.fulfill({
+      headers: { 'access-control-allow-origin': 'http://localhost:5173' },
+      json: {
+        data: [
+          {
+            ZUID: '5-fixture-author',
+            firstName: 'Anna',
+            lastName: 'Kowalska',
+            email: 'anna@example.test',
+          },
+        ],
+      },
+    });
+  });
   return state;
 }
 
@@ -368,13 +436,20 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await detailsTrigger.focus();
   await detailsTrigger.press('Enter');
   await expect(page.getByRole('dialog', { name: '7-root-000000' })).toBeVisible();
+  const versionTwo = page.getByRole('button', { name: /Version 2/ });
+  await expect(versionTwo).toContainText('Latest saved');
+  await expect(versionTwo).toContainText('Currently published');
+  await expect(versionTwo).toContainText('Anna Kowalska');
+  await versionTwo.click();
+  await expect(page.getByRole('heading', { name: 'Version 2' })).toBeVisible();
+  await expect(page.getByText('Archived First story')).toBeVisible();
   await page.getByRole('button', { name: 'Copy title' }).click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toContain('First story');
   await page.getByRole('tab', { name: 'Raw JSON' }).click();
-  await expect(page.getByRole('tabpanel')).toContainText('primaryChild');
-  await page.getByRole('button', { name: 'Close item details' }).click();
+  await expect(page.getByRole('tabpanel')).toContainText('Archived First story');
+  await page.getByRole('button', { name: 'Close item history' }).click();
   await expect(detailsTrigger).toBeFocused();
 
   page.once('dialog', (dialog) => dialog.accept());

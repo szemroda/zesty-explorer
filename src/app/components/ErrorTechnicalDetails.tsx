@@ -8,6 +8,9 @@ const operationLabels: Readonly<Record<ExplorerRequestOperation, string>> = {
   'load-collection-catalog': 'Loading collection catalog',
   'load-collection-schema': 'Loading collection schema',
   'load-collection-items': 'Loading collection items',
+  'load-item-versions': 'Loading item versions',
+  'load-item-publishings': 'Loading item publishings',
+  'load-instance-users': 'Loading instance users',
 };
 
 function technicalDetailsLines(error: ExplorerError): readonly string[] {

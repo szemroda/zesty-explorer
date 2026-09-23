@@ -60,6 +60,14 @@ _Avoid_: Collection link, endpoint input
 One record belonging to a collection.
 _Avoid_: Row, entry, element
 
+**Content item version**:
+One saved state of a content item, identified by its version number, save time, and author when that user can be resolved. A content item may have one currently published version.
+_Avoid_: Content version, item state, revision
+
+**Version preview**:
+A read-only presentation of one content item version in item details. It changes the fields, technical metadata, and raw data shown in that panel without changing the view's tables, filters, relationships, or content state.
+_Avoid_: Version switch, historical content state
+
 **Content field**:
 A field defined by a collection's Zesty content model. Content fields are visible in a table by default.
 _Avoid_: Property, column
@@ -93,12 +101,16 @@ The single version policy applied to every collection in a view. It is either la
 _Avoid_: Environment, mode
 
 **Latest saved**:
-The most recently saved version of each content item, whether published or not. This is the default content state.
+The content state that selects the most recently saved version of each content item, whether published or not. That content item version has `Latest saved` status in a version preview.
 _Avoid_: Draft
 
 **Published**:
-The currently active version of each content item that is available from Zesty's live environment.
+The content state that selects the currently active version of each content item from Zesty's live environment. That content item version has `Currently published` status in a version preview.
 _Avoid_: Production mode, active-only
+
+**Scheduled version**:
+A content item version with a future publication time. Its scheduled status does not imply that it is currently published or the latest saved version.
+_Avoid_: Published version, pending draft
 
 **Partial collection**:
 A collection for which the view loaded only the first 10,000 content items. Results and filters involving it are explicitly marked as incomplete.

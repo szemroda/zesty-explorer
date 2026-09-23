@@ -1,8 +1,10 @@
 import { Either, Effect, Schema } from 'effect';
 import {
   decodeCollectionPage,
+  decodeItemVersions,
   safeRequestUrl,
   unsupportedShapeError,
+  UserZuidSchema,
   type CollectionCatalog,
   type CollectionCatalogEntry,
   type CollectionCatalogGroup,
@@ -18,6 +20,8 @@ import {
   type FieldKind,
   type FieldZuid,
   type InstanceReference,
+  type InstanceUser,
+  type ItemPublishing,
   type ModelZuid,
 } from '../domain';
 import type {
@@ -71,6 +75,22 @@ const RawModelSchema = Schema.Struct({
   name: Schema.String,
   type: Schema.String,
 });
+
+const RawPublishingSchema = Schema.Struct({
+  ZUID: Schema.String,
+  version: Schema.Number,
+  publishAt: Schema.optional(Schema.NullOr(Schema.String)),
+  unpublishAt: Schema.optional(Schema.NullOr(Schema.String)),
+  _active: Schema.Boolean,
+});
+const RawPublishingsResponseSchema = Schema.Struct({ data: Schema.Array(RawPublishingSchema) });
+const RawInstanceUserSchema = Schema.Struct({
+  ZUID: UserZuidSchema,
+  firstName: Schema.optional(Schema.NullOr(Schema.String)),
+  lastName: Schema.optional(Schema.NullOr(Schema.String)),
+  email: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const RawInstanceUsersResponseSchema = Schema.Struct({ data: Schema.Array(RawInstanceUserSchema) });
 
 const defaultOptions = {
   pageSize: 2_500,
@@ -234,6 +254,59 @@ function decodeCatalog(
       : {}),
   });
 }
+
+function decodePublishings(
+  input: unknown,
+): Effect.Effect<readonly ItemPublishing[], ExplorerError> {
+  const decoded = Schema.decodeUnknownEither(RawPublishingsResponseSchema, { errors: 'all' })(
+    input,
+  );
+  if (Either.isLeft(decoded)) {
+    return Effect.fail(
+      unsupportedShapeError(
+        'Zesty returned item publishings in an unsupported shape.',
+        decoded.left,
+      ),
+    );
+  }
+
+  return Effect.succeed(
+    decoded.right.data.map((publishing) => ({
+      version: publishing.version,
+      ...(publishing.publishAt ? { publishAt: publishing.publishAt } : {}),
+      ...(publishing.unpublishAt ? { unpublishAt: publishing.unpublishAt } : {}),
+      active: publishing._active,
+    })),
+  );
+}
+
+function decodeInstanceUsers(
+  input: unknown,
+): Effect.Effect<readonly InstanceUser[], ExplorerError> {
+  const decoded = Schema.decodeUnknownEither(RawInstanceUsersResponseSchema, { errors: 'all' })(
+    input,
+  );
+  if (Either.isLeft(decoded)) {
+    return Effect.fail(
+      unsupportedShapeError('Zesty returned instance users in an unsupported shape.', decoded.left),
+    );
+  }
+
+  return Effect.succeed(
+    decoded.right.data.map((user) => ({
+      id: user.ZUID,
+      ...(user.firstName ? { firstName: user.firstName } : {}),
+      ...(user.lastName ? { lastName: user.lastName } : {}),
+      ...(user.email ? { email: user.email } : {}),
+    })),
+  );
+}
+
+const accountsApiBaseUrls = {
+  production: 'https://accounts.api.zesty.io/v1',
+  stage: 'https://accounts.api.stage.zesty.io/v1',
+  development: 'https://accounts.api.dev.zesty.io/v1',
+} as const;
 
 function statusError(response: ZestyTransportResponse): ExplorerError | undefined {
   if (response.status >= 200 && response.status < 300) return undefined;
@@ -452,5 +525,48 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
           partial: items.length < totalResults,
         } satisfies CollectionSnapshot;
       }),
+
+    loadItemVersions: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items/${reference.itemZuid}/versions`;
+      const operation = 'load-item-versions' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) => {
+          const decoded = decodeItemVersions(response.body);
+          return Either.isLeft(decoded)
+            ? Effect.fail(
+                withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
+              )
+            : Effect.succeed(decoded.right);
+        }),
+      );
+    },
+
+    loadItemPublishings: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items/${reference.itemZuid}/publishings`;
+      const operation = 'load-item-publishings' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) =>
+          decodePublishings(response.body).pipe(
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadInstanceUsers: (reference, sessionToken) => {
+      const requestUrl = `${accountsApiBaseUrls[reference.deployment]}/instances/${reference.instanceZuid}/users`;
+      const operation = 'load-instance-users' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) =>
+          decodeInstanceUsers(response.body).pipe(
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
   };
 }

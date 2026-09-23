@@ -2,6 +2,7 @@ export type InstanceZuid = `8-${string}`;
 export type ModelZuid = `6-${string}`;
 export type ItemZuid = `7-${string}`;
 export type FieldZuid = `12-${string}`;
+export type UserZuid = `5-${string}` | `55-${string}`;
 export type CollectionNodeId = `node-${string}`;
 export type SnapshotId = `snapshot-${string}`;
 
@@ -21,6 +22,10 @@ export interface CollectionReference {
   readonly apiBaseUrl: string;
   readonly managerBaseUrl: string;
 }
+
+export type ContentItemReference = Omit<CollectionReference, 'itemZuid'> & {
+  readonly itemZuid: ItemZuid;
+};
 
 export interface InstanceReference {
   readonly instanceZuid: InstanceZuid;
@@ -53,6 +58,27 @@ export interface ContentItem {
   readonly fields: Readonly<Record<string, unknown>>;
   readonly metadata: Readonly<Record<string, unknown>>;
   readonly raw: Readonly<Record<string, unknown>>;
+}
+
+export interface ContentItemVersion {
+  readonly number: number;
+  readonly savedAt?: string;
+  readonly authorZuid?: UserZuid;
+  readonly item: ContentItem;
+}
+
+export interface ItemPublishing {
+  readonly version: number;
+  readonly publishAt?: string;
+  readonly unpublishAt?: string;
+  readonly active: boolean;
+}
+
+export interface InstanceUser {
+  readonly id: UserZuid;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly email?: string;
 }
 
 export interface CollectionSnapshot {
@@ -159,7 +185,12 @@ export interface PersistedView {
 }
 
 export type ExplorerRequestOperation =
-  'load-collection-catalog' | 'load-collection-schema' | 'load-collection-items';
+  | 'load-collection-catalog'
+  | 'load-collection-schema'
+  | 'load-collection-items'
+  | 'load-item-versions'
+  | 'load-item-publishings'
+  | 'load-instance-users';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };

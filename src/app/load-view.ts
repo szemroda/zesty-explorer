@@ -14,7 +14,7 @@ import {
   joinRelatedItems,
   type ExplorerGraph,
 } from '../explorer-core';
-import { snapshotQueryKey, type SnapshotLoadResult, type ZestyApi } from '../zesty-api';
+import { snapshotQueryKey, type CollectionApi, type SnapshotLoadResult } from '../zesty-api';
 
 export interface LoadedCollection {
   readonly schema: CollectionSchema;
@@ -51,7 +51,7 @@ export function viewLoadKey(root: CollectionNode, state: ContentState): readonly
 }
 
 export async function loadCollection(
-  api: ZestyApi,
+  api: CollectionApi,
   node: CollectionNode,
   state: ContentState,
   sessionToken: string,

@@ -4,9 +4,13 @@ import type {
   CollectionCatalog,
   CollectionSchema,
   CollectionSnapshot,
+  ContentItemReference,
+  ContentItemVersion,
   ContentState,
   ExplorerError,
   InstanceReference,
+  InstanceUser,
+  ItemPublishing,
 } from '../domain';
 
 export interface ZestyTransportRequest {
@@ -29,7 +33,7 @@ export interface ZestyTransport {
   ): Effect.Effect<ZestyTransportResponse, ZestyTransportError>;
 }
 
-export interface ZestyApi {
+export interface CollectionApi {
   loadCollectionCatalog(
     reference: InstanceReference,
     sessionToken: string,
@@ -45,6 +49,23 @@ export interface ZestyApi {
     itemLimit?: number,
   ): Effect.Effect<CollectionSnapshot, ExplorerError>;
 }
+
+export interface ItemVersionApi {
+  loadItemVersions(
+    reference: ContentItemReference,
+    sessionToken: string,
+  ): Effect.Effect<readonly ContentItemVersion[], ExplorerError>;
+  loadItemPublishings(
+    reference: ContentItemReference,
+    sessionToken: string,
+  ): Effect.Effect<readonly ItemPublishing[], ExplorerError>;
+  loadInstanceUsers(
+    reference: InstanceReference,
+    sessionToken: string,
+  ): Effect.Effect<readonly InstanceUser[], ExplorerError>;
+}
+
+export interface ZestyApi extends CollectionApi, ItemVersionApi {}
 
 export interface ZestyApiOptions {
   readonly pageSize?: number;

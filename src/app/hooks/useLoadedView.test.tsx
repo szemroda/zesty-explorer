@@ -11,7 +11,7 @@ import {
   type ExplorerError,
   type ModelZuid,
 } from '../../domain';
-import type { ZestyApi } from '../../zesty-api';
+import type { CollectionApi } from '../../zesty-api';
 import { useLoadedView } from './useLoadedView';
 
 const generated = generateRelationshipGraph(2);
@@ -58,10 +58,10 @@ describe('loaded view query', () => {
   it('loads the root and descendants, then refreshes the credential-scoped cache', async () => {
     const child = collectionNode('node-child', '6-child');
     const root = collectionNode('node-root', '6-root', [child]);
-    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>((reference) =>
+    const loadCollectionSnapshot = vi.fn<CollectionApi['loadCollectionSnapshot']>((reference) =>
       Effect.succeed(collectionSnapshot(reference.modelZuid)),
     );
-    const api: ZestyApi = {
+    const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: (reference) =>
         Effect.succeed({
@@ -101,7 +101,7 @@ describe('loaded view query', () => {
       status: 401,
       message: 'Expired',
     };
-    const api: ZestyApi = {
+    const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
       loadCollectionSchema: () =>
         Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),

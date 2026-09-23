@@ -49,12 +49,15 @@ The token is stored only in that tab's `sessionStorage`, separated by deployment
 - Expand a content item to mount its related tables. Several rows can remain expanded.
 - View filters determine which root items remain and may inspect descendants. Table filters limit only that node's rows and may also inspect descendants.
 - A collection node shares its filters, columns, widths, and sorting across every rendered occurrence. Nested page numbers and expanded rows remain local UI state.
-- The details button opens content fields, technical metadata, raw JSON, and copy actions. The external-link button opens the same item in the matching Zesty Manager deployment.
+- The details button opens read-only item history. Choose any saved version to inspect its content fields, technical metadata, and raw JSON together; status badges identify the latest saved, currently published, and scheduled versions when Zesty returns that information. Save times use the browser's locale and time zone, and authors appear when the active session can resolve them.
+- Closing item history resets its selected version. Responses remain cached for five minutes while inactive, then refresh in the background when reopened. The external-link button opens the same item in the matching Zesty Manager deployment.
 - Content HTML is shown as inert text; it is never executed.
 
 ## Limits and failures
 
 A view supports at most 10 collection nodes and five levels. Each unique collection is fetched once for the selected deployment and content state, with at most three background loads running concurrently.
+
+Opening item history starts its version, publishing, and author requests concurrently. Version content remains usable if publishing status or author enrichment fails, with a separate retry for each failed source.
 
 The app loads at most 10,000 items per collection and 50,000 items across a view. Affected collections remain usable and show persistent incomplete-data warnings. A failed root blocks the table area and offers retry. A failed descendant leaves the rest of the view usable and provides recovery at that node.
 
