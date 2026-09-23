@@ -161,6 +161,7 @@ export interface SortState {
 
 export interface NodePresentation {
   readonly visibleColumns: readonly string[];
+  readonly statusColumnHidden?: boolean;
   readonly columnWidths: Readonly<Record<string, number>>;
   readonly sort: SortState;
   readonly filters: readonly ViewFilter[];

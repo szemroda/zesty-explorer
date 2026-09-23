@@ -48,6 +48,7 @@ import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
+import { PublicationStatusProvider } from './components/PublicationStatusCell';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
 import { describeExplorerError } from './error-message';
@@ -57,6 +58,10 @@ import {
   clearItemVersionPreviewCacheOutsideScope,
   refreshActiveItemVersionPreviews,
 } from './hooks/useItemVersionPreview';
+import {
+  clearPublicationStatusCacheOutsideScope,
+  refreshActivePublicationStatuses,
+} from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
@@ -236,18 +241,28 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     });
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
+  useEffect(() => {
+    clearPublicationStatusCacheOutsideScope(queryClient, {
+      credentialRevision,
+      deployment: reference?.deployment,
+      instanceZuid: reference?.instanceZuid,
+    });
+  }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
+
   const refreshAll = useCallback(
     async function refreshAllRequests() {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
       try {
-        const [catalogSucceeded, collectionsSucceeded, previewSucceeded] = await Promise.all([
-          catalogQuery.refresh(),
-          refreshCollections(),
-          refreshActiveItemVersionPreviews(queryClient),
-        ]);
-        succeeded = catalogSucceeded && collectionsSucceeded && previewSucceeded;
+        const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
+          await Promise.all([
+            catalogQuery.refresh(),
+            refreshCollections(),
+            refreshActiveItemVersionPreviews(queryClient),
+            refreshActivePublicationStatuses(queryClient),
+          ]);
+        succeeded = catalogSucceeded && collectionsSucceeded && previewSucceeded && statusSucceeded;
       } catch {
         succeeded = false;
       } finally {
@@ -1031,20 +1046,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 </p>
               ) : null}
               {!descendantResultsPending ? (
-                <RootTable
-                  key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
-                  schema={rootSchema}
-                  snapshot={rootSnapshot}
-                  reference={treeRoot.reference}
-                  treeRoot={treeRoot}
-                  loadedView={loadedView}
-                  contentState={contentState}
-                  globalFreeText={globalFreeText}
-                  viewFilters={viewFilters}
-                  onOpenDetails={openDetails}
-                  onRetry={() => void refreshCollections()}
-                  onPresentationChange={changePresentation}
-                />
+                <PublicationStatusProvider
+                  api={api}
+                  sessionToken={activeToken}
+                  credentialRevision={credentialRevision}
+                >
+                  <RootTable
+                    key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                    schema={rootSchema}
+                    snapshot={rootSnapshot}
+                    reference={treeRoot.reference}
+                    treeRoot={treeRoot}
+                    loadedView={loadedView}
+                    contentState={contentState}
+                    globalFreeText={globalFreeText}
+                    viewFilters={viewFilters}
+                    onOpenDetails={openDetails}
+                    onRetry={() => void refreshCollections()}
+                    onPresentationChange={changePresentation}
+                  />
+                </PublicationStatusProvider>
               ) : null}
             </>
           ) : null}

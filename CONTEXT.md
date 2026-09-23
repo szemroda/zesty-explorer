@@ -68,6 +68,10 @@ _Avoid_: Content version, item state, revision
 A read-only presentation of one content item version in item details. It changes the fields, technical metadata, and raw data shown in that panel without changing the view's tables, filters, relationships, or content state.
 _Avoid_: Version switch, historical content state
 
+**Version comparison**:
+A read-only comparison of any two saved versions of the same content item. It covers content fields and technical metadata as separate groups and can also show differences across their complete raw data.
+_Avoid_: Content state comparison, collection comparison
+
 **Content field**:
 A field defined by a collection's Zesty content model. Content fields are visible in a table by default.
 _Avoid_: Property, column
@@ -111,6 +115,10 @@ _Avoid_: Production mode, active-only
 **Scheduled version**:
 A content item version with a future publication time. Its scheduled status does not imply that it is currently published or the latest saved version.
 _Avoid_: Published version, pending draft
+
+**Publication status**:
+The relationship between a content item's latest saved version, its currently published version if one exists, and its next scheduled version if one exists. It is independent of a view's content state.
+_Avoid_: Content state, workflow status
 
 **Partial collection**:
 A collection for which the view loaded only the first 10,000 content items. Results and filters involving it are explicitly marked as incomplete.

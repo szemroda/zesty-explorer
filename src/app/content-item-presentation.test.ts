@@ -35,6 +35,7 @@ describe('content item presentation', () => {
 
     expect(columns.map(({ id, label, technical }) => ({ id, label, technical }))).toEqual([
       { id: '$id', label: 'ZUID', technical: true },
+      { id: '$status', label: 'Status', technical: true },
       { id: 'title', label: 'Title', technical: false },
       { id: 'score', label: 'Score', technical: false },
       { id: '$created', label: 'Created', technical: true },
@@ -43,10 +44,10 @@ describe('content item presentation', () => {
       { id: '$meta.workflowStatus', label: 'workflowStatus', technical: true },
       { id: '$raw', label: 'Raw JSON', technical: true },
     ]);
-    expect(columns.find((column) => column.id === 'title')?.read(item)).toBe('<p>Hello</p>');
-    expect(columns.find((column) => column.id === '$meta.workflowStatus')?.read(item)).toBe(
-      'ready',
-    );
+    const title = columns.find((column) => column.id === 'title');
+    const workflowStatus = columns.find((column) => column.id === '$meta.workflowStatus');
+    expect(title?.kind === 'value' ? title.read(item) : undefined).toBe('<p>Hello</p>');
+    expect(workflowStatus?.kind === 'value' ? workflowStatus.read(item) : undefined).toBe('ready');
     expect(columns.find((column) => column.id === '$raw')?.sortable).toBe(false);
   });
 
@@ -76,13 +77,18 @@ describe('content item presentation', () => {
     const columns = contentItemColumns(schema, [item]);
     const defaults = initialColumnVisibility(columns, ['*']);
 
-    expect(visibleColumnIds(columns, defaults)).toEqual(['$id', 'title', 'score']);
+    expect(visibleColumnIds(columns, defaults)).toEqual(['$id', '$status', 'title', 'score']);
     expect(hiddenColumnIds(columns, ['*'])).toContain('$raw');
     expect(visibleColumnIds(columns, initialColumnVisibility(columns, ['title', '$id']))).toEqual([
       '$id',
+      '$status',
       'title',
     ]);
     expect(visibleColumnIds(columns, initialColumnVisibility(columns, ['title']))).toEqual([
+      '$status',
+      'title',
+    ]);
+    expect(visibleColumnIds(columns, initialColumnVisibility(columns, ['title'], true))).toEqual([
       'title',
     ]);
   });

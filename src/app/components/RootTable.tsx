@@ -36,6 +36,7 @@ import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { FilterBuilder } from './FilterBuilder';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
+import { PublicationStatusCell } from './PublicationStatusCell';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -87,7 +88,11 @@ export function RootTable({
     treeRoot.presentation.columnWidths,
   );
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>(() =>
-    initialColumnVisibility(itemColumnDefinitions, treeRoot.presentation.visibleColumns),
+    initialColumnVisibility(
+      itemColumnDefinitions,
+      treeRoot.presentation.visibleColumns,
+      treeRoot.presentation.statusColumnHidden,
+    ),
   );
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const deferredTableText = useDebouncedValue(tableFreeText);
@@ -174,8 +179,11 @@ export function RootTable({
         definitions: itemColumnDefinitions,
         actionColumnWidth,
         renderValue: (value) => <CellValue value={value} />,
+        renderStatus: (item) => (
+          <PublicationStatusCell item={item} reference={{ ...reference, itemZuid: item.id }} />
+        ),
       }),
-    [actionColumnWidth, itemColumnDefinitions],
+    [actionColumnWidth, itemColumnDefinitions, reference],
   );
 
   const table = useContentTable({
@@ -199,6 +207,7 @@ export function RootTable({
       setColumnVisibility(next);
       persistPresentation({
         visibleColumns: visibleColumnIds(itemColumnDefinitions, next),
+        statusColumnHidden: next.$status === false,
       });
     },
     onPaginationChange: setPagination,

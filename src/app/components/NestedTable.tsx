@@ -45,6 +45,7 @@ import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FilterBuilder } from './FilterBuilder';
+import { PublicationStatusCell } from './PublicationStatusCell';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -206,7 +207,11 @@ function stateFor(
       freeText: node.presentation.freeText,
       filters: node.presentation.filters,
       sort: node.presentation.sort,
-      hiddenColumns: hiddenColumnIds(columns, node.presentation.visibleColumns),
+      hiddenColumns: hiddenColumnIds(
+        columns,
+        node.presentation.visibleColumns,
+        node.presentation.statusColumnHidden,
+      ),
       columnWidths: node.presentation.columnWidths,
     }
   );
@@ -279,6 +284,9 @@ export function NestedTable(props: NestedTableProps) {
     definitions: columns,
     actionColumnWidth,
     renderValue: (value) => <CellValue value={value} />,
+    renderStatus: (item) => (
+      <PublicationStatusCell item={item} reference={{ ...node.reference, itemZuid: item.id }} />
+    ),
   });
   const sorting: SortingState = [
     {
@@ -360,6 +368,7 @@ export function NestedTable(props: NestedTableProps) {
           columns.map((column) => [column.id, !next.hiddenColumns.has(column.id)]),
         ),
       ),
+      statusColumnHidden: next.hiddenColumns.has('$status'),
       columnWidths: next.columnWidths,
     });
   }

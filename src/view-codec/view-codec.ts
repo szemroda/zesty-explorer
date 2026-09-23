@@ -182,6 +182,8 @@ function isCollectionNode(value: unknown, depth = 1): value is CollectionNode {
   const referenceValid = hasSafeReference(reference);
   const presentationValid =
     isStringArray(presentation.visibleColumns) &&
+    (presentation.statusColumnHidden === undefined ||
+      typeof presentation.statusColumnHidden === 'boolean') &&
     isRecord(presentation.columnWidths) &&
     Object.values(presentation.columnWidths).every(
       (width) =>

@@ -34,12 +34,14 @@ interface CreateContentTableColumnsOptions {
   readonly definitions: readonly ContentItemColumn[];
   readonly actionColumnWidth: number;
   readonly renderValue: (value: unknown) => ReactNode;
+  readonly renderStatus: (item: ContentItem) => ReactNode;
 }
 
 export function createContentTableColumns({
   definitions,
   actionColumnWidth,
   renderValue,
+  renderStatus,
 }: CreateContentTableColumnsOptions) {
   return contentColumnHelper.columns([
     contentColumnHelper.display({
@@ -50,13 +52,21 @@ export function createContentTableColumns({
       enableResizing: false,
     }),
     ...definitions.map((column) =>
-      contentColumnHelper.accessor((item) => column.read(item), {
-        id: column.id,
-        header: column.label,
-        size: column.defaultWidth,
-        enableSorting: column.sortable,
-        cell: ({ getValue }) => renderValue(getValue()),
-      }),
+      column.kind === 'status'
+        ? contentColumnHelper.display({
+            id: column.id,
+            header: column.label,
+            size: column.defaultWidth,
+            enableSorting: false,
+            cell: ({ row }) => renderStatus(row.original),
+          })
+        : contentColumnHelper.accessor((item) => column.read(item), {
+            id: column.id,
+            header: column.label,
+            size: column.defaultWidth,
+            enableSorting: column.sortable,
+            cell: ({ getValue }) => renderValue(getValue()),
+          }),
     ),
   ]);
 }

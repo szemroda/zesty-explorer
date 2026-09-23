@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Effect } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
@@ -8,7 +10,9 @@ import {
   type ExplorerError,
 } from '../../domain';
 import { snapshotQueryKey } from '../../zesty-api';
+import type { ItemVersionApi } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
+import { PublicationStatusProvider } from './PublicationStatusCell';
 import { RootTable } from './RootTable';
 
 const generated = generateRelationshipGraph(5);
@@ -91,6 +95,105 @@ const loadedView: LoadedView = {
 afterEach(cleanup);
 
 describe('recursive collection tables', () => {
+  it('shows Status in older explicit column selections and preserves a later hide', async () => {
+    const onPresentationChange = vi.fn();
+    const explicitRoot = {
+      ...root,
+      children: [],
+      presentation: { ...root.presentation, visibleColumns: ['title'] },
+    };
+    const props = {
+      schema: rootSchema,
+      snapshot: generated.parents,
+      reference: root.reference,
+      loadedView,
+      contentState: 'latest' as const,
+      onOpenDetails: vi.fn(),
+      onRetry: vi.fn(),
+      onPresentationChange,
+    };
+    render(<RootTable {...props} treeRoot={explicitRoot} />);
+
+    const collection = screen.getByRole('region', { name: 'Parents collection' });
+    expect(within(collection).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    fireEvent.click(within(collection).getByRole('button', { name: 'Choose visible columns' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Status' }));
+    expect(onPresentationChange).toHaveBeenLastCalledWith(
+      explicitRoot.id,
+      expect.objectContaining({ statusColumnHidden: true }),
+    );
+
+    cleanup();
+    render(
+      <RootTable
+        {...props}
+        treeRoot={{
+          ...explicitRoot,
+          presentation: { ...explicitRoot.presentation, statusColumnHidden: true },
+        }}
+      />,
+    );
+    expect(screen.queryByRole('columnheader', { name: 'Status' })).not.toBeInTheDocument();
+  });
+
+  it('shows publication status in root and expanded nested tables', async () => {
+    const loadVersions = vi.fn((reference: Parameters<ItemVersionApi['loadItemVersions']>[0]) => {
+      const source =
+        reference.modelZuid === rootSchema.modelZuid ? generated.parents : generated.children;
+      const item = source.itemsById.get(reference.itemZuid)!;
+      return Effect.succeed([{ number: Number(item.metadata.version), item }]);
+    });
+    const api: ItemVersionApi = {
+      loadItemVersions: loadVersions,
+      loadItemPublishings: () => Effect.succeed([]),
+      loadInstanceUsers: () => Effect.succeed([]),
+    };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+          <RootTable
+            schema={rootSchema}
+            snapshot={generated.parents}
+            reference={root.reference}
+            treeRoot={root}
+            loadedView={loadedView}
+            contentState="latest"
+            onOpenDetails={vi.fn()}
+            onRetry={vi.fn()}
+            onPresentationChange={vi.fn()}
+          />
+        </PublicationStatusProvider>
+      </QueryClientProvider>,
+    );
+
+    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
+    expect(within(rootTable).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(
+      await within(rootTable).findByRole('img', { name: /Latest saved version/ }),
+    ).toBeInTheDocument();
+    expect(
+      loadVersions.mock.calls.every(([reference]) => reference.modelZuid === rootSchema.modelZuid),
+    ).toBe(true);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      }),
+    );
+    const nested = await screen.findByRole('region', { name: 'Children related items' });
+    expect(within(nested).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(
+      await within(nested).findByRole('img', { name: /Latest saved version/ }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        loadVersions.mock.calls.some(
+          ([reference]) => reference.modelZuid === childSchema.modelZuid,
+        ),
+      ).toBe(true),
+    );
+  });
+
   it('mounts related rows only after their parent expands', async () => {
     const details = vi.fn();
     render(
@@ -319,7 +422,8 @@ describe('recursive collection tables', () => {
 
     expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
       ...child.presentation,
-      visibleColumns: ['$id', 'title', 'parentKey'],
+      visibleColumns: ['$id', '$status', 'title', 'parentKey'],
+      statusColumnHidden: false,
       columnWidths: { title: 90 },
     });
   });
@@ -398,7 +502,8 @@ describe('recursive collection tables', () => {
     const rootTable = screen.getByRole('region', { name: 'Parents collection' });
     const rootHeaders = within(rootTable).getAllByRole('columnheader');
     expect(rootHeaders[1]).toHaveAccessibleName('ZUID');
-    expect(rootHeaders[2]).toHaveAccessibleName('Title');
+    expect(rootHeaders[2]).toHaveAccessibleName('Status');
+    expect(rootHeaders[3]).toHaveAccessibleName('Title');
 
     const rootColumnsButton = within(rootTable).getByRole('button', {
       name: 'Choose visible columns',
@@ -406,6 +511,13 @@ describe('recursive collection tables', () => {
     fireEvent.click(rootColumnsButton);
     const rootColumnControls = await screen.findAllByRole('checkbox');
     expect(rootColumnControls[0]).toHaveAccessibleName('ZUID');
+    const status = screen.getByRole('checkbox', { name: 'Status' });
+    expect(status).toBeChecked();
+    fireEvent.click(status);
+    expect(
+      within(rootTable).queryByRole('columnheader', { name: 'Status' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(status);
     const zuid = screen.getByRole('checkbox', { name: 'ZUID' });
     expect(zuid).toBeChecked();
     fireEvent.click(zuid);
@@ -420,7 +532,8 @@ describe('recursive collection tables', () => {
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
     const nestedHeaders = within(nestedTable).getAllByRole('columnheader');
     expect(nestedHeaders[1]).toHaveAccessibleName('ZUID');
-    expect(nestedHeaders[2]).toHaveAccessibleName('Title');
+    expect(nestedHeaders[2]).toHaveAccessibleName('Status');
+    expect(nestedHeaders[3]).toHaveAccessibleName('Title');
     fireEvent.click(
       within(nestedTable).getByRole('button', {
         name: 'Choose Children columns',

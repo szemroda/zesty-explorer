@@ -5,14 +5,17 @@ const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
 export const columnWidthLimits = { min: 90, max: 520 } as const;
 export const defaultContentColumnWidth = 190;
 
-export interface ContentItemColumn {
+interface ColumnDefinition {
   readonly id: string;
   readonly label: string;
   readonly technical: boolean;
   readonly sortable: boolean;
   readonly defaultWidth: number;
-  read(item: ContentItem): unknown;
 }
+
+export type ContentItemColumn =
+  | (ColumnDefinition & { readonly kind: 'value'; read(item: ContentItem): unknown })
+  | (ColumnDefinition & { readonly kind: 'status' });
 
 export function contentItemColumns(
   schema: Pick<CollectionSchema, 'fields'>,
@@ -28,7 +31,16 @@ export function contentItemColumns(
 
   return [
     technicalColumn('$id', 'ZUID', 210, (item) => item.id),
+    {
+      kind: 'status',
+      id: '$status',
+      label: 'Status',
+      technical: true,
+      sortable: false,
+      defaultWidth: 160,
+    },
     ...schema.fields.map((field) => ({
+      kind: 'value' as const,
       id: field.name,
       label: field.label,
       technical: false,
@@ -53,7 +65,7 @@ function technicalColumn(
   read: (item: ContentItem) => unknown,
   sortable = true,
 ): ContentItemColumn {
-  return { id, label, technical: true, sortable, defaultWidth, read };
+  return { kind: 'value', id, label, technical: true, sortable, defaultWidth, read };
 }
 
 export function columnIdForSort(sort: SortState): string {
@@ -84,12 +96,17 @@ export function sortForColumn(columnId: string, direction: SortState['direction'
 export function initialColumnVisibility(
   columns: readonly ContentItemColumn[],
   savedColumnIds: NodePresentation['visibleColumns'],
+  statusColumnHidden = false,
 ): Readonly<Record<string, boolean>> {
   const usesDefaults = savedColumnIds.includes('*');
   return Object.fromEntries(
     columns.map((column) => [
       column.id,
-      usesDefaults ? column.id === '$id' || !column.technical : savedColumnIds.includes(column.id),
+      column.kind === 'status'
+        ? !statusColumnHidden
+        : usesDefaults
+          ? column.id === '$id' || !column.technical
+          : savedColumnIds.includes(column.id),
     ]),
   );
 }
@@ -97,8 +114,9 @@ export function initialColumnVisibility(
 export function hiddenColumnIds(
   columns: readonly ContentItemColumn[],
   savedColumnIds: NodePresentation['visibleColumns'],
+  statusColumnHidden = false,
 ): ReadonlySet<string> {
-  const visibility = initialColumnVisibility(columns, savedColumnIds);
+  const visibility = initialColumnVisibility(columns, savedColumnIds, statusColumnHidden);
   return new Set(columns.filter((column) => !visibility[column.id]).map((column) => column.id));
 }
 
