@@ -127,6 +127,15 @@ export function visibleColumnIds(
   return columns.filter((column) => visibility[column.id] !== false).map((column) => column.id);
 }
 
+// Human-readable item name for buttons and titles; falls back to the ZUID when untitled.
+export function itemDisplayLabel(item: ContentItem): string {
+  const label = [item.fields.title, item.fields.name]
+    .filter((value) => value !== null && value !== undefined && value !== '')
+    .map(formatContentValue)
+    .find((text) => text !== '');
+  return label ?? item.id;
+}
+
 export function formatContentValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '\u2014';
   if (typeof value === 'string') {

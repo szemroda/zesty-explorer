@@ -9,7 +9,7 @@ import {
 import { Fragment, memo, type ReactNode, useCallback, useState } from 'react';
 import type { CollectionReference, ContentItem } from '../../domain';
 import type { ContentTableInstance } from '../content-table-model';
-import { formatContentValue, type ContentItemColumn } from '../content-item-presentation';
+import { itemDisplayLabel, type ContentItemColumn } from '../content-item-presentation';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import {
@@ -211,8 +211,7 @@ export function ContentItemActions({
   onToggleExpanded,
   onOpenDetails,
 }: ContentItemActionsProps) {
-  const label = formatContentValue(item.fields.title ?? item.fields.name);
-  const itemLabel = label === '\u2014' ? item.id : label;
+  const itemLabel = itemDisplayLabel(item);
   const hasManagerLink = reference.area !== 'other';
 
   return (

@@ -47,7 +47,7 @@ import { FilterBuilder } from './components/FilterBuilder';
 import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
-import { RootTable } from './components/RootTable';
+import { RootTable, RootTableSkeleton } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
@@ -917,11 +917,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   <h2 className="text-xl font-semibold" id="root-picker-title">
                     Choose the root collection
                   </h2>
-                  {catalogQuery.isLoading ? (
-                    <p className="text-muted-foreground text-sm" role="status">
-                      Loading collection catalog…
-                    </p>
-                  ) : null}
                   {catalogQuery.error ? (
                     <div
                       className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
@@ -955,6 +950,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       startFormProblem.clear('root-collection');
                     }}
                     disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
+                    loading={catalogQuery.isLoading}
                     error={startFormProblem.messageFor('root-collection')}
                     inputRef={rootCollectionInput}
                   />
@@ -1110,11 +1106,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             )
           ) : null}
 
-          {!showStart && loadStatus.kind === 'loading-root' ? (
-            <Card className="mx-auto my-[8vh] max-w-2xl">
-              <CardContent className="text-sm">Loading collection…</CardContent>
-            </Card>
-          ) : null}
+          {!showStart && loadStatus.kind === 'loading-root' ? <RootTableSkeleton /> : null}
           {!showStart && rootFailure ? (
             <Card
               className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"

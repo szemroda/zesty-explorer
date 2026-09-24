@@ -8,6 +8,7 @@ import {
 } from '../hooks/publication-status-query';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Skeleton } from './ui/skeleton';
 import { TooltipTrigger } from './ui/tooltip';
 
 const cacheTime = 5 * 60 * 1_000;
@@ -77,9 +78,11 @@ function ConnectedPublicationStatusCell({
 
   if (query.isPending) {
     return (
-      <span role="status" aria-label="Loading publication status">
-        Loading...
-      </span>
+      <Skeleton
+        className="h-4.5 w-7 rounded-full"
+        role="status"
+        aria-label="Loading publication status"
+      />
     );
   }
   if (query.isError) {

@@ -37,10 +37,36 @@ import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './
 import { FilterBuilder } from './FilterBuilder';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { PublicationStatusCell } from './PublicationStatusCell';
+import { TableSkeleton } from './TableSkeleton';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Input } from './ui/input';
+import { Skeleton } from './ui/skeleton';
+
+const panelClassName = 'min-w-0 rounded-xl border border-border bg-panel shadow-panel';
+const headerClassName =
+  'flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col';
+
+// Stands in for RootTable, in the same panel and toolbar layout, while the root collection loads.
+export function RootTableSkeleton() {
+  return (
+    <section className={`overflow-hidden ${panelClassName}`}>
+      <div className={headerClassName}>
+        <div className="grid gap-1.5">
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-2.5 w-20" />
+        </div>
+        <div className="flex items-center gap-2 max-lg:w-full">
+          <Skeleton className="h-10 w-56 rounded-lg" />
+          <Skeleton className="h-9 w-20" />
+          <Skeleton className="h-9 w-24" />
+        </div>
+      </div>
+      <TableSkeleton label="Loading collection" rows={8} />
+    </section>
+  );
+}
 
 interface RootTableProps {
   readonly schema: CollectionSchema;
@@ -217,6 +243,18 @@ export function RootTable({
     onPresentationChange(treeRoot.id, { ...treeRoot.presentation, ...patch });
   }
 
+  function applyTableFilters(next: readonly ViewFilter[], patch: Partial<NodePresentation> = {}) {
+    setFilters(next);
+    persistPresentation({ ...patch, filters: next });
+    setPagination((current) => ({ ...current, pageIndex: 0 }));
+  }
+
+  // View filters and the global search belong to the whole view, so this leaves them alone.
+  function clearTableSearchAndFilters() {
+    setTableFreeText('');
+    applyTableFilters([], { freeText: '' });
+  }
+
   function updateNodeState(nodeId: CollectionNodeId, state: SharedNodeTableState) {
     setNodeStates((current) => {
       const next = new Map(current);
@@ -234,10 +272,10 @@ export function RootTable({
 
   return (
     <section
-      className="relative min-w-0 overflow-visible rounded-xl border border-border bg-panel shadow-panel"
+      className={`relative overflow-visible ${panelClassName}`}
       aria-label={`${schema.label} collection`}
     >
-      <div className="flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col">
+      <div className={headerClassName}>
         <div className="min-w-36">
           <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
           <span className="mt-0.5 block text-[10px] text-muted-foreground">
@@ -279,11 +317,7 @@ export function RootTable({
                 root={treeRoot}
                 schemas={loadedView.schemas}
                 filters={filters}
-                onChange={(next) => {
-                  setFilters(next);
-                  persistPresentation({ filters: next });
-                  setPagination((current) => ({ ...current, pageIndex: 0 }));
-                }}
+                onChange={(next) => applyTableFilters(next)}
               />
             </PopoverContent>
           </Popover>
@@ -299,7 +333,7 @@ export function RootTable({
           className="absolute top-16 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
           role="status"
         >
-          Updating results...
+          Updating results…
         </div>
       ) : null}
       {snapshot.partial ? (
@@ -315,6 +349,21 @@ export function RootTable({
         reference={reference}
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
+        emptyContent={
+          <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
+            <p className="m-0 font-medium text-foreground">No items match your search or filters</p>
+            {viewFilters.length > 0 || globalFreeText !== '' ? (
+              <p className="m-0 text-xs">
+                View filters and the global search can also narrow these results.
+              </p>
+            ) : null}
+            {filters.length > 0 || tableFreeText !== '' ? (
+              <Button variant="outline" size="sm" onClick={clearTableSearchAndFilters}>
+                Clear search and filters
+              </Button>
+            ) : null}
+          </div>
+        }
         renderExpandedRow={(item) => (
           <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
             {treeRoot.children.map((child) => (

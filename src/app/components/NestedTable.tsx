@@ -46,6 +46,7 @@ import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FilterBuilder } from './FilterBuilder';
 import { PublicationStatusCell } from './PublicationStatusCell';
+import { TableSkeleton } from './TableSkeleton';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -332,7 +333,11 @@ export function NestedTable(props: NestedTableProps) {
   });
 
   if (!state) {
-    return <div className="m-0 p-4.5 text-xs text-muted-foreground">Loading {node.name}...</div>;
+    return (
+      <div className="overflow-hidden rounded-lg border border-divider-emphasis bg-surface-nested">
+        <TableSkeleton label={`Loading ${node.name}`} rows={3} />
+      </div>
+    );
   }
   if (state.status === 'failed' || !schema) {
     const failure = state.status === 'failed' ? state.error : loadedView.schemaErrors.get(node.id);
@@ -444,7 +449,7 @@ export function NestedTable(props: NestedTableProps) {
           className="absolute top-14 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
           role="status"
         >
-          Updating results...
+          Updating results…
         </div>
       ) : null}
       {state.status === 'partial' ? (

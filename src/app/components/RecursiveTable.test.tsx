@@ -8,6 +8,7 @@ import {
   type CollectionNode,
   type CollectionSchema,
   type ExplorerError,
+  type ViewFilter,
 } from '../../domain';
 import { snapshotQueryKey } from '../../zesty-api';
 import type { ItemVersionApi } from '../../zesty-api';
@@ -295,6 +296,52 @@ describe('recursive collection tables', () => {
     expect(
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
+  });
+
+  it('explains an empty root result and clears only the table search and filters', () => {
+    const onPresentationChange = vi.fn();
+    const noMatch: ViewFilter = {
+      id: 'no-match',
+      nodePath: [root.id],
+      fieldPath: ['title'],
+      operator: 'equals',
+      value: 'nothing matches',
+    };
+    render(
+      <RootTable
+        schema={rootSchema}
+        snapshot={generated.parents}
+        reference={root.reference}
+        treeRoot={{
+          ...root,
+          presentation: { ...root.presentation, filters: [noMatch], freeText: 'Parent' },
+        }}
+        loadedView={loadedView}
+        contentState="latest"
+        viewFilters={[noMatch]}
+        onOpenDetails={vi.fn()}
+        onRetry={vi.fn()}
+        onPresentationChange={onPresentationChange}
+      />,
+    );
+
+    const collection = screen.getByRole('region', { name: 'Parents collection' });
+    expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
+    expect(
+      within(collection).getByText(/View filters and the global search can also narrow/),
+    ).toBeVisible();
+    fireEvent.click(within(collection).getByRole('button', { name: 'Clear search and filters' }));
+
+    expect(within(collection).getByLabelText('Filter this table')).toHaveValue('');
+    expect(onPresentationChange).toHaveBeenLastCalledWith(
+      root.id,
+      expect.objectContaining({ filters: [], freeText: '' }),
+    );
+    // The view filter still applies, so the table stays empty but no longer offers a table reset.
+    expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
+    expect(
+      within(collection).queryByRole('button', { name: 'Clear search and filters' }),
+    ).not.toBeInTheDocument();
   });
 
   it('sorts root and nested collections from their column headers', async () => {

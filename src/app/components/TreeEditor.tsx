@@ -742,7 +742,7 @@ function TreeNodeRow({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
                 aria-label={`Actions for ${node.name}`}
               />
             }

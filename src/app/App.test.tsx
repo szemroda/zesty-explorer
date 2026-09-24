@@ -197,6 +197,13 @@ describe('root collection browser', () => {
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });
 
+  it('shows a table placeholder while the root collection loads', async () => {
+    render(<App api={api(() => Effect.never)} tokenStore={tokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+
+    expect(await screen.findByRole('status', { name: 'Loading collection' })).toBeInTheDocument();
+  });
+
   it('opens the root picker directly from the root collection menu', async () => {
     render(<App api={api()} tokenStore={tokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
@@ -275,7 +282,9 @@ describe('root collection browser', () => {
     const htmlCell = screen.getByRole('cell', { name: 'First story' });
     expect(htmlCell).toBeInTheDocument();
     expect(htmlCell.querySelector('strong')).toBeNull();
-    expect(screen.getByRole('dialog', { name: '7-000000-aaaaaa' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('dialog', { name: 'First story' })).getByText('7-000000-aaaaaa'),
+    ).toBeInTheDocument();
     const zestyLink = screen.getByRole('link', {
       name: /open first story in zesty manager/i,
     });
@@ -370,7 +379,7 @@ describe('root collection browser', () => {
       await screen.findByRole('heading', { name: 'Replace your session token' }),
     ).toBeInTheDocument();
     expect(clear).toHaveBeenCalledWith('production');
-    expect(screen.queryByRole('dialog', { name: '7-000000-aaaaaa' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'First story' })).not.toBeInTheDocument();
   });
 
   it('reveals and copies safe technical details for a root load failure', async () => {

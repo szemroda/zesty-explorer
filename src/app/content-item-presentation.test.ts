@@ -6,6 +6,7 @@ import {
   formatContentValue,
   hiddenColumnIds,
   initialColumnVisibility,
+  itemDisplayLabel,
   sortForColumn,
   visibleColumnIds,
 } from './content-item-presentation';
@@ -96,5 +97,14 @@ describe('content item presentation', () => {
   it('formats content values for table cells', () => {
     expect(formatContentValue('<p>Hello</p>   there')).toBe('Hello there');
     expect(formatContentValue({ nested: true })).toBe('{\n  "nested": true\n}');
+  });
+
+  it('labels an item by its title, then its name, then its ZUID', () => {
+    expect(itemDisplayLabel(item)).toBe('Hello');
+    expect(itemDisplayLabel({ ...item, fields: { name: 'Named item' } })).toBe('Named item');
+    expect(itemDisplayLabel({ ...item, fields: { title: '', name: 'Named item' } })).toBe(
+      'Named item',
+    );
+    expect(itemDisplayLabel({ ...item, fields: { title: '<p></p>' } })).toBe('7-item');
   });
 });

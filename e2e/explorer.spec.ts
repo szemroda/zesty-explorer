@@ -435,7 +435,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   const detailsTrigger = page.getByRole('button', { name: 'Open details for First story' });
   await detailsTrigger.focus();
   await detailsTrigger.press('Enter');
-  await expect(page.getByRole('dialog', { name: '7-root-000000' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'First story' })).toBeVisible();
   const versionTwo = page.getByRole('button', { name: /Version 2/ });
   await expect(versionTwo).toContainText('Latest saved');
   await expect(versionTwo).toContainText('Currently published');

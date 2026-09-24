@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, X } from 'lucide-react';
+import { Check, ChevronsUpDown, LoaderCircle, X } from 'lucide-react';
 import { useMemo, type Ref } from 'react';
 import type { CollectionCatalogEntry, CollectionCatalogGroup, ModelZuid } from '../../domain';
 import { Combobox } from './ui/combobox';
@@ -15,6 +15,7 @@ interface CollectionPickerProps {
   readonly value: ModelZuid | undefined;
   readonly onChange: (collection: CollectionCatalogEntry | undefined) => void;
   readonly disabled?: boolean;
+  readonly loading?: boolean;
   readonly error?: string | undefined;
   readonly inputRef?: Ref<HTMLInputElement>;
 }
@@ -33,6 +34,7 @@ export function CollectionPicker({
   value,
   onChange,
   disabled = false,
+  loading = false,
   error,
   inputRef,
 }: CollectionPickerProps) {
@@ -71,10 +73,19 @@ export function CollectionPicker({
         <Combobox.InputGroup className="relative flex items-center">
           <Combobox.Input
             ref={inputRef}
-            className="border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring data-invalid:border-destructive data-invalid:focus-visible:ring-destructive/30 h-9 w-full rounded-md border px-3 pr-16 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            placeholder="Search collections"
+            className={`border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring data-invalid:border-destructive data-invalid:focus-visible:ring-destructive/30 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${loading ? 'pr-24' : 'pr-16'}`}
+            placeholder={loading ? 'Loading collections…' : 'Search collections'}
           />
           <div className="absolute right-1 flex items-center gap-0.5">
+            {loading ? (
+              <span
+                className="text-muted-foreground inline-flex size-7 items-center justify-center"
+                role="status"
+                aria-label="Loading collection catalog"
+              >
+                <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+              </span>
+            ) : null}
             <Combobox.Clear
               className="text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex size-7 items-center justify-center rounded-sm outline-none focus-visible:ring-2"
               aria-label="Clear selection"

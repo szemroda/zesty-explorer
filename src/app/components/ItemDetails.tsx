@@ -2,6 +2,7 @@ import { Check, Clock3, Copy, History, LoaderCircle, Search, X } from 'lucide-re
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import type { ContentItem, ContentItemReference, ExplorerError } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
+import { itemDisplayLabel } from '../content-item-presentation';
 import { copyText } from '../copy-text';
 import { describeExplorerError } from '../error-message';
 import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
@@ -73,7 +74,7 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
     <Button
       variant="ghost"
       size="icon-xs"
-      className="absolute top-2.5 right-2.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+      className="absolute top-2.5 right-2.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 pointer-coarse:opacity-100"
       aria-label={`Copy ${name}`}
       onClick={() => void copyText(formatted(value), `${name} copied`)}
     >
@@ -368,8 +369,9 @@ function ItemDetailsPanel({
             </span>
             <span className="h-4 w-px bg-border" aria-hidden="true" />
             <DialogTitle id="details-title" className="truncate text-base">
-              {item.id}
+              {itemDisplayLabel(item)}
             </DialogTitle>
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">{item.id}</span>
           </div>
           <DialogClose
             render={<Button variant="ghost" size="icon-sm" />}
