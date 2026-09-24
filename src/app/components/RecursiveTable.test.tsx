@@ -94,6 +94,15 @@ const loadedView: LoadedView = {
 
 afterEach(cleanup);
 
+// The resize handle is a mouse-only affordance hidden from assistive technology.
+function resizeHandle(table: HTMLElement, column: string): HTMLElement {
+  const handle = within(table)
+    .getByRole('columnheader', { name: column })
+    .querySelector<HTMLElement>('[data-slot="column-resize-handle"]');
+  if (!handle) throw new Error(`No resize handle for ${column}`);
+  return handle;
+}
+
 describe('recursive collection tables', () => {
   it('shows Status in older explicit column selections and preserves a later hide', async () => {
     const onPresentationChange = vi.fn();
@@ -117,7 +126,7 @@ describe('recursive collection tables', () => {
     const collection = screen.getByRole('region', { name: 'Parents collection' });
     expect(within(collection).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
     fireEvent.click(within(collection).getByRole('button', { name: 'Choose visible columns' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Status' }));
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Status' }));
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       explicitRoot.id,
       expect.objectContaining({ statusColumnHidden: true }),
@@ -398,7 +407,7 @@ describe('recursive collection tables', () => {
     );
 
     const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    const rootResizeHandle = within(rootTable).getByTitle('Resize Title column');
+    const rootResizeHandle = resizeHandle(rootTable, 'Title');
     fireEvent.mouseDown(rootResizeHandle, { clientX: 100 });
     fireEvent.mouseMove(document, { clientX: 140 });
     fireEvent.mouseUp(document);
@@ -421,9 +430,9 @@ describe('recursive collection tables', () => {
       }),
     );
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
-    const resizeHandle = within(nestedTable).getByTitle('Resize Title column');
+    const nestedResizeHandle = resizeHandle(nestedTable, 'Title');
 
-    fireEvent.mouseDown(resizeHandle, { clientX: 100 });
+    fireEvent.mouseDown(nestedResizeHandle, { clientX: 100 });
     fireEvent.mouseMove(document, { clientX: 140 });
     fireEvent.mouseUp(document);
 
@@ -433,7 +442,7 @@ describe('recursive collection tables', () => {
       statusColumnHidden: false,
       columnWidths: { title: 90 },
     });
-    fireEvent.mouseDown(resizeHandle, { clientX: 300 });
+    fireEvent.mouseDown(nestedResizeHandle, { clientX: 300 });
     fireEvent.mouseMove(document, { clientX: -1000 });
     fireEvent.mouseUp(document);
     expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
@@ -525,16 +534,17 @@ describe('recursive collection tables', () => {
       name: 'Choose visible columns',
     });
     fireEvent.click(rootColumnsButton);
-    const rootColumnControls = await screen.findAllByRole('checkbox');
+    const rootColumnControls = await screen.findAllByRole('menuitemcheckbox');
     expect(rootColumnControls[0]).toHaveAccessibleName('ZUID');
-    const status = screen.getByRole('checkbox', { name: 'Status' });
+    const status = screen.getByRole('menuitemcheckbox', { name: 'Status' });
     expect(status).toBeChecked();
     fireEvent.click(status);
     expect(
       within(rootTable).queryByRole('columnheader', { name: 'Status' }),
     ).not.toBeInTheDocument();
+    expect(rootColumnsButton).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(status);
-    const zuid = screen.getByRole('checkbox', { name: 'ZUID' });
+    const zuid = screen.getByRole('menuitemcheckbox', { name: 'ZUID' });
     expect(zuid).toBeChecked();
     fireEvent.click(zuid);
     expect(within(rootTable).queryByRole('columnheader', { name: 'ZUID' })).not.toBeInTheDocument();
@@ -555,9 +565,9 @@ describe('recursive collection tables', () => {
         name: 'Choose Children columns',
       }),
     );
-    const nestedColumnControls = await screen.findAllByRole('checkbox');
+    const nestedColumnControls = await screen.findAllByRole('menuitemcheckbox');
     expect(nestedColumnControls[0]).toHaveAccessibleName('ZUID');
-    expect(screen.getByRole('checkbox', { name: 'ZUID' })).toBeChecked();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'ZUID' })).toBeChecked();
   });
 
   it('does not guess a Manager item URL for an unrecognized collection type', () => {
@@ -596,9 +606,9 @@ describe('recursive collection tables', () => {
     );
     expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
-    await screen.findAllByRole('checkbox');
-    expect(screen.getByRole('checkbox', { name: 'Title' })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'ZUID' })).not.toBeChecked();
+    await screen.findAllByRole('menuitemcheckbox');
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Title' })).not.toBeChecked();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'ZUID' })).not.toBeChecked();
   });
 
   it('restores a nested technical metadata sort in its column header', async () => {

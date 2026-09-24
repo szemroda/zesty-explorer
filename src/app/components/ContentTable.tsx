@@ -12,10 +12,15 @@ import type { ContentTableInstance } from '../content-table-model';
 import { formatContentValue, type ContentItemColumn } from '../content-item-presentation';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
-import { Checkbox } from './ui/checkbox';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { TooltipTrigger } from './ui/tooltip';
 
 interface ContentTableGridProps {
   readonly table: ContentTableInstance;
@@ -156,11 +161,8 @@ export function ContentTableGrid({
                   )}
                   {header.column.getCanResize() ? (
                     <span
-                      title={`Resize ${
-                        typeof header.column.columnDef.header === 'string'
-                          ? header.column.columnDef.header
-                          : header.column.id
-                      } column`}
+                      data-slot="column-resize-handle"
+                      aria-hidden="true"
                       className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
                       onMouseDown={header.getResizeHandler()}
                       onTouchStart={header.getResizeHandler()}
@@ -216,38 +218,50 @@ export function ContentItemActions({
   return (
     <div className="flex w-max items-center gap-1.5" role="group" aria-label="Item actions">
       {canExpand ? (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="relative mr-1.5 after:pointer-events-none after:absolute after:inset-y-1.5 after:-right-1.5 after:w-px after:bg-border"
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} relationships for ${item.id}`}
-          aria-expanded={expanded}
-          title={expanded ? 'Hide related items' : 'Show related items'}
-          onClick={onToggleExpanded}
+        <TooltipTrigger
+          text={expanded ? 'Hide related items' : 'Show related items'}
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative mr-1.5 after:pointer-events-none after:absolute after:inset-y-1.5 after:-right-1.5 after:w-px after:bg-border"
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} relationships for ${item.id}`}
+              aria-expanded={expanded}
+              onClick={onToggleExpanded}
+            />
+          }
         >
           {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-        </Button>
+        </TooltipTrigger>
       ) : null}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Open details for ${itemLabel}`}
-        title="Open item details"
-        onClick={(event) => onOpenDetails(item, event.currentTarget)}
+      <TooltipTrigger
+        text="Open item details"
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Open details for ${itemLabel}`}
+            onClick={(event) => onOpenDetails(item, event.currentTarget)}
+          />
+        }
       >
         <Eye size={15} />
-      </Button>
+      </TooltipTrigger>
       {hasManagerLink ? (
-        <a
-          className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-          aria-label={`Open ${itemLabel} in Zesty Manager`}
-          href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${item.id}`}
-          target="_blank"
-          rel="noreferrer"
-          title="Open in Zesty Manager in a new tab"
+        <TooltipTrigger
+          text="Open in Zesty Manager in a new tab"
+          render={
+            <a
+              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+              aria-label={`Open ${itemLabel} in Zesty Manager`}
+              href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${item.id}`}
+              target="_blank"
+              rel="noreferrer"
+            />
+          }
         >
           <ExternalLink size={15} />
-        </a>
+        </TooltipTrigger>
       ) : null}
     </div>
   );
@@ -269,21 +283,18 @@ export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenu
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="min-w-56 p-2">
+      <DropdownMenuContent align="end" className="min-w-56">
         {table
           .getAllLeafColumns()
           .filter((column) => column.getCanHide())
           .map((column) => (
-            <label
-              className="flex items-center gap-2 rounded-md p-1.5 text-xs hover:bg-surface-menu-hover"
+            <DropdownMenuCheckboxItem
               key={column.id}
+              checked={column.getIsVisible()}
+              onCheckedChange={(checked) => column.toggleVisibility(checked)}
             >
-              <Checkbox
-                checked={column.getIsVisible()}
-                onCheckedChange={(checked) => column.toggleVisibility(checked)}
-              />
               {columns.find((definition) => definition.id === column.id)?.label ?? column.id}
-            </label>
+            </DropdownMenuCheckboxItem>
           ))}
       </DropdownMenuContent>
     </DropdownMenu>

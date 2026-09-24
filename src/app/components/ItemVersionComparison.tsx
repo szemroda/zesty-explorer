@@ -201,7 +201,7 @@ function TextDiff({
           <button
             key={key}
             type="button"
-            className="py-0.5 pl-[52px] text-[11px] text-muted-foreground hover:text-foreground"
+            className="rounded-sm py-0.5 pl-[52px] text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
             onClick={expand}
           >
             {unchangedLinesLabel(count)}
@@ -475,7 +475,7 @@ export function RawJsonComparison({ pair }: { readonly pair: VersionPair }) {
                   <td colSpan={6} className="bg-surface-header/60 p-0">
                     <button
                       type="button"
-                      className="w-full px-3 py-1 text-left text-muted-foreground hover:text-foreground"
+                      className="w-full px-3 py-1 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset"
                       onClick={expand}
                     >
                       {unchangedLinesLabel(count)}

@@ -18,8 +18,11 @@ import { FieldsComparison, RawJsonComparison } from './ItemVersionComparison';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Field, FieldDescription, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 interface ItemDetailsProps {
   readonly api: ItemVersionApi;
@@ -164,6 +167,10 @@ function ResourceNotice({
   );
 }
 
+function versionLabel(option: VersionPreviewOption): string {
+  return `Version ${option.number}${option.latestSaved ? ' · latest saved' : ''}${option.currentlyPublished ? ' · published' : ''}`;
+}
+
 function VersionSelect({
   label,
   options,
@@ -178,25 +185,41 @@ function VersionSelect({
   readonly onChange: (number: number) => void;
 }) {
   return (
-    <div>
-      <label className="block">
-        <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</span>
-        <select
-          className="h-9 w-full rounded-md border border-input bg-surface-control px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          value={selected.number}
-          onChange={(event) => onChange(Number(event.target.value))}
-        >
+    <Field className="gap-1.5">
+      <FieldLabel className="text-muted-foreground">{label}</FieldLabel>
+      <Select
+        items={options.map((option) => ({ label: versionLabel(option), value: option.number }))}
+        value={selected.number}
+        onValueChange={(number) => {
+          if (number !== null) onChange(number);
+        }}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start" alignItemWithTrigger={false}>
           {options.map((option) => (
-            <option key={option.number} value={option.number} disabled={isDisabled(option.number)}>
-              {`Version ${option.number}${option.latestSaved ? ' · latest saved' : ''}${option.currentlyPublished ? ' · published' : ''}`}
-            </option>
+            <SelectItem
+              key={option.number}
+              value={option.number}
+              label={`Version ${option.number}`}
+              disabled={isDisabled(option.number)}
+            >
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium">Version {option.number}</span>
+                <VersionBadges option={option} />
+              </div>
+              <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                {formattedDate(option.savedAt)} · {authorLabel(option)}
+              </div>
+            </SelectItem>
           ))}
-        </select>
-      </label>
-      <p className="mt-1.5 px-1 text-[11px] leading-4 text-muted-foreground">
+        </SelectContent>
+      </Select>
+      <FieldDescription className="px-1 text-[11px] leading-4">
         {formattedDate(selected.savedAt)} · {authorLabel(selected)}
-      </p>
-    </div>
+      </FieldDescription>
+    </Field>
   );
 }
 
@@ -243,27 +266,20 @@ function ModeToggle({
   readonly onChange: (mode: HistoryMode) => void;
 }) {
   return (
-    <div
-      className="inline-flex h-9 items-center rounded-lg bg-muted p-1"
-      role="group"
+    <ToggleGroup
+      className="h-9 rounded-lg p-1"
       aria-label="Item history mode"
+      value={[mode]}
+      onValueChange={([next]) => {
+        if (next) onChange(next);
+      }}
     >
       {HISTORY_MODES.map(({ value, label }) => (
-        <button
-          key={value}
-          type="button"
-          aria-pressed={mode === value}
-          className={`inline-flex h-7 items-center rounded-md px-3 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 ${
-            mode === value
-              ? 'bg-panel-raised text-foreground shadow-sm'
-              : 'text-muted-foreground hover:bg-surface-menu-hover hover:text-foreground'
-          }`}
-          onClick={() => onChange(value)}
-        >
+        <ToggleGroupItem key={value} value={value} className="px-3">
           {label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 

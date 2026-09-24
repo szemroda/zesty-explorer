@@ -8,6 +8,7 @@ import {
 } from '../hooks/publication-status-query';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { TooltipTrigger } from './ui/tooltip';
 
 const cacheTime = 5 * 60 * 1_000;
 const StatusSourceContext = createContext<PublicationStatusSource | null>(null);
@@ -41,9 +42,12 @@ function StatusBadge({
   readonly className: string;
 }) {
   return (
-    <Badge role="img" aria-label={description} title={description} className={className}>
+    <TooltipTrigger
+      text={description}
+      render={<Badge role="img" aria-label={description} tabIndex={0} className={className} />}
+    >
       v{version}
-    </Badge>
+    </TooltipTrigger>
   );
 }
 

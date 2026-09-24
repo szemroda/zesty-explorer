@@ -24,6 +24,24 @@ const currentItem: ContentItem = {
   raw: { title: 'Current raw title' },
 };
 
+// Both version selects keep their lists mounted, so options are looked up in the opened one.
+// Base UI selects an option on a full pointer press, not on a bare click event.
+async function openVersionList(select: 'Before' | 'After') {
+  const trigger = screen.getByRole('combobox', { name: select });
+  fireEvent.click(trigger);
+  await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'true'));
+  const list = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+  if (!list) throw new Error(`The ${select} version list did not open`);
+  return list;
+}
+
+async function chooseVersion(select: 'Before' | 'After', version: RegExp) {
+  const option = within(await openVersionList(select)).getByRole('option', { name: version });
+  fireEvent.pointerDown(option, { pointerType: 'mouse' });
+  fireEvent.pointerUp(option, { pointerType: 'mouse' });
+  fireEvent.click(option);
+}
+
 function renderDetails(api: ItemVersionApi, onAuthenticationFailure = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -153,21 +171,22 @@ describe('ItemDetails version preview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
     const comparison = screen.getByRole('region', { name: 'Version comparison' });
     expect(screen.getByRole('heading', { name: 'Version 1 → 2' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Before' })).toHaveValue('1');
+    expect(screen.getByRole('combobox', { name: 'Before' })).toHaveTextContent('Version 1');
     expect(comparison).toHaveTextContent(
       '1 content field differs · 1 technical metadata value differs',
     );
     expect(comparison).toHaveTextContent('Current title');
     expect(comparison).toHaveTextContent('Revised title');
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'After' }), { target: { value: '3' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Before' }), { target: { value: '2' } });
-    expect(screen.getByRole('heading', { name: 'Version 2 → 3' })).toBeInTheDocument();
-    expect(
-      within(screen.getByRole('combobox', { name: 'Before' })).getByRole('option', {
-        name: /Version 3/,
-      }),
-    ).toBeDisabled();
+    await chooseVersion('After', /Version 3/);
+    await chooseVersion('Before', /Version 2/);
+    expect(await screen.findByRole('heading', { name: 'Version 2 → 3' })).toBeInTheDocument();
+    const beforeList = await openVersionList('Before');
+    expect(within(beforeList).getByRole('option', { name: /Version 3/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.keyDown(beforeList, { key: 'Escape' });
     expect(comparison).toHaveTextContent('No content field differences');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Raw JSON' }));

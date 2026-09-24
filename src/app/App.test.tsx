@@ -285,7 +285,7 @@ describe('root collection browser', () => {
     );
     expect(zestyLink).toHaveAttribute('target', '_blank');
     fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
-    expect(screen.getByRole('checkbox', { name: 'workflowStatus' })).not.toBeChecked();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'workflowStatus' })).not.toBeChecked();
   });
 
   it('clears an expired token, preserves the root, and resumes with a replacement', async () => {

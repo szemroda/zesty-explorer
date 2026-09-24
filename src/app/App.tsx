@@ -80,6 +80,8 @@ import {
 import { Field, FieldDescription, FieldLabel } from './components/ui/field';
 import { Input } from './components/ui/input';
 import { Toaster } from './components/ui/sonner';
+import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
+import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -752,30 +754,16 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onChange={(event) => setGlobalFreeText(event.target.value)}
                 />
               </label>
-              <div
-                className="bg-muted flex rounded-md p-0.5"
-                role="group"
-                aria-label="Content version"
+              <ToggleGroup
+                aria-label="Content state"
+                value={[contentState]}
+                onValueChange={([next]) => {
+                  if (next) setContentState(next);
+                }}
               >
-                <Button
-                  variant={contentState === 'latest' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-2.5"
-                  aria-pressed={contentState === 'latest'}
-                  onClick={() => setContentState('latest')}
-                >
-                  Latest
-                </Button>
-                <Button
-                  variant={contentState === 'published' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-2.5"
-                  aria-pressed={contentState === 'published'}
-                  onClick={() => setContentState('published')}
-                >
-                  Published
-                </Button>
-              </div>
+                <ToggleGroupItem value="latest">Latest</ToggleGroupItem>
+                <ToggleGroupItem value="published">Published</ToggleGroupItem>
+              </ToggleGroup>
               <Button
                 variant="outline"
                 size="sm"
@@ -1283,7 +1271,10 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Explorer api={api} tokenStore={resolvedTokenStore} />
+      <TooltipProvider delay={300}>
+        <Explorer api={api} tokenStore={resolvedTokenStore} />
+        <SharedTooltip />
+      </TooltipProvider>
       <Toaster />
     </QueryClientProvider>
   );

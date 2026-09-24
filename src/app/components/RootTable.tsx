@@ -39,7 +39,7 @@ import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { PublicationStatusCell } from './PublicationStatusCell';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Input } from './ui/input';
 
 interface RootTableProps {
@@ -261,8 +261,8 @@ export function RootTable({
               onChange={(event) => setTableFreeText(event.target.value)}
             />
           </label>
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          <Popover>
+            <PopoverTrigger
               render={
                 <Button variant="outline" aria-label="Configure table filters">
                   <ListFilter size={14} /> Filters
@@ -270,7 +270,7 @@ export function RootTable({
                 </Button>
               }
             />
-            <DropdownMenuContent
+            <PopoverContent
               align="end"
               className="w-[min(760px,calc(100vw-2rem))] min-w-0 p-0 lg:w-[min(760px,calc(100vw-330px))]"
             >
@@ -285,8 +285,8 @@ export function RootTable({
                   setPagination((current) => ({ ...current, pageIndex: 0 }));
                 }}
               />
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </PopoverContent>
+          </Popover>
           <ContentColumnsMenu
             table={table}
             columns={itemColumnDefinitions}
