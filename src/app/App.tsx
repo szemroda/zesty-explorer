@@ -51,6 +51,7 @@ import { RootTable } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
+import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
@@ -512,17 +513,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
 
-  async function copyViewLink() {
-    await navigator.clipboard.writeText(window.location.href);
-    toast.success('View link copied', {
-      description: 'The session token is not included.',
-    });
+  function copyViewLink() {
+    void copyText(window.location.href, 'View link copied', 'The session token is not included.');
   }
 
-  async function copyRawView() {
+  function copyRawView() {
     if (!viewDecodeError) return;
-    await navigator.clipboard.writeText(viewDecodeError.raw);
-    toast.success('Raw view data copied');
+    void copyText(viewDecodeError.raw, 'Raw view data copied');
   }
 
   function cancelRootReplacement() {
@@ -660,7 +657,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   The last refresh failed. Activate Refresh to retry.
                 </span>
               ) : null}
-              <Button variant="outline" size="sm" onClick={() => void copyViewLink()}>
+              <Button variant="outline" size="sm" onClick={copyViewLink}>
                 <Copy size={14} aria-hidden="true" /> Copy view link
               </Button>
               <DropdownMenu>
@@ -767,7 +764,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <p className="text-muted-foreground text-sm">{viewDecodeError.reason}</p>
               </CardHeader>
               <CardFooter className="flex-wrap gap-2">
-                <Button variant="outline" onClick={() => void copyRawView()}>
+                <Button variant="outline" onClick={copyRawView}>
                   Copy raw view data
                 </Button>
                 <Button onClick={resetView}>Reset view</Button>

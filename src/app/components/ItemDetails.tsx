@@ -2,6 +2,7 @@ import { Check, Clock3, Copy, History, LoaderCircle, Search, X } from 'lucide-re
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import type { ContentItem, ContentItemReference, ExplorerError } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
+import { copyText } from '../copy-text';
 import { describeExplorerError } from '../error-message';
 import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
 import {
@@ -65,21 +66,15 @@ function authorLabel(option: VersionPreviewOption): string {
 }
 
 function CopyValue({ value, name }: { readonly value: unknown; readonly name: string }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    await navigator.clipboard.writeText(formatted(value));
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_200);
-  }
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className="absolute top-2.5 right-2.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
       aria-label={`Copy ${name}`}
-      onClick={() => void copy()}
+      onClick={() => void copyText(formatted(value), `${name} copied`)}
     >
-      {copied ? <Check size={13} /> : <Copy size={13} />}
+      <Copy size={13} />
     </Button>
   );
 }

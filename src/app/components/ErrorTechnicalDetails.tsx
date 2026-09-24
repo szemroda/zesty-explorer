@@ -1,6 +1,6 @@
 import { ChevronDown, Copy } from 'lucide-react';
-import { useState } from 'react';
 import type { ExplorerError, ExplorerRequestOperation } from '../../domain';
+import { copyText } from '../copy-text';
 import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 
@@ -40,13 +40,7 @@ interface ErrorTechnicalDetailsProps {
 }
 
 export function ErrorTechnicalDetails({ error }: ErrorTechnicalDetailsProps) {
-  const [copied, setCopied] = useState(false);
   const details = technicalDetailsLines(error).join('\n');
-
-  async function copyDetails() {
-    await navigator.clipboard.writeText(details);
-    setCopied(true);
-  }
 
   return (
     <Collapsible className="mt-3 rounded-lg border border-border bg-background/35">
@@ -66,10 +60,10 @@ export function ErrorTechnicalDetails({ error }: ErrorTechnicalDetailsProps) {
           variant="outline"
           size="sm"
           type="button"
-          onClick={() => void copyDetails()}
+          onClick={() => void copyText(details, 'Technical details copied')}
         >
           <Copy aria-hidden="true" size={14} />
-          {copied ? 'Copied' : 'Copy technical details'}
+          Copy technical details
         </Button>
       </CollapsibleContent>
     </Collapsible>

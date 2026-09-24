@@ -340,7 +340,7 @@ describe('root collection browser', () => {
     expect(technicalDetails).toHaveTextContent('Loading collection items');
     expect(technicalDetails).toHaveTextContent('$.data[0].meta.version');
     fireEvent.click(screen.getByRole('button', { name: 'Copy technical details' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Copied' })).toBeVisible());
+    expect(await screen.findByText('Technical details copied')).toBeVisible();
     const expectedDetails = [
       'Error kind: decoding',
       'Operation: Loading collection items',
