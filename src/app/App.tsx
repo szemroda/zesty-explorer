@@ -49,6 +49,7 @@ import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { createChildNode } from './view-state';
 import { copyText } from './copy-text';
@@ -90,6 +91,23 @@ interface ExplorerProps {
 }
 
 const defaultApi = createZestyApi(fetchZestyTransport);
+// Toasts with an action stay long enough to reach the button.
+const actionToastDuration = 8_000;
+
+interface RootChoice {
+  readonly label: string;
+  readonly reference: CollectionReference;
+}
+
+interface PendingRootReplacement extends RootChoice {
+  readonly removedNodeNames: readonly string[];
+}
+
+interface PendingUndo {
+  readonly toastId: string | number;
+  // The tree the action left behind; any other tree makes the undo stale.
+  readonly treeRoot: CollectionNode | undefined;
+}
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
 
@@ -167,6 +185,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
+  const [clearTokenOpen, setClearTokenOpen] = useState(false);
+  const sessionTokenInput = useRef<HTMLInputElement>(null);
+  const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   const encodedView = useMemo(() => {
@@ -194,6 +216,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     }
     if (encodedView) window.history.replaceState(null, '', encodedView.fragment);
   }, [encodedView, treeRoot, viewDecodeError]);
+
+  useEffect(() => {
+    if (pendingUndo.current?.treeRoot === treeRoot) return;
+    withdrawUndo();
+  }, [treeRoot]);
 
   const requiresCompleteView = Boolean(
     treeRoot?.children.length &&
@@ -277,7 +304,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       toast.error('Refresh failed', {
         id: 'refresh-failed',
         description: 'Some data could not be refreshed. The current view remains available.',
-        duration: 8_000,
+        duration: actionToastDuration,
         action: {
           label: 'Retry refresh',
           onClick: () => void refreshAllRequests(),
@@ -366,6 +393,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       return;
     }
 
+    withdrawUndo();
     tokenStore.set(parsed.value.deployment, token);
     setActiveToken(token);
     setTokenDeployment(parsed.value.deployment);
@@ -428,27 +456,31 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         ? { itemZuid: catalogInstance.suggestedItemZuid }
         : {}),
     };
-    const replacingRoot = Boolean(
+    if (
       treeRoot &&
       (treeRoot.reference.instanceZuid !== selectedReference.instanceZuid ||
         treeRoot.reference.modelZuid !== selectedReference.modelZuid ||
-        treeRoot.reference.deployment !== selectedReference.deployment),
-    );
-    if (
-      replacingRoot &&
-      treeRoot &&
-      !window.confirm(
-        `Replace the current root and remove these nodes: ${subtreeNodeNames(treeRoot, treeRoot.id).join(', ')}. Saved filters, columns, widths, sorts, and relationships will also be removed.`,
-      )
+        treeRoot.reference.deployment !== selectedReference.deployment)
     ) {
+      setPendingRootReplacement({
+        label: selected.label,
+        reference: selectedReference,
+        removedNodeNames: subtreeNodeNames(treeRoot, treeRoot.id),
+      });
       return;
     }
-    if (replacingRoot) {
-      setViewFilters([]);
-      setGlobalFreeText('');
-      setContentState('latest');
-    }
+    openRoot({ label: selected.label, reference: selectedReference });
+  }
 
+  function replaceRoot(replacement: RootChoice) {
+    setViewFilters([]);
+    setGlobalFreeText('');
+    setContentState('latest');
+    openRoot(replacement);
+  }
+
+  // Keeps the current tree when the selected root is the one already open.
+  function openRoot({ label, reference: selectedReference }: RootChoice) {
     setReference(selectedReference);
     setTreeRoot((current) => {
       if (
@@ -460,7 +492,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       }
       return {
         id: 'node-root',
-        name: selected.label,
+        name: label,
         reference: selectedReference,
         presentation: {
           visibleColumns: ['*'],
@@ -480,12 +512,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }
 
   function clearToken() {
-    if (
-      !reference ||
-      !window.confirm('Clear the session token? The current view will stay open.')
-    ) {
-      return;
-    }
+    if (!reference) return;
     tokenStore.clear(reference.deployment);
     setToken('');
     setActiveToken('');
@@ -495,8 +522,45 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectingRoot(false);
   }
 
+  // Resets the view straight away; the toast offers to restore the previous view.
   function resetView() {
-    if (!window.confirm('Reset the complete view? Your session token will be preserved.')) return;
+    if (!treeRoot) {
+      clearView();
+      return;
+    }
+    const previous: PersistedView = {
+      version: 2,
+      root: treeRoot,
+      contentState,
+      viewFilters,
+      globalFreeText,
+    };
+    clearView();
+    offerUndo('View reset', 'Your session token was kept.', undefined, () => restoreView(previous));
+  }
+
+  // Restores a view like opening its shared link: the token comes from the store.
+  function restoreView(view: PersistedView) {
+    const rootReference = view.root.reference;
+    const storedToken = tokenStore.read(rootReference.deployment) ?? '';
+    setToken(storedToken);
+    setActiveToken(storedToken);
+    setTokenDeployment(rootReference.deployment);
+    setTokenRequired(!storedToken);
+    setInputError(undefined);
+    setChangingRoot(false);
+    setSelectingRoot(false);
+    setTreeRoot(view.root);
+    setReference(rootReference);
+    setCollectionInput(collectionUrl(rootReference));
+    setContentState(view.contentState);
+    setGlobalFreeText(view.globalFreeText);
+    setViewFilters(view.viewFilters);
+    setCatalogInstance(instanceReference(rootReference));
+    setSelectedRootZuid(rootReference.modelZuid);
+  }
+
+  function clearView() {
     setTreeRoot(undefined);
     setReference(undefined);
     setCollectionInput('');
@@ -545,6 +609,49 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }
 
   const showStart = !reference || tokenRequired || changingRoot || selectingRoot;
+
+  // Removes the node straight away; the toast offers to restore the previous tree.
+  function removeNode(nodeId: CollectionNodeId) {
+    if (!treeRoot) return;
+    const previous = treeRoot;
+    const next = removeCollectionNode(previous, nodeId);
+    setTreeRoot(next);
+    offerUndo(
+      `Removed ${subtreeNodeNames(previous, nodeId).join(', ')}`,
+      'Its saved table state was removed too.',
+      next,
+      () => setTreeRoot(previous),
+    );
+  }
+
+  // Shows an undo toast that stays usable only until the tree changes again.
+  // An undo offer only makes sense until the user moves on to another change.
+  function withdrawUndo() {
+    if (!pendingUndo.current) return;
+    toast.dismiss(pendingUndo.current.toastId);
+    pendingUndo.current = undefined;
+  }
+
+  function offerUndo(
+    title: string,
+    description: string,
+    nextTreeRoot: CollectionNode | undefined,
+    undo: () => void,
+  ) {
+    withdrawUndo();
+    const toastId = toast(title, {
+      description,
+      duration: actionToastDuration,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          pendingUndo.current = undefined;
+          undo();
+        },
+      },
+    });
+    pendingUndo.current = { toastId, treeRoot: nextTreeRoot };
+  }
 
   function addRelatedCollection(
     parentId: CollectionNodeId,
@@ -679,7 +786,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     <RotateCcw size={14} /> Reset view
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={clearToken}>
+                  <DropdownMenuItem variant="destructive" onClick={() => setClearTokenOpen(true)}>
                     <Trash2 size={14} /> Clear saved token
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -717,9 +824,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
               }
               onChangeRoot={openRootPicker}
-              onRemove={(nodeId) =>
-                setTreeRoot((root) => (root ? removeCollectionNode(root, nodeId) : root))
-              }
+              onRemove={removeNode}
               onRelationshipChange={(nodeId, relationship) =>
                 setTreeRoot((root) =>
                   root ? updateCollectionRelationship(root, nodeId, relationship) : root,
@@ -767,7 +872,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <Button variant="outline" onClick={copyRawView}>
                   Copy raw view data
                 </Button>
-                <Button onClick={resetView}>Reset view</Button>
+                <Button onClick={clearView}>Reset view</Button>
               </CardFooter>
             </Card>
           ) : showStart ? (
@@ -894,6 +999,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   <Label htmlFor="session-token">Zesty session token</Label>
                   <div className="relative">
                     <Input
+                      ref={sessionTokenInput}
                       className="pr-10"
                       id="session-token"
                       type={showToken ? 'text' : 'password'}
@@ -1081,6 +1187,36 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           setSelectedItemId(undefined);
           window.setTimeout(() => detailsTrigger.current?.focus(), 100);
         }}
+      />
+      <ConfirmDialog
+        open={pendingRootReplacement !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPendingRootReplacement(undefined);
+        }}
+        title="Replace root collection?"
+        description="These collection nodes will be removed:"
+        confirmLabel="Replace root"
+        onConfirm={() => {
+          if (pendingRootReplacement) replaceRoot(pendingRootReplacement);
+        }}
+      >
+        <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm">
+          {pendingRootReplacement?.removedNodeNames.map((name, index) => (
+            <li key={`${index}:${name}`}>{name}</li>
+          ))}
+        </ul>
+        <p className="text-muted-foreground text-sm">
+          Saved filters, columns, widths, sorts, and relationships will also be removed.
+        </p>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={clearTokenOpen}
+        onOpenChange={setClearTokenOpen}
+        title="Clear saved session token?"
+        description="The current view stays open. You will need to enter a token again to load data."
+        confirmLabel="Clear token"
+        onConfirm={clearToken}
+        finalFocus={sessionTokenInput}
       />
     </main>
   );

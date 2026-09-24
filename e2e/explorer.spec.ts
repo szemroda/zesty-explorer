@@ -459,10 +459,16 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByRole('button', { name: 'Close item history' }).click();
   await expect(detailsTrigger).toBeFocused();
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByLabel('Actions for Custom children').click();
   await page.getByRole('menuitem', { name: 'Remove', exact: true }).click();
   await expect(page.getByText('Custom children', { exact: true })).toHaveCount(0);
+  const removedToast = page
+    .locator('[data-sonner-toast]')
+    .filter({ hasText: 'Removed Custom children' });
+  await removedToast.getByRole('button', { name: 'Undo' }).click();
+  await expect(
+    page.getByRole('complementary', { name: 'Collection tree' }).getByText('Custom children'),
+  ).toBeVisible();
 });
 
 test('uses descendant filters and restores a non-secret link in another tab', async ({
@@ -497,13 +503,12 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await restored.close();
 });
 
-test('recovers corrupt links and confirms root replacement and reset', async ({ page }) => {
+test('recovers corrupt links, confirms root replacement and undoes a reset', async ({ page }) => {
   await installFakeApi(page);
   await page.goto('/#view=truncated');
   await expect(
     page.getByRole('heading', { name: 'Shared view could not be restored' }),
   ).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Reset view' }).click();
   await expect(page.getByRole('heading', { name: 'Open a Zesty collection' })).toBeVisible();
 
@@ -521,13 +526,18 @@ test('recovers corrupt links and confirms root replacement and reset', async ({ 
   await expect(page.getByRole('heading', { name: 'Change view setup' })).toBeVisible();
   await page.getByLabel('Zesty instance URL').fill(childUrl);
   await page.getByRole('button', { name: 'Load collections' }).click();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Open root collection' }).click();
+  const replaceRoot = page.getByRole('alertdialog', { name: 'Replace root collection?' });
+  await expect(replaceRoot.getByRole('listitem')).toHaveText(['6-rootmodel']);
+  await replaceRoot.getByRole('button', { name: 'Replace root' }).click();
   await expect(page.getByRole('heading', { name: '6-childmodel' })).toBeVisible();
   await page.getByLabel('View options').click();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('menuitem', { name: 'Reset view' }).click();
   await expect(page).not.toHaveURL(/#view=/);
+  const resetToast = page.locator('[data-sonner-toast]').filter({ hasText: 'View reset' });
+  await resetToast.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('heading', { name: '6-childmodel' })).toBeVisible();
+  await expect(page).toHaveURL(/#view=/);
 });
 
 test('keeps partial roots and failed descendants usable with persistent recovery', async ({

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Effect, Either } from 'effect';
+import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeCollectionPage,
@@ -10,6 +11,7 @@ import {
   type CollectionSchema,
   type CollectionSnapshot,
   type ExplorerError,
+  type PersistedView,
 } from '../domain';
 import type { SessionTokenStore } from '../view-codec';
 import { ViewCodec } from '../view-codec';
@@ -89,6 +91,67 @@ function api(
   };
 }
 
+const rootWithChild = {
+  id: 'node-root',
+  name: 'Stories',
+  reference: {
+    instanceZuid: '8-abc123',
+    modelZuid: '6-model123',
+    deployment: 'production',
+    area: 'content',
+    apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+    managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+  },
+  presentation: {
+    visibleColumns: ['*'],
+    columnWidths: {},
+    sort: { fieldPath: ['modified'], direction: 'desc' },
+    filters: [],
+    freeText: '',
+  },
+  children: [
+    {
+      id: 'node-child',
+      name: 'Related stories',
+      reference: {
+        instanceZuid: '8-abc123',
+        modelZuid: '6-child123',
+        deployment: 'production',
+        area: 'content',
+        apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+        managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+      },
+      relationship: {
+        kind: 'custom',
+        parentField: ['title'],
+        childField: ['title'],
+      },
+      presentation: {
+        visibleColumns: ['*'],
+        columnWidths: {},
+        sort: { fieldPath: ['modified'], direction: 'desc' },
+        filters: [],
+        freeText: '',
+      },
+      children: [],
+    },
+  ],
+} as const;
+
+function openSharedView(root: PersistedView['root']) {
+  window.history.replaceState(
+    null,
+    '',
+    ViewCodec.encode({
+      version: 2,
+      root,
+      contentState: 'latest',
+      viewFilters: [],
+      globalFreeText: '',
+    }).fragment,
+  );
+}
+
 async function submitStartForm(collectionUrl: string, token = 'fixture-session-token') {
   fireEvent.change(screen.getByLabelText('Zesty session token'), { target: { value: token } });
   fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
@@ -99,6 +162,7 @@ async function submitStartForm(collectionUrl: string, token = 'fixture-session-t
 }
 
 afterEach(() => {
+  toast.dismiss();
   cleanup();
   window.history.replaceState(null, '', '/');
   vi.restoreAllMocks();
@@ -400,9 +464,8 @@ describe('root collection browser', () => {
     expect(window.location.href).not.toContain('stored-session-token');
   });
 
-  it('offers raw-data recovery and a confirmed reset for malformed links', () => {
+  it('offers raw-data recovery and a reset for malformed links', () => {
     window.history.replaceState(null, '', '#view=truncated-data');
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<App api={api()} tokenStore={tokenStore()} />);
 
     expect(
@@ -411,6 +474,7 @@ describe('root collection browser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     expect(screen.getByRole('heading', { name: 'Open a Zesty collection' })).toBeInTheDocument();
     expect(window.location.hash).toBe('');
+    expect(screen.queryByText('View reset')).not.toBeInTheDocument();
   });
 
   it('synchronizes settled table state with replaceState', async () => {
@@ -833,75 +897,23 @@ describe('root collection browser', () => {
       usedTokens.push(sessionToken);
       return Effect.succeed(snapshot);
     });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<App api={testApi} tokenStore={tokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Clear saved token' }));
+    const confirmation = await screen.findByRole('alertdialog', {
+      name: 'Clear saved session token?',
+    });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Clear token' }));
+    await waitFor(() => expect(screen.getByLabelText('Zesty session token')).toHaveFocus());
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
   });
 
   it('resumes descendant loading after a nested authentication failure', async () => {
     let childAttempts = 0;
-    const root = {
-      id: 'node-root',
-      name: 'Stories',
-      reference: {
-        instanceZuid: '8-abc123',
-        modelZuid: '6-model123',
-        deployment: 'production',
-        area: 'content',
-        apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
-        managerBaseUrl: 'https://8-abc123.manager.zesty.io',
-      },
-      presentation: {
-        visibleColumns: ['*'],
-        columnWidths: {},
-        sort: { fieldPath: ['modified'], direction: 'desc' },
-        filters: [],
-        freeText: '',
-      },
-      children: [
-        {
-          id: 'node-child',
-          name: 'Related stories',
-          reference: {
-            instanceZuid: '8-abc123',
-            modelZuid: '6-child123',
-            deployment: 'production',
-            area: 'content',
-            apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
-            managerBaseUrl: 'https://8-abc123.manager.zesty.io',
-          },
-          relationship: {
-            kind: 'custom',
-            parentField: ['title'],
-            childField: ['title'],
-          },
-          presentation: {
-            visibleColumns: ['*'],
-            columnWidths: {},
-            sort: { fieldPath: ['modified'], direction: 'desc' },
-            filters: [],
-            freeText: '',
-          },
-          children: [],
-        },
-      ],
-    } as const;
-    window.history.replaceState(
-      null,
-      '',
-      ViewCodec.encode({
-        version: 2,
-        root,
-        contentState: 'latest',
-        viewFilters: [],
-        globalFreeText: '',
-      }).fragment,
-    );
+    openSharedView(rootWithChild);
     const testApi: ZestyApi = {
       ...api(),
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
@@ -927,5 +939,113 @@ describe('root collection browser', () => {
     );
     await waitFor(() => expect(childAttempts).toBe(2));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+  });
+});
+
+describe('confirmations and undo', () => {
+  // Several toasts can be open at once, so the action is looked up inside its own toast.
+  async function findToastAction(title: string, action: string) {
+    const toast = (await screen.findByText(title)).closest('[data-sonner-toast]');
+    if (!(toast instanceof HTMLElement)) throw new Error(`No toast titled ${title}`);
+    return within(toast).getByRole('button', { name: action });
+  }
+
+  function openViewWithChild(testApi: ZestyApi = api()) {
+    openSharedView(rootWithChild);
+    render(<App api={testApi} tokenStore={storedTokenStore()} />);
+  }
+
+  it('removes a collection node at once and restores it with undo', async () => {
+    openViewWithChild();
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for Related stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }));
+
+    expect(screen.queryByText('Related stories')).not.toBeInTheDocument();
+    fireEvent.click(await findToastAction('Removed Related stories', 'Undo'));
+    expect(await screen.findByText('Related stories')).toBeInTheDocument();
+  });
+
+  it('withdraws the undo offer once the tree changes again', async () => {
+    openViewWithChild();
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for Related stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }));
+    await findToastAction('Removed Related stories', 'Undo');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Rename Stories'), { target: { value: 'Articles' } });
+    fireEvent.blur(screen.getByLabelText('Rename Stories'));
+
+    await waitFor(() =>
+      expect(screen.queryByText('Removed Related stories')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('resets the view at once and restores it with undo', async () => {
+    openViewWithChild();
+    await screen.findByRole('heading', { name: 'Stories' });
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset view' }));
+
+    expect(screen.getByRole('heading', { name: 'Open a Zesty collection' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    fireEvent.click(await findToastAction('View reset', 'Undo'));
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    expect(await screen.findByText('Related stories')).toBeInTheDocument();
+    expect(window.location.hash).toMatch(/^#view=/);
+  });
+
+  it('withdraws the reset undo offer once a new collection setup starts', async () => {
+    openViewWithChild();
+    await screen.findByRole('heading', { name: 'Stories' });
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset view' }));
+    await findToastAction('View reset', 'Undo');
+
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+
+    await waitFor(() => expect(screen.queryByText('View reset')).not.toBeInTheDocument());
+  });
+
+  it('asks before replacing the root and keeps the view when cancelled', async () => {
+    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
+      Effect.succeed(snapshot),
+    );
+    openViewWithChild(api(loadCollectionSnapshot));
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for Stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
+    fireEvent.change(screen.getByLabelText('Root collection reference'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-other123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+
+    const confirmation = await screen.findByRole('alertdialog', {
+      name: 'Replace root collection?',
+    });
+    expect(
+      within(confirmation)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Stories', 'Related stories']);
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Choose the root collection' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(
+      within(
+        await screen.findByRole('alertdialog', { name: 'Replace root collection?' }),
+      ).getByRole('button', { name: 'Replace root' }),
+    );
+    await waitFor(() =>
+      expect(
+        loadCollectionSnapshot.mock.calls.some(
+          ([reference]) => reference.modelZuid === '6-other123',
+        ),
+      ).toBe(true),
+    );
   });
 });

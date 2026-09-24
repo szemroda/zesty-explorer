@@ -11,11 +11,7 @@ import type {
   RelationshipDefinition,
   ExplorerError,
 } from '../../domain';
-import {
-  findNativeRelationshipCandidates,
-  findNativeRelationships,
-  subtreeNodeNames,
-} from '../../explorer-core';
+import { findNativeRelationshipCandidates, findNativeRelationships } from '../../explorer-core';
 import { CollectionPicker } from './CollectionPicker';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Button } from './ui/button';
@@ -656,12 +652,6 @@ function TreeNodeRow({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(node.name);
 
-  function remove() {
-    const names = subtreeNodeNames(root, node.id);
-    if (!window.confirm(`Remove ${names.join(', ')} and all of its saved table state?`)) return;
-    onRemove(node.id);
-  }
-
   return (
     <li>
       <div
@@ -722,7 +712,7 @@ function TreeNodeRow({
               />
             ) : null}
             {node.id !== root.id ? (
-              <DropdownMenuItem variant="destructive" onClick={remove}>
+              <DropdownMenuItem variant="destructive" onClick={() => onRemove(node.id)}>
                 <Trash2 size={12} /> <span>Remove</span>
               </DropdownMenuItem>
             ) : null}
