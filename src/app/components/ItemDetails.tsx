@@ -1,8 +1,8 @@
-import { Check, Clock3, Copy, History, LoaderCircle, Search, X } from 'lucide-react';
+import { Check, Clock3, Copy, ExternalLink, History, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import type { ContentItem, ContentItemReference, ExplorerError } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
-import { itemDisplayLabel } from '../content-item-presentation';
+import { itemDisplayLabel, managerItemUrl } from '../content-item-presentation';
 import { copyText } from '../copy-text';
 import { describeExplorerError } from '../error-message';
 import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
@@ -18,6 +18,7 @@ import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FieldsComparison, RawJsonComparison } from './ItemVersionComparison';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { buttonVariants } from './ui/button-variants';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, FieldDescription, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
@@ -349,6 +350,7 @@ function ItemDetailsPanel({
     : preview.history.error
       ? 'Saved versions could not load.'
       : 'This item has only one saved version.';
+  const managerUrl = managerItemUrl(reference, item.id);
   function selectMode(next: HistoryMode) {
     setMode(next);
     setChosenPair(undefined);
@@ -373,12 +375,25 @@ function ItemDetailsPanel({
             </DialogTitle>
             <span className="shrink-0 font-mono text-xs text-muted-foreground">{item.id}</span>
           </div>
-          <DialogClose
-            render={<Button variant="ghost" size="icon-sm" />}
-            aria-label="Close item history"
-          >
-            <X size={18} />
-          </DialogClose>
+          <div className="flex shrink-0 items-center gap-2">
+            {managerUrl ? (
+              <a
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                href={managerUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink size={14} aria-hidden="true" />
+                Open in Zesty Manager
+              </a>
+            ) : null}
+            <DialogClose
+              render={<Button variant="ghost" size="icon-sm" />}
+              aria-label="Close item history"
+            >
+              <X size={18} />
+            </DialogClose>
+          </div>
         </DialogHeader>
 
         <div className="grid min-h-0 grid-cols-[285px_minmax(0,1fr)]">

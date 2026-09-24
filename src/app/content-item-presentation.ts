@@ -1,4 +1,11 @@
-import type { CollectionSchema, ContentItem, NodePresentation, SortState } from '../domain';
+import type {
+  CollectionReference,
+  CollectionSchema,
+  ContentItem,
+  ItemZuid,
+  NodePresentation,
+  SortState,
+} from '../domain';
 
 const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
 
@@ -134,6 +141,15 @@ export function itemDisplayLabel(item: ContentItem): string {
     .map(formatContentValue)
     .find((text) => text !== '');
   return label ?? item.id;
+}
+
+// Zesty Manager editor page for an item; collections outside content and blocks have none.
+export function managerItemUrl(
+  reference: Pick<CollectionReference, 'managerBaseUrl' | 'area' | 'modelZuid'>,
+  itemId: ItemZuid,
+): string | undefined {
+  if (reference.area === 'other') return undefined;
+  return `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${itemId}`;
 }
 
 export function formatContentValue(value: unknown): string {

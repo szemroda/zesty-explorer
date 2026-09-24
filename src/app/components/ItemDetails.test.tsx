@@ -79,6 +79,21 @@ describe('ItemDetails version preview', () => {
     expect(screen.getByRole('heading', { name: 'Version 1' })).toBeInTheDocument();
   });
 
+  it('links the item to Zesty Manager in a new tab', () => {
+    renderDetails({
+      loadItemVersions: () => Effect.never,
+      loadItemPublishings: () => Effect.never,
+      loadInstanceUsers: () => Effect.never,
+    });
+
+    const link = screen.getByRole('link', { name: 'Open in Zesty Manager' });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://8-instance.manager.zesty.io/content/6-model/7-item',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
   it('switches fields and raw JSON together and shows enriched version statuses', async () => {
     const historical: ContentItem = {
       ...currentItem,

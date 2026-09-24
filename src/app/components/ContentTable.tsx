@@ -9,7 +9,11 @@ import {
 import { Fragment, memo, type ReactNode, useCallback, useState } from 'react';
 import type { CollectionReference, ContentItem } from '../../domain';
 import type { ContentTableInstance } from '../content-table-model';
-import { itemDisplayLabel, type ContentItemColumn } from '../content-item-presentation';
+import {
+  itemDisplayLabel,
+  managerItemUrl,
+  type ContentItemColumn,
+} from '../content-item-presentation';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import {
@@ -212,7 +216,7 @@ export function ContentItemActions({
   onOpenDetails,
 }: ContentItemActionsProps) {
   const itemLabel = itemDisplayLabel(item);
-  const hasManagerLink = reference.area !== 'other';
+  const managerUrl = managerItemUrl(reference, item.id);
 
   return (
     <div className="flex w-max items-center gap-1.5" role="group" aria-label="Item actions">
@@ -246,14 +250,14 @@ export function ContentItemActions({
       >
         <Eye size={15} />
       </TooltipTrigger>
-      {hasManagerLink ? (
+      {managerUrl ? (
         <TooltipTrigger
           text="Open in Zesty Manager in a new tab"
           render={
             <a
               className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
               aria-label={`Open ${itemLabel} in Zesty Manager`}
-              href={`${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}/${item.id}`}
+              href={managerUrl}
               target="_blank"
               rel="noreferrer"
             />
