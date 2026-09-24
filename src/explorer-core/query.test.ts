@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { generateRelationshipGraph, type CollectionSnapshot, type ContentItem } from '../domain';
+import {
+  generateRelationshipGraph,
+  type CollectionSnapshot,
+  type ContentItem,
+  type ItemZuid,
+} from '../domain';
 import {
   createExplorerGraph,
   facetValues,
@@ -108,24 +113,36 @@ describe('field paths and filter operators', () => {
   });
 });
 
+// A graph of `node-root` with one `node-child`, related by parent item ID → child item IDs.
+function parentChildGraph(
+  root: CollectionSnapshot,
+  child: CollectionSnapshot,
+  related: ReadonlyMap<ItemZuid, readonly ItemZuid[]>,
+) {
+  return createExplorerGraph({
+    rootNodeId: 'node-root',
+    snapshots: new Map([
+      ['node-root', root],
+      ['node-child', child],
+    ]),
+    childrenByNode: new Map([['node-root', ['node-child']]]),
+    relationshipsByChildNode: new Map([['node-child', related]]),
+  });
+}
+
 describe('graph queries', () => {
   it('uses descendant any semantics and retains the complete related-items list', () => {
     const generated = generateRelationshipGraph(200);
-    const relations = new Map(
-      generated.parents.items.map((parent, index) => [
-        parent.id,
-        [generated.children.items[index]!.id, generated.children.items[(index + 1) % 200]!.id],
-      ]),
+    const graph = parentChildGraph(
+      generated.parents,
+      generated.children,
+      new Map(
+        generated.parents.items.map((parent, index) => [
+          parent.id,
+          [generated.children.items[index]!.id, generated.children.items[(index + 1) % 200]!.id],
+        ]),
+      ),
     );
-    const graph = createExplorerGraph({
-      rootNodeId: 'node-root',
-      snapshots: new Map([
-        ['node-root', generated.parents],
-        ['node-child', generated.children],
-      ]),
-      childrenByNode: new Map([['node-root', ['node-child']]]),
-      relationshipsByChildNode: new Map([['node-child', relations]]),
-    });
     const rootId = generated.parents.items[0]!.id;
     const filtered = filterNodeItemIds(
       graph,
@@ -146,67 +163,22 @@ describe('graph queries', () => {
   });
 
   it('searches content fields recursively, strips HTML, and excludes technical values', () => {
-    const child = snapshot([item('7-child0', { body: '<b>Needle</b>' })]);
-    const root = snapshot([items[0]!, items[1]!]);
-    const graph = createExplorerGraph({
-      rootNodeId: 'node-root',
-      snapshots: new Map([
-        ['node-root', root],
-        ['node-child', child],
+    const root = snapshot([items[0]!, items[1]!, items[2]!]);
+    const rootIds = root.items.map((entry) => entry.id);
+    const graph = parentChildGraph(
+      root,
+      snapshot([item('7-child0', { body: '<b>Needle</b>' })]),
+      new Map([
+        [items[0]!.id, ['7-child0']],
+        [items[2]!.id, ['7-child0']],
       ]),
-      childrenByNode: new Map([['node-root', ['node-child']]]),
-      relationshipsByChildNode: new Map([['node-child', new Map([[items[0]!.id, ['7-child0']]])]]),
-    });
+    );
 
-    expect(
-      filterNodeItemIds(
-        graph,
-        'node-root',
-        root.items.map((entry) => entry.id),
-        [],
-        'needle',
-      ),
-    ).toEqual(['7-one000']);
-    expect(
-      filterNodeItemIds(
-        graph,
-        'node-root',
-        root.items.map((entry) => entry.id),
-        [],
-        'excluded',
-      ),
-    ).toEqual([]);
-  });
-
-  it('reuses descendant search results shared by several parents', () => {
-    const child = snapshot([item('7-shared0', { body: 'Needle' })]);
-    const roots = snapshot([items[0]!, items[1]!]);
-    const graph = createExplorerGraph({
-      rootNodeId: 'node-root',
-      snapshots: new Map([
-        ['node-root', roots],
-        ['node-child', child],
-      ]),
-      childrenByNode: new Map([['node-root', ['node-child']]]),
-      relationshipsByChildNode: new Map([
-        [
-          'node-child',
-          new Map([
-            [items[0]!.id, ['7-shared0']],
-            [items[1]!.id, ['7-shared0']],
-          ]),
-        ],
-      ]),
-    });
-    expect(
-      filterNodeItemIds(
-        graph,
-        'node-root',
-        roots.items.map((entry) => entry.id),
-        [],
-        'needle',
-      ),
-    ).toEqual([items[0]!.id, items[1]!.id]);
+    expect(filterNodeItemIds(graph, 'node-root', rootIds, [], 'needle')).toEqual([
+      items[0]!.id,
+      items[2]!.id,
+    ]);
+    expect(filterNodeItemIds(graph, 'node-root', rootIds, [], 'excluded')).toEqual([]);
   });
 
   it('keeps table filtering local to that node', () => {

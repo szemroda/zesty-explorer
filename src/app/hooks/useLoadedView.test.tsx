@@ -1,57 +1,23 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { Effect } from 'effect';
-import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
-  type CollectionNode,
   type CollectionSchema,
   type CollectionSnapshot,
   type ExplorerError,
   type ModelZuid,
 } from '../../domain';
+import { collectionNode, queryClientWrapper } from '../../test/fixtures';
 import type { CollectionApi } from '../../zesty-api';
 import { useLoadedView } from './useLoadedView';
 
 const generated = generateRelationshipGraph(2);
 
-function collectionNode(
-  id: `node-${string}`,
-  modelZuid: ModelZuid,
-  children: readonly CollectionNode[] = [],
-): CollectionNode {
-  return {
-    id,
-    name: id,
-    reference: {
-      instanceZuid: '8-fixture-instance',
-      modelZuid,
-      deployment: 'production',
-      area: 'content',
-      apiBaseUrl: 'https://8-fixture-instance.api.zesty.io/v1',
-      managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
-    },
-    presentation: {
-      visibleColumns: ['*'],
-      columnWidths: {},
-      sort: { fieldPath: ['modified'], direction: 'desc' },
-      filters: [],
-      freeText: '',
-    },
-    children,
-  };
-}
-
 function collectionSnapshot(modelZuid: ModelZuid): CollectionSnapshot {
   const source = modelZuid === '6-child' ? generated.children : generated.parents;
   return { ...source, id: `snapshot-${modelZuid}`, modelZuid };
-}
-
-function wrapper(client: QueryClient) {
-  return function QueryWrapper({ children }: { readonly children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  };
 }
 
 describe('loaded view query', () => {
@@ -82,7 +48,7 @@ describe('loaded view query', () => {
           enabled: true,
           requiresCompleteView: false,
         }),
-      { wrapper: wrapper(client) },
+      { wrapper: queryClientWrapper(client) },
     );
 
     await waitFor(() => expect(result.current.loadedView?.schemas.size).toBe(2));
@@ -119,7 +85,7 @@ describe('loaded view query', () => {
           enabled: true,
           requiresCompleteView: false,
         }),
-      { wrapper: wrapper(client) },
+      { wrapper: queryClientWrapper(client) },
     );
 
     await waitFor(() => expect(result.current.status).toEqual({ kind: 'failed', failure }));

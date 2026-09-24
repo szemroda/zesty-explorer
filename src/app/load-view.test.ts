@@ -2,10 +2,10 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   generateRelationshipGraph,
-  type CollectionNode,
   type CollectionSchema,
   type CollectionSnapshot,
 } from '../domain';
+import { collectionNode as node } from '../test/fixtures';
 import type { CollectionApi } from '../zesty-api';
 import { loadCollection, loadView, ViewLoadError } from './load-view';
 
@@ -15,33 +15,6 @@ const schema: CollectionSchema = {
   label: 'Root',
   fields: [],
 };
-
-function node(
-  id: `node-${string}`,
-  modelZuid: `6-${string}`,
-  children: readonly CollectionNode[] = [],
-): CollectionNode {
-  return {
-    id,
-    name: id,
-    reference: {
-      instanceZuid: '8-fixture-instance',
-      modelZuid,
-      deployment: 'production',
-      area: 'content',
-      apiBaseUrl: 'https://8-fixture-instance.api.zesty.io/v1',
-      managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
-    },
-    presentation: {
-      visibleColumns: ['*'],
-      columnWidths: {},
-      sort: { fieldPath: ['modified'], direction: 'desc' },
-      filters: [],
-      freeText: '',
-    },
-    children,
-  };
-}
 
 function snapshot(
   modelZuid: `6-${string}`,

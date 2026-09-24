@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { gzipSync, strToU8 } from 'fflate';
 import type { CollectionNode, PersistedView } from '../domain';
 import { v1EmptyColumnsFragment } from './fixtures/v1-empty-columns-fragment';
 import { v1Fragment } from './fixtures/v1-fragment';
-import { createSessionTokenStore, ViewCodec } from './index';
+import { createBrowserSessionTokenStore, ViewCodec } from './index';
 
 const root = {
   id: 'node-root',
@@ -173,19 +173,28 @@ describe('ViewCodec', () => {
 });
 
 describe('session token store', () => {
-  it('sets, reads, and clears only sessionStorage', () => {
-    const sessionStorage = new Map<string, string>();
-    const localStorage = new Map<string, string>();
-    const storage = {
-      getItem: (key: string) => sessionStorage.get(key) ?? null,
-      setItem: (key: string, value: string) => sessionStorage.set(key, value),
-      removeItem: (key: string) => sessionStorage.delete(key),
-    };
-    const store = createSessionTokenStore(storage);
-    store.set('production', 'private-value');
-    expect(store.read('production')).toBe('private-value');
-    expect(localStorage.size).toBe(0);
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it('keeps one trimmed token per deployment in sessionStorage only', () => {
+    const store = createBrowserSessionTokenStore();
+    store.set('production', '  production-token  ');
+    store.set('stage', 'stage-token');
+
+    const freshStore = createBrowserSessionTokenStore();
+    expect(freshStore.read('production')).toBe('production-token');
+    expect(freshStore.read('development')).toBeNull();
+    expect(window.sessionStorage).toHaveLength(2);
+    expect(window.localStorage).toHaveLength(0);
+
     store.clear('production');
     expect(store.read('production')).toBeNull();
+    expect(store.read('stage')).toBe('stage-token');
+  });
+
+  it('refuses an empty token', () => {
+    expect(() => createBrowserSessionTokenStore().set('production', '   ')).toThrow(/empty/);
   });
 });

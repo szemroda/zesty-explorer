@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FieldPathInput } from './FieldPathInput';
 
 function ParentPath() {
@@ -14,8 +14,6 @@ function ParentPath() {
     />
   );
 }
-
-afterEach(cleanup);
 
 describe('FieldPathInput', () => {
   it('suggests matching paths and hides the list once a path is typed in full', async () => {

@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Effect } from 'effect';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
   safeRequestUrl,
@@ -10,6 +11,7 @@ import {
   type ExplorerError,
   type ViewFilter,
 } from '../../domain';
+import { collectionNode } from '../../test/fixtures';
 import { snapshotQueryKey } from '../../zesty-api';
 import type { ItemVersionApi } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
@@ -34,43 +36,13 @@ const childSchema: CollectionSchema = {
   ],
 };
 const child: CollectionNode = {
-  id: 'node-child',
+  ...collectionNode('node-child', '6-fixture-children'),
   name: 'Children',
-  reference: {
-    instanceZuid: '8-fixture-instance',
-    modelZuid: '6-fixture-children',
-    deployment: 'production',
-    area: 'content',
-    apiBaseUrl: 'https://8-fixture-instance.api.zesty.io/v1',
-    managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
-  },
-  relationship: {
-    kind: 'custom',
-    parentField: ['childKey'],
-    childField: ['parentKey'],
-  },
-  presentation: {
-    visibleColumns: ['*'],
-    columnWidths: {},
-    sort: { fieldPath: ['modified'], direction: 'desc' },
-    filters: [],
-    freeText: '',
-  },
-  children: [],
+  relationship: { kind: 'custom', parentField: ['childKey'], childField: ['parentKey'] },
 };
 const root: CollectionNode = {
-  id: 'node-root',
+  ...collectionNode('node-root', '6-fixture-parents', [child]),
   name: 'Parents',
-  reference: {
-    instanceZuid: '8-fixture-instance',
-    modelZuid: '6-fixture-parents',
-    deployment: 'production',
-    area: 'content',
-    apiBaseUrl: 'https://8-fixture-instance.api.zesty.io/v1',
-    managerBaseUrl: 'https://8-fixture-instance.manager.zesty.io',
-  },
-  presentation: child.presentation,
-  children: [child],
 };
 const loadedView: LoadedView = {
   snapshots: {
@@ -93,7 +65,31 @@ const loadedView: LoadedView = {
   schemaErrors: new Map(),
 };
 
-afterEach(cleanup);
+// A root table over the Parents → Children fixture; props override the defaults.
+function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
+  return (
+    <RootTable
+      schema={rootSchema}
+      snapshot={generated.parents}
+      reference={root.reference}
+      treeRoot={root}
+      loadedView={loadedView}
+      contentState="latest"
+      onOpenDetails={vi.fn()}
+      onRetry={vi.fn()}
+      onPresentationChange={vi.fn()}
+      {...props}
+    />
+  );
+}
+
+function expandFirstParent() {
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+    }),
+  );
+}
 
 // The resize handle is a mouse-only affordance hidden from assistive technology.
 function resizeHandle(table: HTMLElement, column: string): HTMLElement {
@@ -104,6 +100,14 @@ function resizeHandle(table: HTMLElement, column: string): HTMLElement {
   return handle;
 }
 
+// Drags a resize handle far past the minimum width. jsdom has no layout, so every drag starts
+// from a zero width and only the clamp to the minimum is observable here.
+function dragBelowMinimumWidth(handle: HTMLElement) {
+  fireEvent.mouseDown(handle, { clientX: 300 });
+  fireEvent.mouseMove(document, { clientX: -1000 });
+  fireEvent.mouseUp(document);
+}
+
 describe('recursive collection tables', () => {
   it('shows Status in older explicit column selections and preserves a later hide', async () => {
     const onPresentationChange = vi.fn();
@@ -112,17 +116,7 @@ describe('recursive collection tables', () => {
       children: [],
       presentation: { ...root.presentation, visibleColumns: ['title'] },
     };
-    const props = {
-      schema: rootSchema,
-      snapshot: generated.parents,
-      reference: root.reference,
-      loadedView,
-      contentState: 'latest' as const,
-      onOpenDetails: vi.fn(),
-      onRetry: vi.fn(),
-      onPresentationChange,
-    };
-    render(<RootTable {...props} treeRoot={explicitRoot} />);
+    const first = render(rootTable({ treeRoot: explicitRoot, onPresentationChange }));
 
     const collection = screen.getByRole('region', { name: 'Parents collection' });
     expect(within(collection).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
@@ -133,15 +127,14 @@ describe('recursive collection tables', () => {
       expect.objectContaining({ statusColumnHidden: true }),
     );
 
-    cleanup();
+    first.unmount();
     render(
-      <RootTable
-        {...props}
-        treeRoot={{
+      rootTable({
+        treeRoot: {
           ...explicitRoot,
           presentation: { ...explicitRoot.presentation, statusColumnHidden: true },
-        }}
-      />,
+        },
+      }),
     );
     expect(screen.queryByRole('columnheader', { name: 'Status' })).not.toBeInTheDocument();
   });
@@ -161,35 +154,23 @@ describe('recursive collection tables', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
-          <RootTable
-            schema={rootSchema}
-            snapshot={generated.parents}
-            reference={root.reference}
-            treeRoot={root}
-            loadedView={loadedView}
-            contentState="latest"
-            onOpenDetails={vi.fn()}
-            onRetry={vi.fn()}
-            onPresentationChange={vi.fn()}
-          />
+          {rootTable()}
         </PublicationStatusProvider>
       </QueryClientProvider>,
     );
 
-    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    expect(within(rootTable).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
     expect(
-      await within(rootTable).findByRole('img', { name: /Latest saved version/ }),
+      within(rootTableRegion).getByRole('columnheader', { name: 'Status' }),
+    ).toBeInTheDocument();
+    expect(
+      await within(rootTableRegion).findByRole('img', { name: /Latest saved version/ }),
     ).toBeInTheDocument();
     expect(
       loadVersions.mock.calls.every(([reference]) => reference.modelZuid === rootSchema.modelZuid),
     ).toBe(true);
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
-      }),
-    );
+    expandFirstParent();
     const nested = await screen.findByRole('region', { name: 'Children related items' });
     expect(within(nested).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
     expect(
@@ -205,40 +186,23 @@ describe('recursive collection tables', () => {
   });
 
   it('mounts related rows only after their parent expands', async () => {
-    const details = vi.fn();
-    render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={root}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={details}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
-    );
+    const onOpenDetails = vi.fn();
+    render(rootTable({ onOpenDetails }));
 
     expect(
       screen.queryByRole('region', { name: 'Children related items' }),
     ).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
-      }),
-    );
+    expandFirstParent();
     expect(
       await screen.findByRole('region', { name: 'Children related items' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Child 0')).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Open details for Child 0',
-      }),
+    fireEvent.click(screen.getByRole('button', { name: 'Open details for Child 0' }));
+    expect(onOpenDetails).toHaveBeenCalledWith(
+      generated.children.items[0],
+      expect.any(HTMLElement),
     );
-    expect(details).toHaveBeenCalledWith(generated.children.items[0], expect.any(HTMLElement));
   });
 
   it('preserves nested expansion while a filter temporarily hides every row', async () => {
@@ -246,38 +210,19 @@ describe('recursive collection tables', () => {
       ...child,
       id: 'node-grandchild',
       name: 'Grandchildren',
-      relationship: {
-        kind: 'custom',
-        parentField: ['title'],
-        childField: ['title'],
-      },
+      relationship: { kind: 'custom', parentField: ['title'], childField: ['title'] },
     };
-    const childWithGrandchild = { ...child, children: [grandchild] };
-    const rootWithGrandchild = { ...root, children: [childWithGrandchild] };
-    const loadedViewWithGrandchild: LoadedView = {
-      ...loadedView,
-      schemas: new Map([...loadedView.schemas, [grandchild.id, childSchema]]),
-    };
-
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={rootWithGrandchild}
-        loadedView={loadedViewWithGrandchild}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      rootTable({
+        treeRoot: { ...root, children: [{ ...child, children: [grandchild] }] },
+        loadedView: {
+          ...loadedView,
+          schemas: new Map([...loadedView.schemas, [grandchild.id, childSchema]]),
+        },
       }),
     );
+
+    expandFirstParent();
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
     fireEvent.click(
       within(nestedTable).getByRole('button', {
@@ -308,21 +253,14 @@ describe('recursive collection tables', () => {
       value: 'nothing matches',
     };
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={{
+      rootTable({
+        treeRoot: {
           ...root,
           presentation: { ...root.presentation, filters: [noMatch], freeText: 'Parent' },
-        }}
-        loadedView={loadedView}
-        contentState="latest"
-        viewFilters={[noMatch]}
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={onPresentationChange}
-      />,
+        },
+        viewFilters: [noMatch],
+        onPresentationChange,
+      }),
     );
 
     const collection = screen.getByRole('region', { name: 'Parents collection' });
@@ -346,29 +284,13 @@ describe('recursive collection tables', () => {
 
   it('sorts root and nested collections from their column headers', async () => {
     const onPresentationChange = vi.fn();
-    render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={root}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={onPresentationChange}
-      />,
-    );
+    render(rootTable({ onPresentationChange }));
 
-    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    fireEvent.click(within(rootTable).getByRole('button', { name: 'Title' }));
-    expect(within(rootTable).getAllByRole('row')[1]).toHaveTextContent('Parent 0');
+    const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
+    fireEvent.click(within(rootTableRegion).getByRole('button', { name: 'Title' }));
+    expect(within(rootTableRegion).getAllByRole('row')[1]).toHaveTextContent('Parent 0');
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
-      }),
-    );
+    expandFirstParent();
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
     fireEvent.click(within(nestedTable).getByRole('button', { name: 'Title' }));
 
@@ -395,103 +317,53 @@ describe('recursive collection tables', () => {
       ...rootSchema,
       fields: [{ id: '12-id000000', name: 'id', label: 'Id', kind: 'number' }],
     };
-    const rootWithoutChildren = { ...root, children: [] };
-    const idLoadedView: LoadedView = {
-      ...loadedView,
-      snapshots: {
-        snapshots: new Map([
-          [snapshotQueryKey(root.reference, 'latest'), { status: 'complete', snapshot }],
-        ]),
-        totalItems: items.length,
-      },
-      schemas: new Map([[root.id, idSchema]]),
-    };
-
     render(
-      <RootTable
-        schema={idSchema}
-        snapshot={snapshot}
-        reference={root.reference}
-        treeRoot={rootWithoutChildren}
-        loadedView={idLoadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
-    );
-
-    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    const idHeader = within(rootTable).getByRole('button', { name: 'Id' });
-    fireEvent.click(idHeader);
-    let rows = within(rootTable).getAllByRole('row').slice(1);
-
-    [1, 3, 4, 0, 2].forEach((itemIndex, rowIndex) => {
-      expect(rows[rowIndex]).toHaveTextContent(items[itemIndex]!.id);
-    });
-
-    fireEvent.click(idHeader);
-    rows = within(rootTable).getAllByRole('row').slice(1);
-    [4, 3, 1, 0, 2].forEach((itemIndex, rowIndex) => {
-      expect(rows[rowIndex]).toHaveTextContent(items[itemIndex]!.id);
-    });
-  });
-
-  it('resizes root and nested columns from their headers', async () => {
-    const onPresentationChange = vi.fn();
-    render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={root}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={onPresentationChange}
-      />,
-    );
-
-    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    const rootResizeHandle = resizeHandle(rootTable, 'Title');
-    fireEvent.mouseDown(rootResizeHandle, { clientX: 100 });
-    fireEvent.mouseMove(document, { clientX: 140 });
-    fireEvent.mouseUp(document);
-    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
-      ...root.presentation,
-      columnWidths: { title: 90 },
-    });
-    fireEvent.mouseDown(rootResizeHandle, { clientX: 300 });
-    fireEvent.mouseMove(document, { clientX: -1000 });
-    fireEvent.mouseUp(document);
-    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
-      ...root.presentation,
-      columnWidths: { title: 90 },
-    });
-    onPresentationChange.mockClear();
-
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      rootTable({
+        schema: idSchema,
+        snapshot,
+        treeRoot: { ...root, children: [] },
+        loadedView: {
+          ...loadedView,
+          snapshots: {
+            snapshots: new Map([
+              [snapshotQueryKey(root.reference, 'latest'), { status: 'complete', snapshot }],
+            ]),
+            totalItems: items.length,
+          },
+          schemas: new Map([[root.id, idSchema]]),
+        },
       }),
     );
-    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
-    const nestedResizeHandle = resizeHandle(nestedTable, 'Title');
 
-    fireEvent.mouseDown(nestedResizeHandle, { clientX: 100 });
-    fireEvent.mouseMove(document, { clientX: 140 });
-    fireEvent.mouseUp(document);
+    const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
+    const idHeader = within(rootTableRegion).getByRole('button', { name: 'Id' });
+    const rowItemIndexes = () =>
+      within(rootTableRegion)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => items.findIndex((item) => row.textContent?.includes(item.id)));
 
-    expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
-      ...child.presentation,
-      visibleColumns: ['$id', '$status', 'title', 'parentKey'],
-      statusColumnHidden: false,
+    fireEvent.click(idHeader);
+    expect(rowItemIndexes()).toEqual([1, 3, 4, 0, 2]);
+    fireEvent.click(idHeader);
+    expect(rowItemIndexes()).toEqual([4, 3, 1, 0, 2]);
+  });
+
+  it('clamps root and nested column resizes to the minimum width', async () => {
+    const onPresentationChange = vi.fn();
+    render(rootTable({ onPresentationChange }));
+
+    dragBelowMinimumWidth(
+      resizeHandle(screen.getByRole('region', { name: 'Parents collection' }), 'Title'),
+    );
+    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
+      ...root.presentation,
       columnWidths: { title: 90 },
     });
-    fireEvent.mouseDown(nestedResizeHandle, { clientX: 300 });
-    fireEvent.mouseMove(document, { clientX: -1000 });
-    fireEvent.mouseUp(document);
+
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+    dragBelowMinimumWidth(resizeHandle(nestedTable, 'Title'));
     expect(onPresentationChange).toHaveBeenLastCalledWith(child.id, {
       ...child.presentation,
       visibleColumns: ['$id', '$status', 'title', 'parentKey'],
@@ -513,40 +385,26 @@ describe('recursive collection tables', () => {
         issues: [{ path: '$.data', expected: 'array', received: 'object' }],
       },
     };
-    const failedView: LoadedView = {
-      ...loadedView,
-      snapshots: {
-        ...loadedView.snapshots,
-        snapshots: new Map([
-          [
-            snapshotQueryKey(root.reference, 'latest'),
-            { status: 'complete', snapshot: generated.parents },
-          ],
-          [snapshotQueryKey(child.reference, 'latest'), { status: 'failed', error: failure }],
-        ]),
-      },
-      schemas: new Map([[root.id, rootSchema]]),
-      schemaErrors: new Map([[child.id, failure]]),
-    };
-
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={root}
-        loadedView={failedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
-    );
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      rootTable({
+        loadedView: {
+          ...loadedView,
+          snapshots: {
+            ...loadedView.snapshots,
+            snapshots: new Map([
+              [
+                snapshotQueryKey(root.reference, 'latest'),
+                { status: 'complete', snapshot: generated.parents },
+              ],
+              [snapshotQueryKey(child.reference, 'latest'), { status: 'failed', error: failure }],
+            ]),
+          },
+          schemas: new Map([[root.id, rootSchema]]),
+          schemaErrors: new Map([[child.id, failure]]),
+        },
       }),
     );
+    expandFirstParent();
 
     expect(await screen.findByText(/Children: Zesty returned model fields/)).toBeVisible();
     expect(screen.queryByText('Loading collection schema')).not.toBeInTheDocument();
@@ -557,27 +415,15 @@ describe('recursive collection tables', () => {
   });
 
   it('shows ZUID first by default in root and nested tables and lets the user hide it', async () => {
-    render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={root}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
-    );
+    render(rootTable());
 
-    const rootTable = screen.getByRole('region', { name: 'Parents collection' });
-    const rootHeaders = within(rootTable).getAllByRole('columnheader');
+    const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
+    const rootHeaders = within(rootTableRegion).getAllByRole('columnheader');
     expect(rootHeaders[1]).toHaveAccessibleName('ZUID');
     expect(rootHeaders[2]).toHaveAccessibleName('Status');
     expect(rootHeaders[3]).toHaveAccessibleName('Title');
 
-    const rootColumnsButton = within(rootTable).getByRole('button', {
+    const rootColumnsButton = within(rootTableRegion).getByRole('button', {
       name: 'Choose visible columns',
     });
     fireEvent.click(rootColumnsButton);
@@ -587,31 +433,25 @@ describe('recursive collection tables', () => {
     expect(status).toBeChecked();
     fireEvent.click(status);
     expect(
-      within(rootTable).queryByRole('columnheader', { name: 'Status' }),
+      within(rootTableRegion).queryByRole('columnheader', { name: 'Status' }),
     ).not.toBeInTheDocument();
     expect(rootColumnsButton).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(status);
     const zuid = screen.getByRole('menuitemcheckbox', { name: 'ZUID' });
     expect(zuid).toBeChecked();
     fireEvent.click(zuid);
-    expect(within(rootTable).queryByRole('columnheader', { name: 'ZUID' })).not.toBeInTheDocument();
+    expect(
+      within(rootTableRegion).queryByRole('columnheader', { name: 'ZUID' }),
+    ).not.toBeInTheDocument();
     fireEvent.click(rootColumnsButton);
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
-      }),
-    );
+    expandFirstParent();
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
     const nestedHeaders = within(nestedTable).getAllByRole('columnheader');
     expect(nestedHeaders[1]).toHaveAccessibleName('ZUID');
     expect(nestedHeaders[2]).toHaveAccessibleName('Status');
     expect(nestedHeaders[3]).toHaveAccessibleName('Title');
-    fireEvent.click(
-      within(nestedTable).getByRole('button', {
-        name: 'Choose Children columns',
-      }),
-    );
+    fireEvent.click(within(nestedTable).getByRole('button', { name: 'Choose Children columns' }));
     const nestedColumnControls = await screen.findAllByRole('menuitemcheckbox');
     expect(nestedColumnControls[0]).toHaveAccessibleName('ZUID');
     expect(screen.getByRole('menuitemcheckbox', { name: 'ZUID' })).toBeChecked();
@@ -620,17 +460,10 @@ describe('recursive collection tables', () => {
   it('does not guess a Manager item URL for an unrecognized collection type', () => {
     const otherReference = { ...root.reference, area: 'other' as const };
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={otherReference}
-        treeRoot={{ ...root, reference: otherReference, children: [] }}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
+      rootTable({
+        reference: otherReference,
+        treeRoot: { ...root, reference: otherReference, children: [] },
+      }),
     );
 
     expect(screen.getAllByRole('button', { name: /Open details for/ })).not.toHaveLength(0);
@@ -639,17 +472,9 @@ describe('recursive collection tables', () => {
 
   it('preserves an explicit choice to hide every data column', async () => {
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={root.reference}
-        treeRoot={{ ...root, presentation: { ...root.presentation, visibleColumns: [] } }}
-        loadedView={loadedView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={vi.fn()}
-      />,
+      rootTable({
+        treeRoot: { ...root, presentation: { ...root.presentation, visibleColumns: [] } },
+      }),
     );
     expect(screen.queryByRole('columnheader', { name: 'Title' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
@@ -677,39 +502,28 @@ describe('recursive collection tables', () => {
         sort: { fieldPath: ['metadata', 'workflowStatus'], direction: 'asc' },
       },
     };
-    const metadataRoot = { ...root, children: [metadataChild] };
-    const metadataView: LoadedView = {
-      ...loadedView,
-      snapshots: {
-        ...loadedView.snapshots,
-        snapshots: new Map([
-          ...loadedView.snapshots.snapshots,
-          [snapshotQueryKey(metadataChild.reference, 'latest'), { status: 'complete', snapshot }],
-        ]),
-      },
-    };
-
     render(
-      <RootTable
-        schema={rootSchema}
-        snapshot={generated.parents}
-        reference={metadataRoot.reference}
-        treeRoot={metadataRoot}
-        loadedView={metadataView}
-        contentState="latest"
-        onOpenDetails={vi.fn()}
-        onRetry={vi.fn()}
-        onPresentationChange={onPresentationChange}
-      />,
-    );
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: `Expand relationships for ${generated.parents.items[0]!.id}`,
+      rootTable({
+        treeRoot: { ...root, children: [metadataChild] },
+        loadedView: {
+          ...loadedView,
+          snapshots: {
+            ...loadedView.snapshots,
+            snapshots: new Map([
+              ...loadedView.snapshots.snapshots,
+              [
+                snapshotQueryKey(metadataChild.reference, 'latest'),
+                { status: 'complete', snapshot },
+              ],
+            ]),
+          },
+        },
+        onPresentationChange,
       }),
     );
+    expandFirstParent();
 
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
-    expect(within(nestedTable).getByRole('button', { name: 'workflowStatus' })).toBeInTheDocument();
     fireEvent.click(within(nestedTable).getByRole('button', { name: 'workflowStatus' }));
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       metadataChild.id,

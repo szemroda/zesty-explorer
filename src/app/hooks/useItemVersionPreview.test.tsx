@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { Effect } from 'effect';
-import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference } from '../../domain';
+import { queryClientWrapper } from '../../test/fixtures';
 import type { ItemVersionApi } from '../../zesty-api';
 import { useItemVersionPreview } from './useItemVersionPreview';
 
@@ -23,12 +23,6 @@ const currentItem: ContentItem = {
   metadata: { version: 1 },
   raw: {},
 };
-
-function wrapper(client: QueryClient) {
-  return function QueryWrapper({ children }: { readonly children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  };
-}
 
 describe('item version preview query', () => {
   it('exposes history while publishing and author enrichment are still loading', async () => {
@@ -59,7 +53,7 @@ describe('item version preview query', () => {
           sessionToken: 'session-token',
           credentialRevision: 'test-credentials',
         }),
-      { wrapper: wrapper(client) },
+      { wrapper: queryClientWrapper(client) },
     );
 
     await waitFor(() => expect(result.current.options.map(({ number }) => number)).toEqual([2, 1]));

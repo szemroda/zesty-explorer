@@ -1,4 +1,4 @@
-import { Effect, Either, Exit, Fiber } from 'effect';
+import { Effect, Exit, Fiber } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fixtureCollectionPage } from '../domain';
 import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
@@ -9,17 +9,22 @@ const parsedReference = parseCollectionReference(
 );
 if (!parsedReference.ok) throw new Error('Test reference must parse');
 const reference = parsedReference.value;
+const itemReference = { ...reference, itemZuid: '7-documented-item' } as const;
 const parsedInstance = parseInstanceReference('https://8-abc123.manager.zesty.io/');
 if (!parsedInstance.ok) throw new Error('Test instance must parse');
 const instance = parsedInstance.value;
 
+const authenticatedGet = {
+  method: 'GET',
+  headers: { authorization: 'Bearer private-token', accept: 'application/json' },
+} as const;
+
+// Records every request and answers it with the handler's result for that attempt (1-based).
 function fakeTransport(
   handler: (
     request: ZestyTransportRequest,
     attempt: number,
-  ) => ZestyTransport['request'] extends (request: ZestyTransportRequest) => infer Result
-    ? Result
-    : never,
+  ) => ReturnType<ZestyTransport['request']>,
 ): { readonly transport: ZestyTransport; readonly requests: ZestyTransportRequest[] } {
   const requests: ZestyTransportRequest[] = [];
   return {
@@ -33,21 +38,20 @@ function fakeTransport(
   };
 }
 
+// Answers every request with the same response.
+function respondWith(body: unknown, status = 200) {
+  return fakeTransport(() => Effect.succeed({ status, headers: {}, body }));
+}
+
 describe('ZestyApi', () => {
   it('loads the complete collection catalog with an authenticated GET', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'pageset' },
-            { ZUID: '6-blocks123', label: 'Hero blocks', name: 'hero_blocks', type: 'block' },
-            { ZUID: '6-custom123', label: 'Custom', name: 'custom', type: 'future-kind' },
-          ],
-        },
-      }),
-    );
+    const fake = respondWith({
+      data: [
+        { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'pageset' },
+        { ZUID: '6-blocks123', label: 'Hero blocks', name: 'hero_blocks', type: 'block' },
+        { ZUID: '6-custom123', label: 'Custom', name: 'custom', type: 'future-kind' },
+      ],
+    });
 
     const catalog = await Effect.runPromise(
       createZestyApi(fake.transport).loadCollectionCatalog(instance, 'private-token'),
@@ -90,27 +94,17 @@ describe('ZestyApi', () => {
     ]);
     expect(catalog.incomplete).toBe(false);
     expect(fake.requests).toEqual([
-      {
-        method: 'GET',
-        url: 'https://8-abc123.api.zesty.io/v1/content/models',
-        headers: { authorization: 'Bearer private-token', accept: 'application/json' },
-      },
+      { ...authenticatedGet, url: 'https://8-abc123.api.zesty.io/v1/content/models' },
     ]);
   });
 
   it('keeps valid collections when individual catalog records are malformed', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'dataset' },
-            { ZUID: 42, label: false, name: 'broken', type: null },
-          ],
-        },
-      }),
-    );
+    const fake = respondWith({
+      data: [
+        { ZUID: '6-stories123', label: 'Stories', name: 'stories', type: 'dataset' },
+        { ZUID: 42, label: false, name: 'broken', type: null },
+      ],
+    });
 
     const catalog = await Effect.runPromise(
       createZestyApi(fake.transport).loadCollectionCatalog(instance, 'private-token'),
@@ -130,30 +124,42 @@ describe('ZestyApi', () => {
     expect(JSON.stringify(catalog.warning)).not.toContain('private-token');
   });
 
-  it('loads and decodes a collection schema with an authenticated GET', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              ZUID: '12-title123',
-              name: 'title',
-              label: 'Title',
-              datatype: 'text',
-            },
-            {
-              ZUID: '12-author12',
-              name: 'author',
-              label: 'Author',
-              datatype: 'one-to-one',
-              relatedModelZUID: '6-author123',
-            },
-          ],
+  it('loads a collection schema with an authenticated GET and maps Zesty datatypes', async () => {
+    const fake = respondWith({
+      data: [
+        { ZUID: '12-title123', name: 'title', label: 'Title', datatype: 'text' },
+        {
+          ZUID: '12-author12',
+          name: 'author',
+          label: 'Author',
+          datatype: 'one-to-one',
+          relatedModelZUID: '6-author123',
         },
-      }),
-    );
+        {
+          ZUID: '12-editor12',
+          name: 'editor',
+          label: 'Editor',
+          datatype: 'one_to_one',
+          relatedModelZUID: '6-author123',
+        },
+        {
+          ZUID: '12-featured',
+          name: 'featured',
+          label: 'Featured',
+          datatype: 'yes_no',
+          relatedModelZUID: null,
+        },
+        {
+          ZUID: '12-category1',
+          name: 'category',
+          label: 'Category',
+          datatype: 'dropdown',
+          relatedModelZUID: null,
+          options: null,
+          settings: { options: { news: 'News', guide: 'Guide' } },
+        },
+      ],
+    });
 
     const schema = await Effect.runPromise(
       createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
@@ -168,47 +174,14 @@ describe('ZestyApi', () => {
         kind: 'relationship',
         relatedModelZuid: '6-author123',
       },
-    ]);
-    expect(fake.requests).toEqual([
       {
-        method: 'GET',
-        url: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123/fields?lang=en-US',
-        headers: { authorization: 'Bearer private-token', accept: 'application/json' },
+        id: '12-editor12',
+        name: 'editor',
+        label: 'Editor',
+        kind: 'relationship',
+        relatedModelZuid: '6-author123',
       },
-    ]);
-  });
-
-  it('loads fields with nullable relationships and settings-based options', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              ZUID: '12-category1',
-              name: 'category',
-              label: 'Category',
-              datatype: 'dropdown',
-              relatedModelZUID: null,
-              options: null,
-              settings: {
-                options: {
-                  news: 'News',
-                  guide: 'Guide',
-                },
-              },
-            },
-          ],
-        },
-      }),
-    );
-
-    const schema = await Effect.runPromise(
-      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
-    );
-
-    expect(schema.fields).toEqual([
+      { id: '12-featured', name: 'featured', label: 'Featured', kind: 'boolean' },
       {
         id: '12-category1',
         name: 'category',
@@ -217,60 +190,24 @@ describe('ZestyApi', () => {
         options: ['news', 'guide'],
       },
     ]);
-  });
-
-  it('maps Zesty relationship and yes-no datatypes', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              ZUID: '12-author12',
-              name: 'author',
-              label: 'Author',
-              datatype: 'one_to_one',
-              relatedModelZUID: '6-author123',
-            },
-            {
-              ZUID: '12-featured',
-              name: 'featured',
-              label: 'Featured',
-              datatype: 'yes_no',
-              relatedModelZUID: null,
-            },
-          ],
-        },
-      }),
-    );
-
-    const schema = await Effect.runPromise(
-      createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
-    );
-
-    expect(schema.fields.map(({ name, kind }) => ({ name, kind }))).toEqual([
-      { name: 'author', kind: 'relationship' },
-      { name: 'featured', kind: 'boolean' },
+    expect(fake.requests).toEqual([
+      {
+        ...authenticatedGet,
+        url: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123/fields?lang=en-US',
+      },
     ]);
   });
 
   it('rejects malformed schema ZUIDs before branding them', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: { data: [{ ZUID: 'wrong', name: 'title', label: 'Title', datatype: 'text' }] },
-      }),
+    const fake = respondWith({
+      data: [{ ZUID: 'wrong', name: 'title', label: 'Title', datatype: 'text' }],
+    });
+
+    const error = await Effect.runPromise(
+      Effect.flip(createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token')),
     );
-    const result = await Effect.runPromise(
-      Effect.either(
-        createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
-      ),
-    );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isRight(result)) return;
-    expect(result.left.diagnostic?.issues?.[0]).toEqual({
+
+    expect(error.diagnostic?.issues?.[0]).toEqual({
       path: '$.data[0].ZUID',
       expected: 'string matching required format',
       received: 'string',
@@ -278,31 +215,21 @@ describe('ZestyApi', () => {
   });
 
   it('describes an unsupported schema shape without exposing response values', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: Array.from({ length: 25 }, () => ({
-            ZUID: 123,
-            name: 456,
-            label: false,
-            datatype: null,
-            customerSecret: 'private-content-value',
-          })),
-        },
-      }),
+    const fake = respondWith({
+      data: Array.from({ length: 25 }, () => ({
+        ZUID: 123,
+        name: 456,
+        label: false,
+        datatype: null,
+        customerSecret: 'private-content-value',
+      })),
+    });
+
+    const error = await Effect.runPromise(
+      Effect.flip(createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token')),
     );
 
-    const result = await Effect.runPromise(
-      Effect.either(
-        createZestyApi(fake.transport).loadCollectionSchema(reference, 'private-token'),
-      ),
-    );
-
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isRight(result)) return;
-    expect(result.left).toMatchObject({
+    expect(error).toMatchObject({
       kind: 'decoding',
       diagnostic: {
         operation: 'load-collection-schema',
@@ -311,13 +238,13 @@ describe('ZestyApi', () => {
         issuesOmitted: true,
       },
     });
-    expect(result.left.diagnostic?.issues).toHaveLength(20);
-    expect(result.left.diagnostic?.issues?.slice(0, 2)).toEqual([
+    expect(error.diagnostic?.issues).toHaveLength(20);
+    expect(error.diagnostic?.issues?.slice(0, 2)).toEqual([
       { path: '$.data[0].ZUID', expected: 'string', received: 'number' },
       { path: '$.data[0].name', expected: 'string', received: 'number' },
     ]);
-    expect(JSON.stringify(result.left)).not.toContain('private-content-value');
-    expect(JSON.stringify(result.left)).not.toContain('private-token');
+    expect(JSON.stringify(error)).not.toContain('private-content-value');
+    expect(JSON.stringify(error)).not.toContain('private-token');
   });
 
   it('loads all pages, applies published state, and normalizes once', async () => {
@@ -366,10 +293,7 @@ describe('ZestyApi', () => {
 
   it('normalizes the documented Zesty content item response', async () => {
     const rawItem = {
-      data: {
-        title: 'Documented response',
-        featured: true,
-      },
+      data: { title: 'Documented response', featured: true },
       meta: {
         ZUID: '7-documented-item',
         contentModelZUID: '6-model123',
@@ -381,16 +305,10 @@ describe('ZestyApi', () => {
       siblings: {},
       web: { path: '/documented-response/' },
     };
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [rawItem],
-          _meta: { totalResults: 1, start: 0, offset: 0, limit: 2_500 },
-        },
-      }),
-    );
+    const fake = respondWith({
+      data: [rawItem],
+      _meta: { totalResults: 1, start: 0, offset: 0, limit: 2_500 },
+    });
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport).loadCollectionSnapshot(reference, 'latest', 'private-token'),
@@ -413,36 +331,24 @@ describe('ZestyApi', () => {
   });
 
   it('loads complete content item versions with save metadata', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              data: { title: 'Earlier title' },
-              meta: {
-                ZUID: '7-documented-item',
-                createdAt: '2026-01-03T12:00:00.000Z',
-                updatedAt: '2026-02-03T12:00:00.000Z',
-                version: 2,
-              },
-              web: {
-                versionZUID: '9-version-two',
-                createdAt: '2026-02-03T12:00:00.000Z',
-                createdByUserZUID: '5-author-one',
-              },
-            },
-          ],
-        },
-      }),
-    );
+    const rawVersion = {
+      data: { title: 'Earlier title' },
+      meta: {
+        ZUID: '7-documented-item',
+        createdAt: '2026-01-03T12:00:00.000Z',
+        updatedAt: '2026-02-03T12:00:00.000Z',
+        version: 2,
+      },
+      web: {
+        versionZUID: '9-version-two',
+        createdAt: '2026-02-03T12:00:00.000Z',
+        createdByUserZUID: '5-author-one',
+      },
+    };
+    const fake = respondWith({ data: [rawVersion] });
 
     const versions = await Effect.runPromise(
-      createZestyApi(fake.transport).loadItemVersions(
-        { ...reference, itemZuid: '7-documented-item' },
-        'private-token',
-      ),
+      createZestyApi(fake.transport).loadItemVersions(itemReference, 'private-token'),
     );
 
     expect(versions).toEqual([
@@ -458,78 +364,47 @@ describe('ZestyApi', () => {
             modified: '2026-02-03T12:00:00.000Z',
             version: 2,
           },
-          raw: {
-            data: { title: 'Earlier title' },
-            meta: {
-              ZUID: '7-documented-item',
-              createdAt: '2026-01-03T12:00:00.000Z',
-              updatedAt: '2026-02-03T12:00:00.000Z',
-              version: 2,
-            },
-            web: {
-              versionZUID: '9-version-two',
-              createdAt: '2026-02-03T12:00:00.000Z',
-              createdByUserZUID: '5-author-one',
-            },
-          },
+          raw: rawVersion,
         },
       },
     ]);
     expect(fake.requests).toEqual([
       {
-        method: 'GET',
+        ...authenticatedGet,
         url: 'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/7-documented-item/versions',
-        headers: { authorization: 'Bearer private-token', accept: 'application/json' },
       },
     ]);
   });
 
   it('loads publishing records used for current and scheduled version statuses', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              ZUID: '25-active-publishing',
-              version: 2,
-              versionZUID: '9-version-two',
-              publishAt: '2026-02-03T12:00:00.000Z',
-              unpublishAt: null,
-              _active: true,
-            },
-            {
-              ZUID: '25-scheduled-publishing',
-              version: 3,
-              versionZUID: '9-version-three',
-              publishAt: '2026-10-03T12:00:00.000Z',
-              unpublishAt: null,
-              _active: false,
-            },
-          ],
+    const fake = respondWith({
+      data: [
+        {
+          ZUID: '25-active-publishing',
+          version: 2,
+          versionZUID: '9-version-two',
+          publishAt: '2026-02-03T12:00:00.000Z',
+          unpublishAt: null,
+          _active: true,
         },
-      }),
-    );
+        {
+          ZUID: '25-scheduled-publishing',
+          version: 3,
+          versionZUID: '9-version-three',
+          publishAt: '2026-10-03T12:00:00.000Z',
+          unpublishAt: null,
+          _active: false,
+        },
+      ],
+    });
 
     const publishings = await Effect.runPromise(
-      createZestyApi(fake.transport).loadItemPublishings(
-        { ...reference, itemZuid: '7-documented-item' },
-        'private-token',
-      ),
+      createZestyApi(fake.transport).loadItemPublishings(itemReference, 'private-token'),
     );
 
     expect(publishings).toEqual([
-      {
-        version: 2,
-        publishAt: '2026-02-03T12:00:00.000Z',
-        active: true,
-      },
-      {
-        version: 3,
-        publishAt: '2026-10-03T12:00:00.000Z',
-        active: false,
-      },
+      { version: 2, publishAt: '2026-02-03T12:00:00.000Z', active: true },
+      { version: 3, publishAt: '2026-10-03T12:00:00.000Z', active: false },
     ]);
     expect(fake.requests[0]?.url).toBe(
       'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/7-documented-item/publishings',
@@ -537,40 +412,24 @@ describe('ZestyApi', () => {
   });
 
   it('loads instance users from the deployment-specific Accounts API', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: {
-          data: [
-            {
-              ZUID: '5-author-one',
-              firstName: 'Casey',
-              lastName: 'Ng',
-              email: 'casey@example.test',
-            },
-            {
-              ZUID: '55-service-account',
-              firstName: 'Service',
-              lastName: 'Account',
-              email: 'service@example.test',
-            },
-          ],
+    const fake = respondWith({
+      data: [
+        { ZUID: '5-author-one', firstName: 'Casey', lastName: 'Ng', email: 'casey@example.test' },
+        {
+          ZUID: '55-service-account',
+          firstName: 'Service',
+          lastName: 'Account',
+          email: 'service@example.test',
         },
-      }),
-    );
+      ],
+    });
 
     const users = await Effect.runPromise(
       createZestyApi(fake.transport).loadInstanceUsers(instance, 'private-token'),
     );
 
     expect(users).toEqual([
-      {
-        id: '5-author-one',
-        firstName: 'Casey',
-        lastName: 'Ng',
-        email: 'casey@example.test',
-      },
+      { id: '5-author-one', firstName: 'Casey', lastName: 'Ng', email: 'casey@example.test' },
       {
         id: '55-service-account',
         firstName: 'Service',
@@ -596,11 +455,9 @@ describe('ZestyApi', () => {
     );
     expect(transient.requests).toHaveLength(2);
 
-    const forbidden = fakeTransport(() =>
-      Effect.succeed({ status: 403, headers: {}, body: { error: 'forbidden' } }),
-    );
-    const forbiddenResult = await Effect.runPromise(
-      Effect.either(
+    const forbidden = respondWith({ error: 'forbidden' }, 403);
+    const error = await Effect.runPromise(
+      Effect.flip(
         createZestyApi(forbidden.transport, { retryDelaysMs: [0, 0] }).loadCollectionSnapshot(
           reference,
           'latest',
@@ -608,31 +465,35 @@ describe('ZestyApi', () => {
         ),
       ),
     );
-    expect(Either.isLeft(forbiddenResult)).toBe(true);
-    if (Either.isRight(forbiddenResult)) return;
-    expect(forbiddenResult.left).toMatchObject({
+    expect(error).toMatchObject({
       kind: 'permission',
-      diagnostic: {
-        operation: 'load-collection-items',
-        responseStatus: 403,
-      },
+      diagnostic: { operation: 'load-collection-items', responseStatus: 403 },
     });
     expect(forbidden.requests).toHaveLength(1);
   });
 
-  it('maps authentication and decoding failures without exposing the token', async () => {
-    for (const response of [
-      { status: 401, headers: {}, body: {} },
-      { status: 200, headers: {}, body: { data: 'wrong' } },
-    ]) {
-      const fake = fakeTransport(() => Effect.succeed(response));
-      const exit = await Effect.runPromiseExit(
-        createZestyApi(fake.transport).loadCollectionSnapshot(reference, 'latest', 'private-token'),
+  it.each([
+    { status: 401, body: {}, kind: 'authentication' },
+    { status: 200, body: { data: 'wrong' }, kind: 'decoding' },
+  ])(
+    'maps a $status response to a $kind failure without exposing the token',
+    async ({ status, body, kind }) => {
+      const fake = respondWith(body, status);
+
+      const error = await Effect.runPromise(
+        Effect.flip(
+          createZestyApi(fake.transport).loadCollectionSnapshot(
+            reference,
+            'latest',
+            'private-token',
+          ),
+        ),
       );
-      expect(Exit.isFailure(exit)).toBe(true);
-      expect(JSON.stringify(exit)).not.toContain('private-token');
-    }
-  });
+
+      expect(error.kind).toBe(kind);
+      expect(JSON.stringify(error)).not.toContain('private-token');
+    },
+  );
 
   it('stops at the collection limit and marks the snapshot partial', async () => {
     const data = Array.from({ length: 5 }, (_, index) => ({
@@ -644,13 +505,7 @@ describe('ZestyApi', () => {
         version: 1,
       },
     }));
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: { data, _meta: { totalResults: 20, page: 1, limit: 5 } },
-      }),
-    );
+    const fake = respondWith({ data, _meta: { totalResults: 20, page: 1, limit: 5 } });
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { collectionLimit: 3, pageSize: 5 }).loadCollectionSnapshot(
@@ -665,13 +520,11 @@ describe('ZestyApi', () => {
   });
 
   it('uses the remaining view budget as the final page size', async () => {
-    const fake = fakeTransport(() =>
-      Effect.succeed({
-        status: 200,
-        headers: {},
-        body: { ...fixtureCollectionPage, _meta: { totalResults: 20, start: 0, limit: 2 } },
-      }),
-    );
+    const fake = respondWith({
+      ...fixtureCollectionPage,
+      _meta: { totalResults: 20, start: 0, limit: 2 },
+    });
+
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
         reference,
@@ -687,12 +540,16 @@ describe('ZestyApi', () => {
 
   it('times out and remains interruptible', async () => {
     const fake = fakeTransport(() => Effect.never);
-    const api = createZestyApi(fake.transport, { timeoutMs: 5 });
-    const timeoutExit = await Effect.runPromiseExit(
-      api.loadCollectionSnapshot(reference, 'latest', 'private-token'),
+    const error = await Effect.runPromise(
+      Effect.flip(
+        createZestyApi(fake.transport, { timeoutMs: 5 }).loadCollectionSnapshot(
+          reference,
+          'latest',
+          'private-token',
+        ),
+      ),
     );
-    expect(Exit.isFailure(timeoutExit)).toBe(true);
-    expect(JSON.stringify(timeoutExit)).toContain('timeout');
+    expect(error.kind).toBe('timeout');
 
     const fiber = Effect.runFork(
       createZestyApi(fake.transport, { timeoutMs: 60_000 }).loadCollectionSnapshot(

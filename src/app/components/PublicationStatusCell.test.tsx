@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Effect } from 'effect';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { refreshActivePublicationStatuses } from '../hooks/publication-status-query';
@@ -34,8 +34,6 @@ function renderCell(api: ItemVersionApi) {
   );
   return queryClient;
 }
-
-afterEach(cleanup);
 
 describe('publication status cell', () => {
   it('shows version-only badges for saved, published, and scheduled versions', async () => {

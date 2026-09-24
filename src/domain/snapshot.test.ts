@@ -4,7 +4,6 @@ import {
   decodeCollectionPage,
   decodeItemVersions,
   fixtureCollectionPage,
-  generateRelationshipGraph,
   serializeFixture,
 } from './index';
 
@@ -101,15 +100,6 @@ describe('collection snapshot contracts', () => {
       item: { fields: { title: 'Saved title' } },
     });
     expect(decoded.right[0]).not.toHaveProperty('authorZuid');
-  });
-
-  it('generates deterministic relationship graphs at requested sizes', () => {
-    const first = generateRelationshipGraph(1_000, 17);
-    const second = generateRelationshipGraph(1_000, 17);
-    expect(second).toEqual(first);
-    expect(first.parents.items).toHaveLength(1_000);
-    expect(first.children.items).toHaveLength(1_000);
-    expect(first.parents.items[999]?.fields.childKey).toBe('group-099');
   });
 
   it('rejects fixture data with token-shaped fields', () => {

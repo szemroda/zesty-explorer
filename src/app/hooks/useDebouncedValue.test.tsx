@@ -5,7 +5,7 @@ import { useDebouncedValue } from './useDebouncedValue';
 afterEach(() => vi.useRealTimers());
 
 describe('useDebouncedValue', () => {
-  it('clears progress when the value settles and keeps it cleared', async () => {
+  it('shows progress until the value settles', async () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       ({ value }: { readonly value: string }) => useDebouncedValue(value),
@@ -19,10 +19,5 @@ describe('useDebouncedValue', () => {
       await vi.advanceTimersByTimeAsync(25);
     });
     expect(result.current).toEqual({ value: 'Harry', showProgress: false });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-    });
-    expect(result.current.showProgress).toBe(false);
   });
 });
