@@ -56,6 +56,7 @@ import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
+import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
   refreshActiveItemVersionPreviews,
@@ -76,8 +77,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './components/ui/dropdown-menu';
+import { Field, FieldDescription, FieldLabel } from './components/ui/field';
 import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
 import { Toaster } from './components/ui/sonner';
 
 interface AppProps {
@@ -156,7 +157,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [collectionInput, setCollectionInput] = useState(() =>
     initial.view ? collectionUrl(initial.view.root.reference) : '',
   );
-  const [inputError, setInputError] = useState<string>();
   const [reference, setReference] = useState<CollectionReference | undefined>(
     initial.view?.root.reference,
   );
@@ -188,6 +188,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
   const sessionTokenInput = useRef<HTMLInputElement>(null);
+  const instanceUrlInput = useRef<HTMLInputElement>(null);
+  const rootCollectionInput = useRef<HTMLInputElement>(null);
+  const rootReferenceInput = useRef<HTMLInputElement>(null);
+  const startFormProblem = useFieldProblem({
+    'session-token': sessionTokenInput,
+    'instance-url': instanceUrlInput,
+    'root-collection': rootCollectionInput,
+    'root-reference': rootReferenceInput,
+  });
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
@@ -383,13 +392,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   function loadCatalog(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsed = parseInstanceReference(collectionInput);
-    if (!parsed.ok) {
-      setInputError(parsed.error.message);
+    const tokenMissing = 'Enter the Zesty session token for this deployment.';
+    // Checked in screen order, so focus goes to the first field with a problem.
+    if (!token.trim()) {
+      startFormProblem.report('session-token', tokenMissing);
       return;
     }
-    if (!token.trim() || tokenDeployment !== parsed.value.deployment) {
-      setInputError('Enter the Zesty session token for this deployment.');
+    const parsed = parseInstanceReference(collectionInput);
+    if (!parsed.ok) {
+      startFormProblem.report('instance-url', parsed.error.message);
+      return;
+    }
+    if (tokenDeployment !== parsed.value.deployment) {
+      startFormProblem.report('session-token', tokenMissing);
       return;
     }
 
@@ -399,7 +414,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTokenDeployment(parsed.value.deployment);
     setCatalogInstance(parsed.value);
     setSelectedRootZuid(parsed.value.suggestedModelZuid);
-    setInputError(undefined);
+    startFormProblem.clear();
     setTokenRequired(false);
     setSelectingRoot(true);
   }
@@ -440,13 +455,37 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return collections;
   }, [catalogInstance, catalogQuery.catalog?.collections, collectionInput]);
 
+  // A pasted reference must name a collection in the loaded instance. The start form's bare
+  // instance URL is carried into this field, so it counts as nothing pasted yet.
+  function pastedReferenceProblem(): string | undefined {
+    const input = collectionInput.trim();
+    if (!input || !catalogInstance) return undefined;
+    const parsed = parseCollectionReference(input);
+    if (!parsed.ok) return parseInstanceReference(input).ok ? undefined : parsed.error.message;
+    if (
+      parsed.value.instanceZuid === catalogInstance.instanceZuid &&
+      parsed.value.deployment === catalogInstance.deployment
+    ) {
+      return undefined;
+    }
+    return 'Paste a collection from the same Zesty instance and deployment.';
+  }
+
   function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const referenceProblem = pastedReferenceProblem();
+    if (referenceProblem) {
+      startFormProblem.report('root-reference', referenceProblem);
+      return;
+    }
     const selected = rootPickerCollections.find(
       (collection) => collection.reference.modelZuid === selectedRootZuid,
     );
     if (!selected) {
-      setInputError('Choose a root collection or paste a collection reference.');
+      startFormProblem.report(
+        'root-collection',
+        'Choose a root collection or paste a collection reference.',
+      );
       return;
     }
     const selectedReference: CollectionReference = {
@@ -505,7 +544,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       };
     });
     setSelectedItemId(selectedReference.itemZuid);
-    setInputError(undefined);
+    startFormProblem.clear();
     setTokenRequired(false);
     setChangingRoot(false);
     setSelectingRoot(false);
@@ -547,7 +586,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setActiveToken(storedToken);
     setTokenDeployment(rootReference.deployment);
     setTokenRequired(!storedToken);
-    setInputError(undefined);
+    startFormProblem.clear();
     setChangingRoot(false);
     setSelectingRoot(false);
     setTreeRoot(view.root);
@@ -591,7 +630,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setCollectionInput(collectionUrl(reference));
     setToken(activeToken);
     setTokenDeployment(reference.deployment);
-    setInputError(undefined);
+    startFormProblem.clear();
     setChangingRoot(false);
     setSelectingRoot(false);
     setCatalogInstance(instanceReference(reference));
@@ -601,7 +640,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   function openRootPicker() {
     if (!reference) return;
     setCollectionInput(collectionUrl(reference));
-    setInputError(undefined);
+    startFormProblem.clear();
     setCatalogInstance(instanceReference(reference));
     setSelectedRootZuid(reference.modelZuid);
     setChangingRoot(false);
@@ -881,6 +920,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <form
                   className="grid gap-4 p-6"
                   aria-labelledby="root-picker-title"
+                  noValidate
                   onSubmit={confirmRoot}
                 >
                   <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
@@ -922,8 +962,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     label="Root collection"
                     collections={rootPickerCollections}
                     value={selectedRootZuid}
-                    onChange={(collection) => setSelectedRootZuid(collection?.reference.modelZuid)}
+                    onChange={(collection) => {
+                      setSelectedRootZuid(collection?.reference.modelZuid);
+                      startFormProblem.clear('root-collection');
+                    }}
                     disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
+                    error={startFormProblem.messageFor('root-collection')}
+                    inputRef={rootCollectionInput}
                   />
                   {catalogQuery.catalog?.warning ? (
                     <div
@@ -934,17 +979,22 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
                     </div>
                   ) : null}
-                  <div className="grid gap-2 border-t pt-4">
+                  <Field
+                    className="border-t pt-4"
+                    error={startFormProblem.messageFor('root-reference')}
+                  >
                     <span className="text-muted-foreground text-xs font-medium">
                       Or paste a collection reference
                     </span>
                     <Input
+                      ref={rootReferenceInput}
                       type="url"
                       aria-label="Root collection reference"
                       value={collectionInput}
                       onChange={(event) => {
                         const value = event.target.value;
                         setCollectionInput(value);
+                        startFormProblem.clear();
                         const parsed = parseCollectionReference(value);
                         if (
                           parsed.ok &&
@@ -955,8 +1005,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                         }
                       }}
                     />
-                  </div>
-                  {inputError ? <p className="text-destructive text-sm">{inputError}</p> : null}
+                  </Field>
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       variant="outline"
@@ -968,9 +1017,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     >
                       Back
                     </Button>
-                    <Button type="submit" disabled={!selectedRootZuid}>
-                      Open root collection
-                    </Button>
+                    <Button type="submit">Open root collection</Button>
                   </div>
                 </form>
               </Card>
@@ -979,6 +1026,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <form
                   className="grid gap-4 p-6"
                   aria-labelledby="start-title"
+                  noValidate
                   onSubmit={loadCatalog}
                 >
                   <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
@@ -996,32 +1044,34 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                         : 'Open a Zesty collection'}
                   </h2>
 
-                  <Label htmlFor="session-token">Zesty session token</Label>
-                  <div className="relative">
-                    <Input
-                      ref={sessionTokenInput}
-                      className="pr-10"
-                      id="session-token"
-                      type={showToken ? 'text' : 'password'}
-                      value={token}
-                      autoComplete="off"
-                      onChange={(event) => {
-                        setToken(event.target.value);
-                        const parsed = parseCollectionReference(collectionInput);
-                        if (parsed.ok) setTokenDeployment(parsed.value.deployment);
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-1 right-1 size-7"
-                      aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
-                      onClick={() => setShowToken((visible) => !visible)}
-                    >
-                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </Button>
-                  </div>
+                  <Field error={startFormProblem.messageFor('session-token')}>
+                    <FieldLabel>Zesty session token</FieldLabel>
+                    <div className="relative">
+                      <Input
+                        ref={sessionTokenInput}
+                        className="pr-10"
+                        type={showToken ? 'text' : 'password'}
+                        value={token}
+                        autoComplete="off"
+                        onChange={(event) => {
+                          setToken(event.target.value);
+                          startFormProblem.clear('session-token');
+                          const parsed = parseCollectionReference(collectionInput);
+                          if (parsed.ok) setTokenDeployment(parsed.value.deployment);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-1 right-1 size-7"
+                        aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
+                        onClick={() => setShowToken((visible) => !visible)}
+                      >
+                        {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </Button>
+                    </div>
+                  </Field>
                   <Collapsible>
                     <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
                       How to find the token
@@ -1033,30 +1083,32 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     </CollapsibleContent>
                   </Collapsible>
 
-                  <Label htmlFor="collection-url">Zesty instance URL</Label>
-                  <Input
-                    id="collection-url"
-                    type="url"
-                    value={collectionInput}
-                    placeholder="https://8-….manager.zesty.io/content/6-…"
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setCollectionInput(value);
-                      const parsed = parseInstanceReference(value);
-                      if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
-                      if (!tokenDeployment) {
+                  <Field error={startFormProblem.messageFor('instance-url')}>
+                    <FieldLabel>Zesty instance URL</FieldLabel>
+                    <Input
+                      ref={instanceUrlInput}
+                      type="url"
+                      value={collectionInput}
+                      placeholder="https://8-….manager.zesty.io/content/6-…"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setCollectionInput(value);
+                        startFormProblem.clear('instance-url');
+                        const parsed = parseInstanceReference(value);
+                        if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
+                        if (!tokenDeployment) {
+                          setTokenDeployment(parsed.value.deployment);
+                          return;
+                        }
+                        setToken(tokenStore.read(parsed.value.deployment) ?? '');
                         setTokenDeployment(parsed.value.deployment);
-                        return;
-                      }
-                      setToken(tokenStore.read(parsed.value.deployment) ?? '');
-                      setTokenDeployment(parsed.value.deployment);
-                    }}
-                  />
-                  <p className="text-muted-foreground text-xs leading-relaxed">
-                    Paste any URL from an allowed Zesty Manager host, or a recognized Instances API
-                    instance or model URL.
-                  </p>
-                  {inputError ? <p className="text-destructive text-sm">{inputError}</p> : null}
+                      }}
+                    />
+                    <FieldDescription>
+                      Paste any URL from an allowed Zesty Manager host, or a recognized Instances
+                      API instance or model URL.
+                    </FieldDescription>
+                  </Field>
                   <div className="flex flex-wrap justify-end gap-2">
                     {changingRoot ? (
                       <Button variant="outline" type="button" onClick={cancelRootReplacement}>

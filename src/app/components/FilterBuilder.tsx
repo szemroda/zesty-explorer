@@ -1,15 +1,17 @@
 import { Plus, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type {
   CollectionField,
   CollectionNode,
   CollectionNodeId,
   CollectionSchema,
-  Scalar,
   ViewFilter,
 } from '../../domain';
+import { operatorNeedsValue, parseFilterValue } from '../filter-value';
+import { useFieldProblem } from '../hooks/useFieldProblem';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Field } from './ui/field';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -58,30 +60,6 @@ function operatorsFor(field: CollectionField | undefined): readonly ViewFilter['
   return ['contains', 'equals', 'starts-with', 'is-empty', 'is-not-empty'];
 }
 
-function scalarInput(value: string, field: CollectionField | undefined): Scalar {
-  if (field?.kind === 'number') return Number(value);
-  return value;
-}
-
-function filterValue(
-  value: string,
-  field: CollectionField | undefined,
-  operator: ViewFilter['operator'],
-): unknown {
-  if (['is-empty', 'is-not-empty', 'true', 'false'].includes(operator)) return undefined;
-  if (operator === 'between') {
-    return value.split(',').map((part) => scalarInput(part.trim(), field));
-  }
-  if (operator === 'one-of') {
-    const selected = value.split(',').map((part) => part.trim());
-    return selected.map((part) => {
-      const option = field?.options?.find((candidate) => String(candidate) === part);
-      return option ?? scalarInput(part, field);
-    });
-  }
-  return scalarInput(value, field);
-}
-
 function filterSummary(filter: ViewFilter, choices: readonly PathChoice[]): string {
   const path = choices.find((choice) => choice.path.join('/') === filter.nodePath.join('/'));
   const value = filter.value === undefined ? '' : ` ${JSON.stringify(filter.value)}`;
@@ -115,20 +93,38 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
   const operators = operatorsFor(field);
   const [operator, setOperator] = useState<ViewFilter['operator']>(operators[0] ?? 'contains');
   const [value, setValue] = useState('');
-  const needsValue = !['is-empty', 'is-not-empty', 'true', 'false'].includes(operator);
+  const valueControl = useRef<HTMLElement | null>(null);
+  const problem = useFieldProblem({ value: valueControl });
+  const needsValue = operatorNeedsValue(operator);
+
+  function changeValue(nextValue: string) {
+    setValue(nextValue);
+    problem.clear();
+  }
+
+  function changeOperator(nextOperator: ViewFilter['operator']) {
+    setOperator(nextOperator);
+    problem.clear();
+  }
+
+  // The value control is an input or, for option lists, a select trigger.
+  function setValueControl(element: HTMLElement | null) {
+    valueControl.current = element;
+  }
 
   function choosePath(nextPath: string) {
     setPath(nextPath);
     setFieldName('');
     const nextChoice = choices.find((candidate) => pathValue(candidate.path) === nextPath);
     const nextField = nextChoice ? schemas.get(nextChoice.node.id)?.fields[0] : undefined;
-    setOperator(operatorsFor(nextField)[0] ?? 'contains');
+    changeOperator(operatorsFor(nextField)[0] ?? 'contains');
   }
 
   function add() {
     if (!choice || !field) return;
-    const nextValue = filterValue(value, field, operator);
-    if (needsValue && (value.trim() === '' || (operator === 'between' && !value.includes(',')))) {
+    const parsed = parseFilterValue(value, field, operator);
+    if (!parsed.ok) {
+      problem.report('value', parsed.problem);
       return;
     }
     onChange([
@@ -138,15 +134,15 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
         nodePath: choice.path,
         fieldPath: [field.name],
         operator,
-        ...(nextValue === undefined ? {} : { value: nextValue }),
+        ...(parsed.value === undefined ? {} : { value: parsed.value }),
       },
     ]);
-    setValue('');
+    changeValue('');
   }
 
   return (
     <div className="min-w-0 p-3.5" aria-label={label}>
-      <div className="grid grid-cols-[minmax(140px,1.2fr)_minmax(130px,1fr)_minmax(120px,.85fr)_minmax(160px,1.3fr)_auto] items-end gap-2.5 max-[1260px]:grid-cols-3">
+      <div className="grid grid-cols-[minmax(140px,1.2fr)_minmax(130px,1fr)_minmax(120px,.85fr)_minmax(160px,1.3fr)_auto] items-start gap-2.5 max-[1260px]:grid-cols-3">
         <Label className="grid gap-1.5">
           <span>Collection</span>
           <Select
@@ -185,7 +181,7 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
               const nextField = schema?.fields.find(
                 (candidate) => candidate.name === nextFieldName,
               );
-              setOperator(operatorsFor(nextField)[0] ?? 'contains');
+              changeOperator(operatorsFor(nextField)[0] ?? 'contains');
             }}
           >
             <SelectTrigger className="w-full" aria-label={`${label} field`}>
@@ -209,7 +205,7 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
             }))}
             value={operator}
             onValueChange={(nextOperator) => {
-              if (nextOperator !== null) setOperator(nextOperator);
+              if (nextOperator !== null) changeOperator(nextOperator);
             }}
           >
             <SelectTrigger className="w-full" aria-label={`${label} operator`}>
@@ -225,7 +221,7 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
           </Select>
         </Label>
         {needsValue ? (
-          <Label className="grid gap-1.5">
+          <Field render={<Label className="grid gap-1.5" />} error={problem.messageFor('value')}>
             <span>Value</span>
             {field?.options?.length && operator === 'one-of' ? (
               <Select
@@ -235,9 +231,13 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
                 }))}
                 multiple
                 value={value ? value.split(',') : []}
-                onValueChange={(selected) => setValue(selected.join(','))}
+                onValueChange={(selected) => changeValue(selected.join(','))}
               >
-                <SelectTrigger className="w-full" aria-label={`${label} value`}>
+                <SelectTrigger
+                  ref={setValueControl}
+                  className="w-full"
+                  aria-label={`${label} value`}
+                >
                   <SelectValue>
                     {(selected: string[]) =>
                       selected.length === 0
@@ -258,17 +258,19 @@ export function FilterBuilder({ label, root, schemas, filters, onChange }: Filte
               </Select>
             ) : (
               <Input
+                ref={setValueControl}
                 aria-label={`${label} value`}
                 value={value}
                 placeholder={operator === 'between' ? 'lower, upper' : 'Enter a value'}
                 inputMode={field?.kind === 'number' ? 'decimal' : undefined}
-                onChange={(event) => setValue(event.target.value)}
+                onChange={(event) => changeValue(event.target.value)}
               />
             )}
-          </Label>
+          </Field>
         ) : null}
+        {/* The top margin lines the button up with the inputs below their labels. */}
         <Button
-          className="max-[1260px]:justify-self-start"
+          className="max-[1260px]:justify-self-start min-[1261px]:mt-5.5"
           type="button"
           disabled={!field}
           onClick={add}

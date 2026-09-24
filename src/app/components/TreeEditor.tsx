@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, GitBranch, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
 import type {
   CollectionNode,
@@ -12,8 +12,10 @@ import type {
   ExplorerError,
 } from '../../domain';
 import { findNativeRelationshipCandidates, findNativeRelationships } from '../../explorer-core';
+import { useFieldProblem } from '../hooks/useFieldProblem';
 import { CollectionPicker } from './CollectionPicker';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
+import { FieldPathInput } from './FieldPathInput';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -29,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { Field, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -75,6 +78,16 @@ function schemaPaths(schema: CollectionSchema): readonly string[] {
   ];
 }
 
+// Both relationship forms need a parent and a child path for custom equality.
+function missingPathProblem(
+  parentPath: string,
+  childPath: string,
+): { readonly field: 'parent-path' | 'child-path'; readonly message: string } | undefined {
+  if (!parentPath.trim()) return { field: 'parent-path', message: 'Enter a parent field path.' };
+  if (!childPath.trim()) return { field: 'child-path', message: 'Enter a child field path.' };
+  return undefined;
+}
+
 function sameFieldPath(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
@@ -118,7 +131,19 @@ function AddRelationship({
   const [nativeField, setNativeField] = useState('');
   const [parentPath, setParentPath] = useState('');
   const [childPath, setChildPath] = useState('');
-  const [error, setError] = useState<string>();
+  const [rejection, setRejection] = useState<string>();
+  const collectionInput = useRef<HTMLInputElement>(null);
+  const urlInput = useRef<HTMLInputElement>(null);
+  const nativeFieldTrigger = useRef<HTMLButtonElement>(null);
+  const parentPathInput = useRef<HTMLInputElement>(null);
+  const childPathInput = useRef<HTMLInputElement>(null);
+  const problem = useFieldProblem({
+    'related-collection': collectionInput,
+    'related-url': urlInput,
+    'native-field': nativeFieldTrigger,
+    'parent-path': parentPathInput,
+    'child-path': childPathInput,
+  });
   const parsed = useMemo(() => parseCollectionReference(url), [url]);
   const selectedReference = selectedCollection?.reference ?? (parsed.ok ? parsed.value : undefined);
   const referenceAllowed =
@@ -161,12 +186,20 @@ function AddRelationship({
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setRejection(undefined);
+    if (!selectedReference && url.trim() && !parsed.ok) {
+      problem.report('related-url', parsed.error.message);
+      return;
+    }
     if (!selectedReference) {
-      setError(parsed.ok ? 'Choose a related collection.' : parsed.error.message);
+      problem.report('related-collection', 'Choose a related collection.');
       return;
     }
     if (!referenceAllowed) {
-      setError('Every collection node must belong to the root instance and deployment.');
+      problem.report(
+        'related-url',
+        'Every collection node must belong to the root instance and deployment.',
+      );
       return;
     }
 
@@ -176,13 +209,14 @@ function AddRelationship({
         nativeCandidates.find((candidate) => candidate.field.id === nativeField) ??
         nativeCandidates[0];
       if (!selected || (nativeCandidates.length > 1 && !nativeField)) {
-        setError('Choose which native relationship field this role uses.');
+        problem.report('native-field', 'Choose which native relationship field this role uses.');
         return;
       }
       relationship = selected.relationship;
     } else {
-      if (!parentPath.trim() || !effectiveChildPath.trim()) {
-        setError('Choose a parent field path and enter a child field path.');
+      const missingPath = missingPathProblem(parentPath, effectiveChildPath);
+      if (missingPath) {
+        problem.report(missingPath.field, missingPath.message);
         return;
       }
       const parentField = parentPath.split('.').filter(Boolean);
@@ -195,16 +229,17 @@ function AddRelationship({
 
     const customName = name.trim();
     const nodeName = customName || defaultNodeName || selectedReference.modelZuid;
-    const problem = onAdd(parent.id, selectedReference, nodeName, relationship);
-    if (problem) {
-      setError(problem);
+    const addRejection = onAdd(parent.id, selectedReference, nodeName, relationship);
+    if (addRejection) {
+      setRejection(addRejection);
       return;
     }
     setOpen(false);
     setUrl('');
     setSelectedCollection(undefined);
     setName('');
-    setError(undefined);
+    setRejection(undefined);
+    problem.clear();
   }
 
   return (
@@ -239,12 +274,15 @@ function AddRelationship({
         <DialogDescription>
           Add another collection from the same Zesty instance and deployment.
         </DialogDescription>
-        <form className="grid gap-4" onSubmit={submit}>
+        <form className="grid gap-4" noValidate onSubmit={submit}>
           <CollectionPicker
             label="Related collection"
             collections={catalog}
             value={selectedReference?.modelZuid}
+            error={problem.messageFor('related-collection')}
+            inputRef={collectionInput}
             onChange={(collection) => {
+              problem.clear();
               if (!collection) {
                 setUrl('');
                 setSelectedCollection(undefined);
@@ -286,17 +324,20 @@ function AddRelationship({
             <span className="text-muted-foreground text-xs font-medium">
               Or paste a collection reference
             </span>
-            <Label htmlFor={`child-url-${parent.id}`}>Related collection URL</Label>
-            <Input
-              id={`child-url-${parent.id}`}
-              type="url"
-              value={url}
-              onChange={(event) => {
-                setUrl(event.target.value);
-                setSelectedCollection(undefined);
-                setNativeField('');
-              }}
-            />
+            <Field error={problem.messageFor('related-url')}>
+              <FieldLabel>Related collection URL</FieldLabel>
+              <Input
+                ref={urlInput}
+                type="url"
+                value={url}
+                onChange={(event) => {
+                  setUrl(event.target.value);
+                  setSelectedCollection(undefined);
+                  setNativeField('');
+                  problem.clear();
+                }}
+              />
+            </Field>
           </div>
           <Label htmlFor={`child-name-${parent.id}`}>Node name</Label>
           <Input
@@ -357,8 +398,8 @@ function AddRelationship({
           ) : null}
 
           {effectiveMode === 'native' && nativeCandidates.length > 0 ? (
-            <>
-              <Label htmlFor={`native-field-${parent.id}`}>Native field</Label>
+            <Field error={problem.messageFor('native-field')}>
+              <FieldLabel>Native field</FieldLabel>
               <Select
                 items={nativeCandidates.map((candidate) => ({
                   label: candidate.field.label,
@@ -369,9 +410,12 @@ function AddRelationship({
                   (nativeCandidates.length === 1 ? nativeCandidates[0]?.field.id : null) ||
                   null
                 }
-                onValueChange={(nextNativeField) => setNativeField(nextNativeField ?? '')}
+                onValueChange={(nextNativeField) => {
+                  setNativeField(nextNativeField ?? '');
+                  problem.clear('native-field');
+                }}
               >
-                <SelectTrigger className="w-full" id={`native-field-${parent.id}`}>
+                <SelectTrigger ref={nativeFieldTrigger} className="w-full">
                   <SelectValue placeholder="Choose a field" />
                 </SelectTrigger>
                 <SelectContent>
@@ -382,35 +426,40 @@ function AddRelationship({
                   ))}
                 </SelectContent>
               </Select>
-            </>
+            </Field>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Label className="grid gap-2">
-                Parent field path
-                <Input
-                  list={`parent-paths-${parent.id}`}
-                  value={parentPath}
-                  onChange={(event) => setParentPath(event.target.value)}
-                  placeholder="e.g. category.zuid"
-                />
-                <datalist id={`parent-paths-${parent.id}`}>
-                  {schemaPaths(schema).map((path) => (
-                    <option key={path} value={path} />
-                  ))}
-                </datalist>
-              </Label>
-              <Label className="grid gap-2">
-                Child field path
-                <Input
-                  type="text"
-                  value={effectiveChildPath}
-                  placeholder="e.g. parent.zuid"
-                  onChange={(event) => setChildPath(event.target.value)}
-                />
-              </Label>
+            <div className="grid items-start gap-4 sm:grid-cols-2">
+              <FieldPathInput
+                label="Parent field path"
+                value={parentPath}
+                onValueChange={(value) => {
+                  setParentPath(value);
+                  problem.clear('parent-path');
+                }}
+                paths={schemaPaths(schema)}
+                placeholder="e.g. category.zuid"
+                error={problem.messageFor('parent-path')}
+                inputRef={parentPathInput}
+              />
+              <FieldPathInput
+                label="Child field path"
+                value={effectiveChildPath}
+                onValueChange={(value) => {
+                  setChildPath(value);
+                  problem.clear('child-path');
+                }}
+                paths={loadedChildSchema ? schemaPaths(loadedChildSchema) : []}
+                placeholder="e.g. parent.zuid"
+                error={problem.messageFor('child-path')}
+                inputRef={childPathInput}
+              />
             </div>
           )}
-          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+          {rejection ? (
+            <p className="text-destructive text-sm" role="alert">
+              {rejection}
+            </p>
+          ) : null}
           <Button type="submit" disabled={schemaQuery.isFetching || schemaQuery.isError}>
             Add collection node
           </Button>
@@ -472,12 +521,20 @@ function EditRelationship({
   const [childPath, setChildPath] = useState(
     relationship?.kind === 'custom' ? relationship.childField.join('.') : 'id',
   );
-  const [error, setError] = useState<string>();
+  const nativeFieldTrigger = useRef<HTMLButtonElement>(null);
+  const parentPathInput = useRef<HTMLInputElement>(null);
+  const childPathInput = useRef<HTMLInputElement>(null);
+  const problem = useFieldProblem({
+    'native-field': nativeFieldTrigger,
+    'parent-path': parentPathInput,
+    'child-path': childPathInput,
+  });
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (mode === 'custom' && (!parentPath.trim() || !childPath.trim())) {
-      setError('Choose both relationship field paths.');
+    const missingPath = mode === 'custom' ? missingPathProblem(parentPath, childPath) : undefined;
+    if (missingPath) {
+      problem.report(missingPath.field, missingPath.message);
       return;
     }
     const selectedNative =
@@ -490,7 +547,7 @@ function EditRelationship({
           ? nativeCandidates[0]
           : undefined);
     if (mode === 'native' && !selectedNative) {
-      setError('Choose which native relationship field this role uses.');
+      problem.report('native-field', 'Choose which native relationship field this role uses.');
       return;
     }
     const next: RelationshipDefinition =
@@ -502,7 +559,7 @@ function EditRelationship({
             childField: childPath.split('.').filter(Boolean),
           };
     onChange(node.id, next);
-    setError(undefined);
+    problem.clear();
     setOpen(false);
   }
 
@@ -521,7 +578,7 @@ function EditRelationship({
           </p>
           <DialogTitle>Repair {node.name}</DialogTitle>
         </DialogHeader>
-        <form className="grid gap-4" onSubmit={submit}>
+        <form className="grid gap-4" noValidate onSubmit={submit}>
           <Label className="grid gap-2">
             Relationship type
             <Select
@@ -548,8 +605,8 @@ function EditRelationship({
             </Select>
           </Label>
           {mode === 'native' ? (
-            <Label className="grid gap-2">
-              Native field
+            <Field error={problem.messageFor('native-field')}>
+              <FieldLabel>Native field</FieldLabel>
               <Select
                 items={nativeCandidates.map((candidate) => ({
                   label: candidate.field.label,
@@ -566,9 +623,12 @@ function EditRelationship({
                       : null) ||
                   null
                 }
-                onValueChange={(nextNativeField) => setNativeField(nextNativeField ?? '')}
+                onValueChange={(nextNativeField) => {
+                  setNativeField(nextNativeField ?? '');
+                  problem.clear('native-field');
+                }}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger ref={nativeFieldTrigger} className="w-full">
                   <SelectValue placeholder="Choose a field" />
                 </SelectTrigger>
                 <SelectContent>
@@ -579,38 +639,33 @@ function EditRelationship({
                   ))}
                 </SelectContent>
               </Select>
-            </Label>
+            </Field>
           ) : (
-            <Label className="grid gap-2">
-              Parent field path
-              <Input
-                list={`edit-parent-paths-${node.id}`}
+            <>
+              <FieldPathInput
+                label="Parent field path"
                 value={parentPath}
-                onChange={(event) => setParentPath(event.target.value)}
+                onValueChange={(value) => {
+                  setParentPath(value);
+                  problem.clear('parent-path');
+                }}
+                paths={schemaPaths(parentSchema)}
+                error={problem.messageFor('parent-path')}
+                inputRef={parentPathInput}
               />
-              <datalist id={`edit-parent-paths-${node.id}`}>
-                {schemaPaths(parentSchema).map((path) => (
-                  <option key={path} value={path} />
-                ))}
-              </datalist>
-            </Label>
-          )}
-          {mode === 'custom' ? (
-            <Label className="grid gap-2">
-              Child field path
-              <Input
-                list={`edit-child-paths-${node.id}`}
+              <FieldPathInput
+                label="Child field path"
                 value={childPath}
-                onChange={(event) => setChildPath(event.target.value)}
+                onValueChange={(value) => {
+                  setChildPath(value);
+                  problem.clear('child-path');
+                }}
+                paths={childSchema ? schemaPaths(childSchema) : []}
+                error={problem.messageFor('child-path')}
+                inputRef={childPathInput}
               />
-              <datalist id={`edit-child-paths-${node.id}`}>
-                {childSchema
-                  ? schemaPaths(childSchema).map((path) => <option key={path} value={path} />)
-                  : null}
-              </datalist>
-            </Label>
-          ) : null}
-          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+            </>
+          )}
           <Button type="submit">Save relationship</Button>
         </form>
       </DialogContent>

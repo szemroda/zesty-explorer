@@ -1049,3 +1049,104 @@ describe('confirmations and undo', () => {
     );
   });
 });
+
+describe('form errors', () => {
+  it('shows a start form problem on the field it belongs to and focuses it', () => {
+    render(<App api={api()} tokenStore={tokenStore()} />);
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+
+    const token = screen.getByLabelText('Zesty session token');
+    expect(token).toHaveAttribute('aria-invalid', 'true');
+    expect(token).toHaveAccessibleDescription('Enter the Zesty session token for this deployment.');
+    expect(token).toHaveFocus();
+
+    fireEvent.change(token, { target: { value: 'fixture-session-token' } });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://example.com/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+
+    const instanceUrl = screen.getByLabelText('Zesty instance URL');
+    expect(instanceUrl).toHaveAttribute('aria-invalid', 'true');
+    expect(instanceUrl).toHaveFocus();
+    expect(token).not.toHaveAttribute('aria-invalid', 'true');
+
+    // A value that is not a URL at all still reaches the app's own field error.
+    fireEvent.change(instanceUrl, { target: { value: 'not-a-url' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+    expect(instanceUrl).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('reports an unusable pasted root reference on its field instead of opening the selection', async () => {
+    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
+      Effect.succeed(snapshot),
+    );
+    render(<App api={api(loadCollectionSnapshot)} tokenStore={tokenStore()} />);
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'fixture-session-token' },
+    });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
+    );
+
+    const pasted = screen.getByLabelText('Root collection reference');
+    fireEvent.change(pasted, { target: { value: 'not a collection reference' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(pasted).toHaveAttribute('aria-invalid', 'true');
+    expect(pasted).toHaveFocus();
+
+    fireEvent.change(pasted, {
+      target: { value: 'https://8-zzz999.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(pasted).toHaveAccessibleDescription(
+      'Paste a collection from the same Zesty instance and deployment.',
+    );
+    expect(loadCollectionSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('asks for a root collection on the picker when none is chosen', async () => {
+    render(<App api={api()} tokenStore={tokenStore()} />);
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'fixture-session-token' },
+    });
+    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load collections' }));
+    // The picker remounts when its selection changes, so it is looked up again each time.
+    const picker = () => screen.getByRole('combobox', { name: 'Root collection' });
+    await waitFor(() => expect(picker()).toHaveValue('Stories'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+
+    expect(picker()).toHaveAccessibleDescription(
+      'Choose a root collection or paste a collection reference.',
+    );
+    expect(picker()).toHaveFocus();
+  });
+
+  it('asks for a missing relationship field path on that field', async () => {
+    openSharedView(rootWithChild);
+    render(<App api={api()} tokenStore={storedTokenStore()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for Related stories' }));
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Edit relationship for Related stories' }),
+    );
+    const parentPath = await screen.findByLabelText('Parent field path');
+    fireEvent.change(parentPath, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save relationship' }));
+
+    expect(parentPath).toHaveAttribute('aria-invalid', 'true');
+    expect(parentPath).toHaveAccessibleDescription('Enter a parent field path.');
+    expect(parentPath).toHaveFocus();
+  });
+});
