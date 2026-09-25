@@ -1,4 +1,4 @@
-import type { CodeFile, CodeState, ModelZuid } from '../domain';
+import type { CodeFile, CodeFileZuid, CodeState, InstanceReference, ModelZuid } from '../domain';
 import type { TokenKind } from '../parsley';
 
 export interface CollectionTone {
@@ -125,4 +125,12 @@ export function fileTypeLabel(file: Pick<CodeFile, 'type' | 'fileName'>): string
 export function fileFormatLabel(fileName: string): string {
   const extension = /\.([a-z0-9]+)$/i.exec(fileName)?.[1];
   return extension ? extension.toUpperCase() : 'No extension';
+}
+
+/** Zesty Manager's code editor page for a `/web/views` file. */
+export function managerCodeFileUrl(
+  instance: Pick<InstanceReference, 'managerBaseUrl'>,
+  fileId: CodeFileZuid,
+): string {
+  return `${instance.managerBaseUrl}/code/file/views/${fileId}`;
 }

@@ -1,5 +1,5 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
-import { ArrowLeft, FileCode2, FileQuestion } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileCode2, FileQuestion } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
@@ -26,6 +26,7 @@ import {
   codeStateLabels,
   fileFormatLabel,
   fileTypeLabel,
+  managerCodeFileUrl,
 } from '../code-presentation';
 import type { CodeSelection } from '../../domain';
 import {
@@ -39,6 +40,7 @@ import { CodeSourceView, type SourcePresentation } from './CodeSourceView';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { buttonVariants } from './ui/button-variants';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 
@@ -210,6 +212,15 @@ export function CodeWorkspace({
                 {codeStateLabels[state]} · version {selected.version}
               </span>
             ) : null}
+            <a
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'ml-auto')}
+              href={managerCodeFileUrl(instance, named.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink size={14} aria-hidden="true" />
+              Open in Zesty Manager
+            </a>
           </div>
         ) : null}
 

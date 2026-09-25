@@ -45,6 +45,12 @@ test('opens Code without a root collection and explains a file', async ({ page }
 
   await expect(page.getByRole('heading', { name: '/data/articles.json' })).toBeVisible();
   await expect(page.getByText('Latest · version 28')).toBeVisible();
+  const managerLink = page.getByRole('link', { name: 'Open in Zesty Manager' });
+  await expect(managerLink).toHaveAttribute(
+    'href',
+    'https://8-fixture.manager.zesty.io/code/file/views/11-articles-json',
+  );
+  await expect(managerLink).toHaveAttribute('target', '_blank');
   await expect(steps(page).getByText('Loop over Articles as “article”')).toBeVisible();
   await expect(usage(page).getByText('Categories', { exact: true })).toBeVisible();
   const link = ViewCodec.decode(new URL(page.url()).hash);
