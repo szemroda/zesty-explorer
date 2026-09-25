@@ -55,9 +55,9 @@ The token is stored only in that tab's `sessionStorage`, separated by deployment
 
 ## Limits and failures
 
-A view supports at most 10 collection nodes and five levels. Each unique collection is fetched once for the selected deployment and content state, with at most three background loads running concurrently.
+A view supports at most 10 collection nodes and five levels.
 
-Opening item history starts its version, publishing, and author requests concurrently. Version content remains usable if publishing status or author enrichment fails, with a separate retry for each failed source.
+Item history remains usable when publishing status or author information fails to load. Each failed source has its own retry.
 
 The app loads at most 10,000 items per collection and 50,000 items across a view. Affected collections remain usable and show persistent incomplete-data warnings. A failed root blocks the table area and offers retry. A failed descendant leaves the rest of the view usable and provides recovery at that node.
 
@@ -87,10 +87,8 @@ pnpm build
 - `pnpm test:performance` measures generated 1,000-, 10,000-, and 50,000-item graphs against stored baselines and product budgets.
 - `pnpm build` creates the production bundle in `dist`.
 
-See [the verification matrix](docs/verification-matrix.md), [security audit](docs/security-audit.md), and [performance report](docs/performance-report.md) for coverage and repeatable evidence.
+See the [security audit](docs/security-audit.md) and [performance report](docs/performance-report.md) for repeatable evidence, and [the architecture decision records](docs/adr/) for the reasoning behind key constraints.
 
-## Known boundaries
-
-Version one is intentionally desktop-only and dark-only. It does not edit or publish Zesty content, mix instances or deployments in one view, poll for changes, export content or configuration, evaluate JavaScript filters, provide arbitrary boolean filter groups, add analytics, provide a proxy, or host the application. Current Chrome and Edge are the supported browsers.
+## Troubleshooting
 
 For network or CORS errors, confirm that the URL belongs to the intended Zesty deployment and inspect the browser Network panel without recording authorization headers. For `403`, request read access from a Zesty administrator. For response-shape errors, refresh once and record only non-secret response structure if the problem persists.
