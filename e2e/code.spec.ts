@@ -85,6 +85,30 @@ test('keeps both tabs and restores both from the link after reload', async ({ pa
   await expect(page.getByText('articles item 1')).toBeVisible();
 });
 
+test('filters files by name or URL and restores the filter from the link', async ({ page }) => {
+  await openInstance(page);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  const filter = page.getByRole('searchbox', { name: 'Filter code files' });
+
+  await filter.fill('ARTICLES');
+  await expect(fileButton(page, '/data/articles.json')).toBeVisible();
+  await expect(fileButton(page, '/api/events.json')).toBeHidden();
+  await filter.fill('https://www.example.com/api/events.json?city=Berlin');
+  await expect(fileButton(page, '/api/events.json')).toBeVisible();
+  await expect(fileButton(page, '/data/articles.json')).toBeHidden();
+  await fileButton(page, '/api/events.json').click();
+
+  // The link keeps the URL without its query, which may carry a session token.
+  await page.reload();
+  await expect(filter).toHaveValue('https://www.example.com/api/events.json');
+  await expect(fileButton(page, '/api/events.json')).toBeVisible();
+  await expect(fileButton(page, '/data/articles.json')).toBeHidden();
+  await expect(page.getByRole('heading', { name: '/api/events.json' })).toBeVisible();
+
+  await filter.fill('no such file');
+  await expect(page.getByText('No files match this filter.')).toBeVisible();
+});
+
 test('shows a missing published version without switching code states', async ({ page }) => {
   await openInstance(page);
   await page.getByRole('tab', { name: 'Code' }).click();

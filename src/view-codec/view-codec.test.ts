@@ -69,6 +69,7 @@ describe('ViewCodec', () => {
       instance: { instanceZuid: '8-abc123', deployment: 'stage' },
       tab: 'code',
       codeSelection: { state: 'published', fileId: '11-endpoint01' },
+      codeFileFilter: '/api/',
     };
     const both: SharedState = { ...shared(view), codeSelection: { state: 'latest' } };
 
@@ -83,7 +84,7 @@ describe('ViewCodec', () => {
     expect(ViewCodec.decode(gzipFragment(view))).toEqual({ ok: true, state: shared(view) });
   });
 
-  it('rejects a view from another instance and an invalid code file', () => {
+  it('rejects a view from another instance and invalid Code tab state', () => {
     expect(() =>
       ViewCodec.encode({
         ...shared(view),
@@ -95,6 +96,7 @@ describe('ViewCodec', () => {
         gzipFragment({ ...shared(view), codeSelection: { state: 'latest', fileId: '../etc' } }),
       ).ok,
     ).toBe(false);
+    expect(ViewCodec.decode(gzipFragment({ ...shared(view), codeFileFilter: 1 })).ok).toBe(false);
   });
 
   it('round-trips an unrecognized collection type without inventing a Manager area', () => {

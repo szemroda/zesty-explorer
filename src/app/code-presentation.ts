@@ -127,6 +127,29 @@ export function fileFormatLabel(fileName: string): string {
   return extension ? extension.toUpperCase() : 'No extension';
 }
 
+/**
+ * The part of a Code file filter that a link keeps. A URL's query or fragment may carry a session
+ * token, and matching ignores them.
+ */
+export function shareableFileFilter(filter: string): string {
+  return filter.replace(/[?#].*/s, '');
+}
+
+/**
+ * Whether a code file matches the Code tab's file filter: part of its name, ignoring case, or a
+ * URL that serves it (a custom endpoint's path) or opens it (its ZUID in Zesty Manager). The URL
+ * may be relative, e.g. `/api/events.json?page=2`.
+ */
+export function codeFileMatches(file: Pick<CodeFile, 'id' | 'fileName'>, filter: string): boolean {
+  const text = shareableFileFilter(filter).trim().toLowerCase();
+  const fileName = file.fileName.toLowerCase();
+  if (fileName.includes(text)) return true;
+  const url = URL.parse(text, 'https://site.invalid');
+  if (!url) return false;
+  const servesFile = fileName.startsWith('/') && url.pathname.endsWith(fileName);
+  return servesFile || url.pathname.split('/').includes(file.id.toLowerCase());
+}
+
 /** Zesty Manager's code editor page for a `/web/views` file. */
 export function managerCodeFileUrl(
   instance: Pick<InstanceReference, 'managerBaseUrl'>,

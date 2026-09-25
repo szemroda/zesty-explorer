@@ -4,7 +4,7 @@ status: accepted
 
 # Share state as versioned URL fragments
 
-The shareable state of both tabs is encoded as one versioned, compressed payload in the `#view=` URL fragment and kept current with `history.replaceState`. It includes the instance, deployment, active tab, Explorer view, and the Code tab's selected file and code state. The application has no backend to store views, so the link is both the persistence and the sharing mechanism, and a fragment is never sent in HTTP requests.
+The shareable state of both tabs is encoded as one versioned, compressed payload in the `#view=` URL fragment and kept current with `history.replaceState`. It includes the instance, deployment, active tab, Explorer view, and the Code tab's selected file, code state, and file filter. The application has no backend to store views, so the link is both the persistence and the sharing mechanism, and a fragment is never sent in HTTP requests.
 
 ## Consequences
 

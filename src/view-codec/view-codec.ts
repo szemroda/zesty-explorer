@@ -331,7 +331,8 @@ function validateSharedState(value: unknown): SharedState | undefined {
     value.codeSelection === undefined ? undefined : validateCodeSelection(value.codeSelection);
   if (
     (value.view !== undefined && !view) ||
-    (value.codeSelection !== undefined && !codeSelection)
+    (value.codeSelection !== undefined && !codeSelection) ||
+    (value.codeFileFilter !== undefined && typeof value.codeFileFilter !== 'string')
   ) {
     return undefined;
   }
@@ -349,6 +350,7 @@ function validateSharedState(value: unknown): SharedState | undefined {
     tab: value.tab,
     ...(view ? { view } : {}),
     ...(codeSelection ? { codeSelection } : {}),
+    ...(typeof value.codeFileFilter === 'string' ? { codeFileFilter: value.codeFileFilter } : {}),
   };
 }
 

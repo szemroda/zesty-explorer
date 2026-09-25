@@ -62,9 +62,9 @@ import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { OpenCollectionDialog } from './components/OpenCollectionDialog';
 import { createChildNode, createRootNode } from './view-state';
-import { useCodeSelection } from './hooks/useCodeSelection';
+import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
-import { codeStateLabels } from './code-presentation';
+import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
@@ -245,9 +245,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     () => catalogInstance ?? (reference ? instanceReference(reference) : undefined),
     [catalogInstance, reference],
   );
-  const code = useCodeSelection(instance, initial.state?.codeSelection);
+  const code = useCodeTab(instance, initial.state);
 
-  // One link restores both tabs: the active tab, the Explorer view, and the Code selection.
+  // One link restores both tabs: the active tab, the Explorer view, and the Code selection and
+  // file filter.
   const encodedView = useMemo(() => {
     if (!instance || viewDecodeError) return undefined;
     // While another instance's root is being chosen, the open view belongs to the old one.
@@ -257,15 +258,18 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         ? ({ version: 2, root: treeRoot, contentState, viewFilters, globalFreeText } as const)
         : undefined;
     const selection = code.selection;
+    const fileFilter = shareableFileFilter(code.fileFilter);
     return ViewCodec.encode({
       version: 3,
       instance: { instanceZuid: instance.instanceZuid, deployment: instance.deployment },
       tab: activeTab,
       ...(view ? { view } : {}),
       ...(selection.fileId || selection.state !== 'latest' ? { codeSelection: selection } : {}),
+      ...(fileFilter ? { codeFileFilter: fileFilter } : {}),
     });
   }, [
     activeTab,
+    code.fileFilter,
     code.selection,
     contentState,
     globalFreeText,
@@ -1348,6 +1352,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             catalog={catalogQuery.catalog}
             selection={code.selection}
             onSelectionChange={code.select}
+            fileFilter={code.fileFilter}
+            onFileFilterChange={code.setFileFilter}
             onOpenCollection={requestOpenCollection}
             onAuthenticationFailure={() => setCodeAuthenticationFailureRevision(credentialRevision)}
           />

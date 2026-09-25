@@ -1,5 +1,5 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
-import { ArrowLeft, ExternalLink, FileCode2, FileQuestion } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
@@ -23,6 +23,7 @@ import {
 import type { CodeFileApi, CollectionApi } from '../../zesty-api';
 import {
   catalogTones,
+  codeFileMatches,
   codeStateLabels,
   fileFormatLabel,
   fileTypeLabel,
@@ -42,6 +43,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
+import { Input } from './ui/input';
 import { Skeleton } from './ui/skeleton';
 
 interface CallSite {
@@ -57,6 +59,8 @@ interface CodeWorkspaceProps {
   readonly catalog: CollectionCatalog | undefined;
   readonly selection: CodeSelection;
   readonly onSelectionChange: (selection: CodeSelection) => void;
+  readonly fileFilter: string;
+  readonly onFileFilterChange: (fileFilter: string) => void;
   readonly onOpenCollection: (modelZuid: ModelZuid) => void;
   readonly onAuthenticationFailure: () => void;
 }
@@ -68,6 +72,8 @@ export function CodeWorkspace({
   catalog,
   selection,
   onSelectionChange,
+  fileFilter,
+  onFileFilterChange,
   onOpenCollection,
   onAuthenticationFailure,
 }: CodeWorkspaceProps) {
@@ -145,60 +151,91 @@ export function CodeWorkspace({
       ),
     [latest.list],
   );
+  const listedFiles = useMemo(
+    () => files.filter((file) => codeFileMatches(file, fileFilter)),
+    [fileFilter, files],
+  );
 
   return (
     <div className="grid h-[calc(100vh-72px)] min-h-0 grid-cols-[16rem_minmax(0,1fr)]">
-      <nav
-        className="border-border bg-card min-h-0 overflow-auto border-r p-3"
-        aria-label="Code files"
-      >
-        <p className="text-muted-foreground mb-2 flex items-center gap-2 px-2 text-xs font-semibold tracking-wider uppercase">
-          <FileCode2 size={15} aria-hidden="true" /> Files
-          {latest.list ? <span className="text-muted-foreground/70">{files.length}</span> : null}
-        </p>
-        {latest.isLoading ? (
-          <div className="grid gap-2 px-2" aria-label="Loading code files">
-            {Array.from({ length: 8 }, (_, index) => (
-              <Skeleton key={index} className="h-5" />
+      <nav className="border-border bg-card flex min-h-0 flex-col border-r" aria-label="Code files">
+        <div className="grid gap-2 p-3 pb-2">
+          <p className="text-muted-foreground flex items-center gap-2 px-2 text-xs font-semibold tracking-wider uppercase">
+            <FileCode2 size={15} aria-hidden="true" /> Files
+            {latest.list ? (
+              <span className="text-muted-foreground/70">
+                {listedFiles.length === files.length
+                  ? files.length
+                  : `${listedFiles.length} of ${files.length}`}
+              </span>
+            ) : null}
+          </p>
+          <label className="relative flex items-center">
+            <Search
+              className="text-muted-foreground absolute left-2.5"
+              size={14}
+              aria-hidden="true"
+            />
+            <Input
+              className="h-8 pl-8 text-xs"
+              type="search"
+              aria-label="Filter code files"
+              placeholder="Filter by name or URL"
+              value={fileFilter}
+              onChange={(event) => onFileFilterChange(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
+          {latest.isLoading ? (
+            <div className="grid gap-2 px-2" aria-label="Loading code files">
+              {Array.from({ length: 8 }, (_, index) => (
+                <Skeleton key={index} className="h-5" />
+              ))}
+            </div>
+          ) : null}
+          {latest.error ? (
+            <div className="text-muted-foreground grid gap-2 px-2 text-xs" role="alert">
+              <p>{latest.error.message}</p>
+              <Button variant="outline" size="sm" onClick={() => void latest.refresh()}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
+          {latest.list?.warning ? (
+            <p className="text-muted-foreground mb-2 px-2 text-xs" role="status">
+              {latest.list.warning.message}
+            </p>
+          ) : null}
+          {latest.list && files.length === 0 ? (
+            <p className="text-muted-foreground px-2 text-xs">
+              This instance returned no code files.
+            </p>
+          ) : null}
+          {files.length > 0 && listedFiles.length === 0 ? (
+            <p className="text-muted-foreground px-2 text-xs" role="status">
+              No files match this filter.
+            </p>
+          ) : null}
+          <ul className="grid gap-0.5">
+            {listedFiles.map((file) => (
+              <li key={file.id}>
+                <button
+                  type="button"
+                  onClick={() => openFromList(file.id)}
+                  aria-current={file.id === fileId ? 'true' : undefined}
+                  className={cn(
+                    'hover:bg-surface-menu-hover grid w-full rounded-md px-2 py-1.5 text-left',
+                    file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1',
+                  )}
+                >
+                  <span className="truncate font-mono text-xs">{file.fileName}</span>
+                  <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
+                </button>
+              </li>
             ))}
-          </div>
-        ) : null}
-        {latest.error ? (
-          <div className="text-muted-foreground grid gap-2 px-2 text-xs" role="alert">
-            <p>{latest.error.message}</p>
-            <Button variant="outline" size="sm" onClick={() => void latest.refresh()}>
-              Retry
-            </Button>
-          </div>
-        ) : null}
-        {latest.list?.warning ? (
-          <p className="text-muted-foreground mb-2 px-2 text-xs" role="status">
-            {latest.list.warning.message}
-          </p>
-        ) : null}
-        {latest.list && files.length === 0 ? (
-          <p className="text-muted-foreground px-2 text-xs">
-            This instance returned no code files.
-          </p>
-        ) : null}
-        <ul className="grid gap-0.5">
-          {files.map((file) => (
-            <li key={file.id}>
-              <button
-                type="button"
-                onClick={() => openFromList(file.id)}
-                aria-current={file.id === fileId ? 'true' : undefined}
-                className={cn(
-                  'hover:bg-surface-menu-hover grid w-full rounded-md px-2 py-1.5 text-left',
-                  file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1',
-                )}
-              >
-                <span className="truncate font-mono text-xs">{file.fileName}</span>
-                <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+          </ul>
+        </div>
       </nav>
 
       <section className="flex min-h-0 min-w-0 flex-col gap-3 p-4 lg:px-6">

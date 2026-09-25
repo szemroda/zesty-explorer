@@ -218,7 +218,7 @@ export interface CodeSelection {
 
 /**
  * Everything a link restores for one instance: the active tab, the Explorer view if one is open,
- * and the Code tab's selection. It never contains a session token or code source.
+ * and the Code tab's selection and file filter. It never contains a session token or code source.
  */
 export interface SharedState {
   readonly version: 3;
@@ -226,6 +226,8 @@ export interface SharedState {
   readonly tab: WorkspaceTab;
   readonly view?: PersistedView;
   readonly codeSelection?: CodeSelection;
+  /** Text that narrows the Code tab's file list by file name or URL. */
+  readonly codeFileFilter?: string;
 }
 
 export type ExplorerRequestOperation =
