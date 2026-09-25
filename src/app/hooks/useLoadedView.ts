@@ -8,6 +8,7 @@ import type {
   ExplorerError,
 } from '../../domain';
 import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
+import { ExplorerQueryError, explorerFailure } from './explorer-query';
 import {
   loadCollection,
   loadView,
@@ -43,13 +44,6 @@ export interface LoadedViewQueryResult {
   readonly isIncomplete: boolean;
   readonly refresh: () => Promise<boolean>;
   readonly retryRoot: () => Promise<void>;
-}
-
-class CollectionQueryError extends Error {
-  constructor(readonly failure: ExplorerError) {
-    super(failure.message);
-    this.name = 'CollectionQueryError';
-  }
 }
 
 function collectionQueryKey(
@@ -132,7 +126,7 @@ export function useLoadedView({
           signal,
         );
       } catch (error) {
-        if (error instanceof ViewLoadError) throw new CollectionQueryError(error.failure);
+        if (error instanceof ViewLoadError) throw new ExplorerQueryError(error.failure);
         throw error;
       }
     },
@@ -178,8 +172,7 @@ export function useLoadedView({
     if (!root || !rootQuery.data) return undefined;
     return rootLoadedView(root, contentState, rootQuery.data);
   }, [contentState, root, rootQuery.data, viewQuery.data]);
-  const rootFailure =
-    rootQuery.error instanceof CollectionQueryError ? rootQuery.error.failure : undefined;
+  const rootFailure = explorerFailure(rootQuery.error);
 
   const refresh = useCallback(async () => {
     await queryClient.refetchQueries({

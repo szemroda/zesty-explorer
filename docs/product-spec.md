@@ -183,21 +183,23 @@ The product has no row selection, bulk actions, content export, configuration im
 
 ## Shared URL state
 
-The view is encoded as a versioned, compressed payload in the URL fragment. It contains:
+The instance and the state of both tabs are encoded as a versioned, compressed payload in the `#view=` URL fragment. It contains:
 
+- the instance, Zesty deployment, and active tab;
 - root and nested collection references;
-- Zesty deployment and content state;
+- content state;
 - relationship definitions and node names;
 - view filters and table filters;
 - visible columns and widths;
-- sort state.
+- sort state;
+- the Code tab's selected file ZUID and code state.
 
-The URL never contains the session token, page numbers, expanded rows, open panels, or temporary loading state.
+The URL never contains the session token, code source, page numbers, expanded rows, open panels, or temporary loading state. Links in the earlier Explorer-only format still open in the Explorer tab.
 
 - URL synchronization happens automatically after every settled change.
 - The application uses `history.replaceState`, so typing does not add browser-history entries.
 - Reloading reconstructs the view from the URL and the session token from `sessionStorage`.
-- `Copy view link` copies the current full localhost URL.
+- `Copy link` copies the current full localhost URL, which restores both tabs.
 - One browser tab owns one view. A second view uses a second browser tab.
 - Links longer than 8,000 characters show a sharing warning but remain copyable.
 - Invalid, truncated, or unsupported view payloads are never silently reset.

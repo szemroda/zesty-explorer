@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { gzipSync, strToU8 } from 'fflate';
-import type { CollectionNode, PersistedView } from '../domain';
+import type { CollectionNode, PersistedView, SharedState } from '../domain';
 import { v1EmptyColumnsFragment } from './fixtures/v1-empty-columns-fragment';
 import { v1Fragment } from './fixtures/v1-fragment';
 import { createBrowserSessionTokenStore, ViewCodec } from './index';
@@ -34,6 +34,20 @@ const view: PersistedView = {
   globalFreeText: '',
 };
 
+// The link for an Explorer view in the Explorer tab.
+function shared(explorerView: PersistedView): SharedState {
+  return {
+    version: 3,
+    instance: { instanceZuid: '8-abc123', deployment: 'production' },
+    tab: 'explorer',
+    view: explorerView,
+  };
+}
+
+function gzipFragment(value: unknown): string {
+  return `#view=${base64Url(gzipSync(strToU8(JSON.stringify(value)), { mtime: 0 }))}`;
+}
+
 function base64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -42,11 +56,45 @@ function base64Url(bytes: Uint8Array): string {
 
 describe('ViewCodec', () => {
   it('round-trips canonically and reports fragment length', () => {
-    const encoded = ViewCodec.encode(view);
+    const encoded = ViewCodec.encode(shared(view));
     expect(encoded.fragment).toMatch(/^#view=/);
     expect(encoded.length).toBe(encoded.fragment.length);
-    expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, view });
-    expect(ViewCodec.encode(view)).toEqual(encoded);
+    expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, state: shared(view) });
+    expect(ViewCodec.encode(shared(view))).toEqual(encoded);
+  });
+
+  it('round-trips the Code tab selection with or without an Explorer view', () => {
+    const codeOnly: SharedState = {
+      version: 3,
+      instance: { instanceZuid: '8-abc123', deployment: 'stage' },
+      tab: 'code',
+      codeSelection: { state: 'published', fileId: '11-endpoint01' },
+    };
+    const both: SharedState = { ...shared(view), codeSelection: { state: 'latest' } };
+
+    expect(ViewCodec.decode(ViewCodec.encode(codeOnly).fragment)).toEqual({
+      ok: true,
+      state: codeOnly,
+    });
+    expect(ViewCodec.decode(ViewCodec.encode(both).fragment)).toEqual({ ok: true, state: both });
+  });
+
+  it('restores a version-two view link in the Explorer tab', () => {
+    expect(ViewCodec.decode(gzipFragment(view))).toEqual({ ok: true, state: shared(view) });
+  });
+
+  it('rejects a view from another instance and an invalid code file', () => {
+    expect(() =>
+      ViewCodec.encode({
+        ...shared(view),
+        instance: { instanceZuid: '8-other1', deployment: 'production' },
+      }),
+    ).toThrow(/valid, settled/i);
+    expect(
+      ViewCodec.decode(
+        gzipFragment({ ...shared(view), codeSelection: { state: 'latest', fileId: '../etc' } }),
+      ).ok,
+    ).toBe(false);
   });
 
   it('round-trips an unrecognized collection type without inventing a Manager area', () => {
@@ -57,20 +105,20 @@ describe('ViewCodec', () => {
         reference: { ...root.reference, area: 'other' },
       },
     };
-    const encoded = ViewCodec.encode(otherView);
-    expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, view: otherView });
+    const encoded = ViewCodec.encode(shared(otherView));
+    expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, state: shared(otherView) });
   });
 
   it('decodes the version-one golden link fixture', () => {
-    expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, view });
+    expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, state: shared(view) });
   });
 
   it('migrates version-one default columns without losing their meaning', () => {
     const decoded = ViewCodec.decode(v1EmptyColumnsFragment);
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
-    expect(decoded.view.version).toBe(2);
-    expect(decoded.view.root.presentation.visibleColumns).toEqual(['*']);
+    expect(decoded.state.view?.version).toBe(2);
+    expect(decoded.state.view?.root.presentation.visibleColumns).toEqual(['*']);
   });
 
   it('migrates the previous native relationship representation', () => {
@@ -91,13 +139,11 @@ describe('ViewCodec', () => {
         ],
       },
     };
-    const fragment = `#view=${base64Url(gzipSync(strToU8(JSON.stringify(legacyView)), { mtime: 0 }))}`;
-
-    const decoded = ViewCodec.decode(fragment);
+    const decoded = ViewCodec.decode(gzipFragment(legacyView));
 
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
-    expect(decoded.view.root.children[0]?.relationship).toEqual({
+    expect(decoded.state.view?.root.children[0]?.relationship).toEqual({
       kind: 'native',
       fieldSide: 'parent',
       field: ['article'],
@@ -123,52 +169,58 @@ describe('ViewCodec', () => {
 
   it('rejects unsafe hosts and invalid nested state after decompression', () => {
     expect(() =>
-      ViewCodec.encode({
-        ...view,
-        root: {
-          ...root,
-          reference: { ...root.reference, apiBaseUrl: 'https://example.com/v1' },
-        },
-      }),
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
+            reference: { ...root.reference, apiBaseUrl: 'https://example.com/v1' },
+          },
+        }),
+      ),
     ).toThrow(/valid, settled/i);
     expect(() =>
-      ViewCodec.encode({
-        ...view,
-        root: {
-          ...root,
-          presentation: { ...root.presentation, columnWidths: { title: -1 } },
-        },
-      }),
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
+            presentation: { ...root.presentation, columnWidths: { title: -1 } },
+          },
+        }),
+      ),
     ).toThrow(/valid, settled/i);
     expect(() =>
-      ViewCodec.encode({
-        ...view,
-        root: {
-          ...root,
-          children: [
-            {
-              ...root,
-              id: 'node-child',
-              relationship: {
-                kind: 'native',
-                fieldSide: 'child',
-                field: [],
-                relatedModelZuid: root.reference.modelZuid,
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
+            children: [
+              {
+                ...root,
+                id: 'node-child',
+                relationship: {
+                  kind: 'native',
+                  fieldSide: 'child',
+                  field: [],
+                  relatedModelZuid: root.reference.modelZuid,
+                },
               },
-            },
-          ],
-        },
-      }),
+            ],
+          },
+        }),
+      ),
     ).toThrow(/valid, settled/i);
   });
 
   it('refuses secrets and ephemeral state at runtime', () => {
-    expect(() => ViewCodec.encode({ ...view, sessionToken: 'secret' } as PersistedView)).toThrow(
-      /non-secret view state/i,
-    );
-    expect(() => ViewCodec.encode({ ...view, expandedRows: ['7-a'] } as PersistedView)).toThrow(
-      /non-secret view state/i,
-    );
+    expect(() =>
+      ViewCodec.encode(shared({ ...view, sessionToken: 'secret' } as PersistedView)),
+    ).toThrow(/non-secret view state/i);
+    expect(() =>
+      ViewCodec.encode(shared({ ...view, expandedRows: ['7-a'] } as PersistedView)),
+    ).toThrow(/non-secret view state/i);
   });
 });
 

@@ -2,9 +2,14 @@ import { Either, Effect, Schema } from 'effect';
 import {
   decodeCollectionPage,
   decodeItemVersions,
+  isCodeFileZuid,
+  isModelZuid,
   safeRequestUrl,
   unsupportedShapeError,
   UserZuidSchema,
+  type CodeFile,
+  type CodeFileList,
+  type CodeState,
   type CollectionCatalog,
   type CollectionCatalogEntry,
   type CollectionCatalogGroup,
@@ -22,7 +27,6 @@ import {
   type InstanceReference,
   type InstanceUser,
   type ItemPublishing,
-  type ModelZuid,
 } from '../domain';
 import type {
   ZestyApi,
@@ -38,7 +42,7 @@ const FieldZuidSchema = Schema.String.pipe(
   }),
 );
 const ModelZuidSchema = Schema.String.pipe(
-  Schema.filter((value) => /^6-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
+  Schema.filter(isModelZuid, {
     message: () => 'Related model ZUID is invalid',
   }),
 );
@@ -74,6 +78,21 @@ const RawModelSchema = Schema.Struct({
   label: Schema.String,
   name: Schema.String,
   type: Schema.String,
+});
+
+const RawCodeFileSchema = Schema.Struct({
+  ZUID: Schema.String.pipe(
+    Schema.filter(isCodeFileZuid, {
+      message: () => 'Code file ZUID is invalid',
+    }),
+  ),
+  fileName: Schema.String,
+  type: Schema.String,
+  code: Schema.NullOr(Schema.String),
+  version: Schema.Number,
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  // Any other value, such as a stale ZUID, only means `this` stays unbound.
+  contentModelZUID: Schema.optional(Schema.Unknown),
 });
 
 const RawPublishingSchema = Schema.Struct({
@@ -162,7 +181,7 @@ function decodeSchema(
       name: field.name,
       label: field.label,
       kind: fieldKind(field.datatype),
-      ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID as ModelZuid } : {}),
+      ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID } : {}),
       ...(options ? { options } : {}),
     };
   });
@@ -178,7 +197,7 @@ function catalogGroup(type: string): CollectionCatalogGroup {
   return 'other';
 }
 
-function prefixCatalogIssues(
+function prefixRecordIssues(
   error: ExplorerError,
   recordIndex: number,
 ): NonNullable<ExplorerError['diagnostic']>['issues'] {
@@ -191,60 +210,50 @@ function prefixCatalogIssues(
   }));
 }
 
-function decodeCatalog(
-  reference: InstanceReference,
+interface DecodedRecords<Record> {
+  readonly records: readonly Record[];
+  readonly incomplete: boolean;
+  readonly warning?: ExplorerError;
+}
+
+// Decodes a `{ data: [...] }` list record by record. Records that cannot be understood are
+// omitted and reported in a warning instead of failing the whole list.
+function decodeRecordList<Record, Encoded>(
   input: unknown,
-): Effect.Effect<CollectionCatalog, ExplorerError> {
+  schema: Schema.Schema<Record, Encoded>,
+  messages: { readonly envelope: string; readonly record: string; readonly omitted: string },
+): Effect.Effect<DecodedRecords<Record>, ExplorerError> {
   const envelope = Schema.decodeUnknownEither(RawCatalogResponseSchema, { errors: 'all' })(input);
   if (Either.isLeft(envelope)) {
-    return Effect.fail(
-      unsupportedShapeError(
-        'Zesty returned the collection catalog in an unsupported shape.',
-        envelope.left,
-      ),
-    );
+    return Effect.fail(unsupportedShapeError(messages.envelope, envelope.left));
   }
 
-  const collections: CollectionCatalogEntry[] = [];
+  const records: Record[] = [];
   const issues: ExplorerDecodingIssue[] = [];
   let issuesOmitted = false;
   envelope.right.data.forEach((record, index) => {
-    const decoded = Schema.decodeUnknownEither(RawModelSchema, { errors: 'all' })(record);
+    const decoded = Schema.decodeUnknownEither(schema, { errors: 'all' })(record);
     if (Either.isLeft(decoded)) {
-      const recordError = unsupportedShapeError('A collection record is invalid.', decoded.left);
-      const recordIssues = prefixCatalogIssues(recordError, index) ?? [];
+      const recordError = unsupportedShapeError(messages.record, decoded.left);
+      const recordIssues = prefixRecordIssues(recordError, index) ?? [];
       const available = Math.max(0, 20 - issues.length);
       issues.push(...recordIssues.slice(0, available));
       if (recordIssues.length > available || recordError.diagnostic?.issuesOmitted)
         issuesOmitted = true;
       return;
     }
-
-    const group = catalogGroup(decoded.right.type);
-    collections.push({
-      label: decoded.right.label,
-      name: decoded.right.name,
-      type: decoded.right.type,
-      group,
-      reference: {
-        instanceZuid: reference.instanceZuid,
-        modelZuid: decoded.right.ZUID as ModelZuid,
-        deployment: reference.deployment,
-        area: group,
-        apiBaseUrl: reference.apiBaseUrl,
-        managerBaseUrl: reference.managerBaseUrl,
-      },
-    });
+    records.push(decoded.right);
   });
 
+  const incomplete = issues.length > 0 || issuesOmitted;
   return Effect.succeed({
-    collections,
-    incomplete: issues.length > 0 || issuesOmitted,
-    ...(issues.length > 0 || issuesOmitted
+    records,
+    incomplete,
+    ...(incomplete
       ? {
           warning: {
             kind: 'decoding' as const,
-            message: 'Some collection records could not be understood and were omitted.',
+            message: messages.omitted,
             diagnostic: {
               ...(issues.length > 0 ? { issues } : {}),
               ...(issuesOmitted ? { issuesOmitted: true } : {}),
@@ -253,6 +262,68 @@ function decodeCatalog(
         }
       : {}),
   });
+}
+
+function decodeCatalog(
+  reference: InstanceReference,
+  input: unknown,
+): Effect.Effect<CollectionCatalog, ExplorerError> {
+  return decodeRecordList(input, RawModelSchema, {
+    envelope: 'Zesty returned the collection catalog in an unsupported shape.',
+    record: 'A collection record is invalid.',
+    omitted: 'Some collection records could not be understood and were omitted.',
+  }).pipe(
+    Effect.map(({ records, incomplete, warning }) => ({
+      collections: records.map((model): CollectionCatalogEntry => {
+        const group = catalogGroup(model.type);
+        return {
+          label: model.label,
+          name: model.name,
+          type: model.type,
+          group,
+          reference: {
+            instanceZuid: reference.instanceZuid,
+            modelZuid: model.ZUID,
+            deployment: reference.deployment,
+            area: group,
+            apiBaseUrl: reference.apiBaseUrl,
+            managerBaseUrl: reference.managerBaseUrl,
+          },
+        };
+      }),
+      incomplete,
+      ...(warning ? { warning } : {}),
+    })),
+  );
+}
+
+function decodeCodeFiles(
+  state: CodeState,
+  input: unknown,
+): Effect.Effect<CodeFileList, ExplorerError> {
+  return decodeRecordList(input, RawCodeFileSchema, {
+    envelope: 'Zesty returned code files in an unsupported shape.',
+    record: 'A code file record is invalid.',
+    omitted: 'Some code files could not be understood and were omitted.',
+  }).pipe(
+    Effect.map(({ records, incomplete, warning }) => ({
+      state,
+      files: records.map((file): CodeFile => {
+        const model = file.contentModelZUID;
+        return {
+          id: file.ZUID,
+          fileName: file.fileName,
+          type: file.type,
+          code: file.code ?? '',
+          version: file.version,
+          ...(file.updatedAt ? { updatedAt: file.updatedAt } : {}),
+          ...(typeof model === 'string' && isModelZuid(model) ? { contentModelZuid: model } : {}),
+        };
+      }),
+      incomplete,
+      ...(warning ? { warning } : {}),
+    })),
+  );
 }
 
 function decodePublishings(
@@ -343,6 +414,17 @@ function statusError(response: ZestyTransportResponse): ExplorerError | undefine
     };
   }
   return { kind: 'network', message: `Zesty returned HTTP ${response.status}.` };
+}
+
+// The shared status messages name collections; code file requests need their own wording.
+function describeCodeFileError(error: ExplorerError): ExplorerError {
+  if (error.kind === 'permission') {
+    return { ...error, message: 'Your Zesty session cannot read code files in this instance.' };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'Zesty did not find code files for this instance.' };
+  }
+  return error;
 }
 
 function retryable(error: ExplorerError): boolean {
@@ -547,6 +629,36 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
         Effect.flatMap((response) =>
           decodePublishings(response.body).pipe(
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadCodeFiles: (reference, state, sessionToken) => {
+      const url = new URL(`${reference.apiBaseUrl}/web/views`);
+      url.searchParams.set('status', state === 'published' ? 'live' : 'dev');
+      const requestUrl = url.toString();
+      const operation = 'load-code-files' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.mapError(describeCodeFileError),
+        Effect.flatMap((response) =>
+          decodeCodeFiles(state, response.body).pipe(
+            Effect.map((list) =>
+              list.warning
+                ? {
+                    ...list,
+                    warning: withRequestDiagnostic(
+                      list.warning,
+                      operation,
+                      requestUrl,
+                      response.status,
+                    ),
+                  }
+                : list,
+            ),
             Effect.mapError((error) =>
               withRequestDiagnostic(error, operation, requestUrl, response.status),
             ),

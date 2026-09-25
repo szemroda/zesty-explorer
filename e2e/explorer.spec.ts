@@ -485,9 +485,9 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await page.getByLabel('View filter').getByRole('button', { name: 'Add' }).click();
   await expect(page.getByText('1 items')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Copy view link' }).click();
-  const copiedToast = page.locator('[data-sonner-toast]').filter({ hasText: 'View link copied' });
-  await expect(copiedToast).toContainText('The session token is not included.');
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  const copiedToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Link copied' });
+  await expect(copiedToast).toContainText('The session token and code source are not included.');
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain('#view=');
   expect(copied).not.toContain('synthetic-session-token');
@@ -521,11 +521,9 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
   await page.getByLabel('Search the complete view').fill(longText);
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
   await page.getByLabel('Search the complete view').fill('');
-  await page.getByLabel('View options').click();
-  await page.getByRole('menuitem', { name: 'Change view setup' }).click();
-  await expect(page.getByRole('heading', { name: 'Change view setup' })).toBeVisible();
-  await page.getByLabel('Zesty instance URL').fill(childUrl);
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
+  await page.getByRole('menuitem', { name: 'Change root collection' }).click();
+  await page.getByLabel('Root collection reference').fill(childUrl);
   await page.getByRole('button', { name: 'Open root collection' }).click();
   const replaceRoot = page.getByRole('alertdialog', { name: 'Replace root collection?' });
   await expect(replaceRoot.getByRole('listitem')).toHaveText(['6-rootmodel']);

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
 import {
+  Code2,
   Copy,
   Database,
   Eye,
@@ -14,8 +15,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
+import {
+  instanceReferenceFor,
+  parseCollectionReference,
+  parseInstanceReference,
+} from '../collection-reference';
 import type {
+  CollectionCatalogEntry,
   CollectionNode,
   CollectionNodeId,
   CollectionReference,
@@ -26,6 +32,8 @@ import type {
   ModelZuid,
   NodePresentation,
   PersistedView,
+  SharedState,
+  WorkspaceTab,
   RelationshipDefinition,
   ViewFilter,
 } from '../domain';
@@ -51,7 +59,12 @@ import { RootTable, RootTableSkeleton } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
-import { createChildNode } from './view-state';
+import { CodeWorkspace } from './components/CodeWorkspace';
+import { OpenCollectionDialog } from './components/OpenCollectionDialog';
+import { createChildNode, createRootNode } from './view-state';
+import { useCodeSelection } from './hooks/useCodeSelection';
+import { refreshCodeFiles } from './hooks/useCodeFiles';
+import { codeStateLabels } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
@@ -82,6 +95,7 @@ import { Input } from './components/ui/input';
 import { Toaster } from './components/ui/sonner';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
+import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -114,13 +128,20 @@ interface PendingUndo {
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
 
+// Restores the shared state of both tabs from a `#view=` link.
 function initialSharedView(): {
-  readonly view?: PersistedView;
+  readonly state?: SharedState;
   readonly error?: InvalidSharedView;
 } {
   if (!window.location.hash.startsWith('#view=')) return {};
   const decoded = ViewCodec.decode(window.location.hash);
-  return decoded.ok ? { view: decoded.view } : { error: decoded };
+  return decoded.ok ? { state: decoded.state } : { error: decoded };
+}
+
+/** This page's address with another URL fragment, e.g. a view link. */
+function appUrl(fragment: string): string {
+  const { origin, pathname, search } = window.location;
+  return `${origin}${pathname}${search}${fragment}`;
 }
 
 function collectionUrl(reference: CollectionReference): string {
@@ -145,8 +166,15 @@ function instanceReference(reference: CollectionReference): InstanceReference {
 function Explorer({ api, tokenStore }: ExplorerProps) {
   const queryClient = useQueryClient();
   const [initial] = useState(initialSharedView);
+  const initialView = initial.state?.view;
+  const [initialInstance] = useState(() => {
+    if (initialView) return instanceReference(initialView.root.reference);
+    const shared = initial.state?.instance;
+    return shared ? instanceReferenceFor(shared.instanceZuid, shared.deployment) : undefined;
+  });
+  const initialDeployment = initialInstance?.deployment;
   const [initialToken] = useState(() =>
-    initial.view ? (tokenStore.read(initial.view.root.reference.deployment) ?? '') : '',
+    initialDeployment ? (tokenStore.read(initialDeployment) ?? '') : '',
   );
   const [token, setToken] = useState(initialToken);
   const [activeToken, setActiveToken] = useState(initialToken);
@@ -154,37 +182,46 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     () => (activeToken ? crypto.randomUUID() : 'no-credentials'),
     [activeToken],
   );
-  const [tokenDeployment, setTokenDeployment] = useState(initial.view?.root.reference.deployment);
+  const [tokenDeployment, setTokenDeployment] = useState(initialDeployment);
   const [showToken, setShowToken] = useState(false);
   const [collectionInput, setCollectionInput] = useState(() =>
-    initial.view ? collectionUrl(initial.view.root.reference) : '',
+    initialView
+      ? collectionUrl(initialView.root.reference)
+      : (initialInstance?.managerBaseUrl ?? ''),
   );
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
+  // The Code tab loads source only once it has been opened.
+  const [codeOpened, setCodeOpened] = useState(initial.state?.tab === 'code');
+  const [codeAuthenticationFailureRevision, setCodeAuthenticationFailureRevision] =
+    useState<string>();
+  const [pendingCollection, setPendingCollection] = useState<CollectionCatalogEntry>();
+  const [isRefreshingCode, setIsRefreshingCode] = useState(false);
   const [reference, setReference] = useState<CollectionReference | undefined>(
-    initial.view?.root.reference,
+    initialView?.root.reference,
   );
-  const [treeRoot, setTreeRoot] = useState<CollectionNode | undefined>(initial.view?.root);
+  const [treeRoot, setTreeRoot] = useState<CollectionNode | undefined>(initialView?.root);
   const [contentState, setContentState] = useState<ContentState>(
-    initial.view?.contentState ?? 'latest',
+    initialView?.contentState ?? 'latest',
   );
-  const [globalFreeText, setGlobalFreeText] = useState(initial.view?.globalFreeText ?? '');
+  const [globalFreeText, setGlobalFreeText] = useState(initialView?.globalFreeText ?? '');
   const [viewFilters, setViewFilters] = useState<readonly ViewFilter[]>(
-    initial.view?.viewFilters ?? [],
+    initialView?.viewFilters ?? [],
   );
-  const [viewFiltersOpen, setViewFiltersOpen] = useState(Boolean(initial.view?.viewFilters.length));
+  const [viewFiltersOpen, setViewFiltersOpen] = useState(Boolean(initialView?.viewFilters.length));
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
-  const [changingRoot, setChangingRoot] = useState(false);
-  const [selectingRoot, setSelectingRoot] = useState(false);
-  const [catalogInstance, setCatalogInstance] = useState<InstanceReference | undefined>(() =>
-    initial.view ? instanceReference(initial.view.root.reference) : undefined,
+  // A link without an Explorer view opens Explorer at the root picker.
+  const [selectingRoot, setSelectingRoot] = useState(
+    Boolean(initial.state && !initialView && initialToken),
   );
+  const [catalogInstance, setCatalogInstance] = useState(initialInstance);
   const [selectedRootZuid, setSelectedRootZuid] = useState<ModelZuid | undefined>(
-    initial.view?.root.reference.modelZuid,
+    initialView?.root.reference.modelZuid,
   );
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [previewAuthenticationFailureRevision, setPreviewAuthenticationFailureRevision] =
     useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
-  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.view && !initialToken));
+  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.state && !initialToken));
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
@@ -202,31 +239,52 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
+  // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
+  // Explorer view is replaced when a root from the new instance is opened.
+  const instance = useMemo(
+    () => catalogInstance ?? (reference ? instanceReference(reference) : undefined),
+    [catalogInstance, reference],
+  );
+  const code = useCodeSelection(instance, initial.state?.codeSelection);
+
+  // One link restores both tabs: the active tab, the Explorer view, and the Code selection.
   const encodedView = useMemo(() => {
-    if (!treeRoot || viewDecodeError) return undefined;
+    if (!instance || viewDecodeError) return undefined;
+    // While another instance's root is being chosen, the open view belongs to the old one.
+    const view =
+      treeRoot?.reference.instanceZuid === instance.instanceZuid &&
+      treeRoot.reference.deployment === instance.deployment
+        ? ({ version: 2, root: treeRoot, contentState, viewFilters, globalFreeText } as const)
+        : undefined;
+    const selection = code.selection;
     return ViewCodec.encode({
-      version: 2,
-      root: treeRoot,
-      contentState,
-      viewFilters,
-      globalFreeText,
+      version: 3,
+      instance: { instanceZuid: instance.instanceZuid, deployment: instance.deployment },
+      tab: activeTab,
+      ...(view ? { view } : {}),
+      ...(selection.fileId || selection.state !== 'latest' ? { codeSelection: selection } : {}),
     });
-  }, [contentState, globalFreeText, treeRoot, viewDecodeError, viewFilters]);
+  }, [
+    activeTab,
+    code.selection,
+    contentState,
+    globalFreeText,
+    instance,
+    treeRoot,
+    viewDecodeError,
+    viewFilters,
+  ]);
 
   useEffect(() => {
     if (viewDecodeError) return;
-    if (!treeRoot) {
-      if (window.location.hash.startsWith('#view=')) {
-        window.history.replaceState(
-          null,
-          '',
-          `${window.location.pathname}${window.location.search}`,
-        );
-      }
+    if (encodedView) {
+      window.history.replaceState(null, '', encodedView.fragment);
       return;
     }
-    if (encodedView) window.history.replaceState(null, '', encodedView.fragment);
-  }, [encodedView, treeRoot, viewDecodeError]);
+    if (window.location.hash.startsWith('#view=')) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+  }, [encodedView, viewDecodeError]);
 
   useEffect(() => {
     if (pendingUndo.current?.treeRoot === treeRoot) return;
@@ -250,7 +308,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       activeToken &&
       tokenDeployment === treeRoot.reference.deployment &&
       !tokenRequired &&
-      !changingRoot &&
       !selectingRoot,
     ),
     requiresCompleteView,
@@ -334,7 +391,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ? catalogInstance?.deployment
       : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
         ? reference?.deployment
-        : undefined;
+        : codeAuthenticationFailureRevision === credentialRevision
+          ? instance?.deployment
+          : undefined;
     if (!failedDeployment) return;
     tokenStore.clear(failedDeployment);
     const update = window.setTimeout(() => {
@@ -350,7 +409,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     authenticationFailed,
     catalogAuthenticationFailed,
     catalogInstance?.deployment,
+    codeAuthenticationFailureRevision,
     credentialRevision,
+    instance?.deployment,
     previewAuthenticationFailureRevision,
     reference?.deployment,
     tokenStore,
@@ -531,33 +592,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ) {
         return current;
       }
-      return {
-        id: 'node-root',
-        name: label,
-        reference: selectedReference,
-        presentation: {
-          visibleColumns: ['*'],
-          columnWidths: {},
-          sort: { fieldPath: ['modified'], direction: 'desc' },
-          filters: [],
-          freeText: '',
-        },
-        children: [],
-      };
+      return createRootNode(selectedReference, label);
     });
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
     setTokenRequired(false);
-    setChangingRoot(false);
     setSelectingRoot(false);
   }
 
   function clearToken() {
-    if (!reference) return;
-    tokenStore.clear(reference.deployment);
+    if (!instance) return;
+    tokenStore.clear(instance.deployment);
     setToken('');
     setActiveToken('');
-    setTokenDeployment(reference.deployment);
+    setTokenDeployment(instance.deployment);
     setTokenRequired(true);
     setCatalogInstance(undefined);
     setSelectingRoot(false);
@@ -589,7 +637,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTokenDeployment(rootReference.deployment);
     setTokenRequired(!storedToken);
     startFormProblem.clear();
-    setChangingRoot(false);
     setSelectingRoot(false);
     setTreeRoot(view.root);
     setReference(rootReference);
@@ -601,7 +648,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedRootZuid(rootReference.modelZuid);
   }
 
+  // Clears both tabs and returns to the token and instance form, keeping the token.
   function clearView() {
+    code.reset();
+    setActiveTab('explorer');
     setTreeRoot(undefined);
     setReference(undefined);
     setCollectionInput('');
@@ -611,32 +661,72 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setTokenRequired(false);
-    setChangingRoot(false);
     setSelectingRoot(false);
     setCatalogInstance(undefined);
     setSelectedRootZuid(undefined);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
 
-  function copyViewLink() {
-    void copyText(window.location.href, 'View link copied', 'The session token is not included.');
+  // The link restores both tabs; it names code files but never includes their source.
+  function copyLink() {
+    if (!encodedView) return;
+    void copyText(
+      appUrl(encodedView.fragment),
+      'Link copied',
+      'The session token and code source are not included.',
+    );
+  }
+
+  async function refreshCode() {
+    setIsRefreshingCode(true);
+    try {
+      await refreshCodeFiles(queryClient);
+    } finally {
+      setIsRefreshingCode(false);
+    }
+  }
+
+  function changeTab(tab: WorkspaceTab) {
+    setActiveTab(tab);
+    if (tab === 'code') setCodeOpened(true);
+  }
+
+  function requestOpenCollection(modelZuid: ModelZuid) {
+    const entry = catalogQuery.catalog?.collections.find(
+      (collection) => collection.reference.modelZuid === modelZuid,
+    );
+    if (entry) setPendingCollection(entry);
+  }
+
+  function openCollectionInExplorer(entry: CollectionCatalogEntry) {
+    withdrawUndo();
+    setCollectionInput(collectionUrl(entry.reference));
+    setSelectedRootZuid(entry.reference.modelZuid);
+    replaceRoot({ label: entry.label, reference: entry.reference });
+    setActiveTab('explorer');
+  }
+
+  // The new tab reads its own session token, so it may ask for one.
+  function openCollectionInNewTab(entry: CollectionCatalogEntry) {
+    const { instanceZuid, deployment } = entry.reference;
+    const { fragment } = ViewCodec.encode({
+      version: 3,
+      instance: { instanceZuid, deployment },
+      tab: 'explorer',
+      view: {
+        version: 2,
+        root: createRootNode(entry.reference, entry.label),
+        contentState: 'latest',
+        viewFilters: [],
+        globalFreeText: '',
+      },
+    });
+    window.open(appUrl(fragment), '_blank', 'noopener,noreferrer');
   }
 
   function copyRawView() {
     if (!viewDecodeError) return;
     void copyText(viewDecodeError.raw, 'Raw view data copied');
-  }
-
-  function cancelRootReplacement() {
-    if (!reference) return;
-    setCollectionInput(collectionUrl(reference));
-    setToken(activeToken);
-    setTokenDeployment(reference.deployment);
-    startFormProblem.clear();
-    setChangingRoot(false);
-    setSelectingRoot(false);
-    setCatalogInstance(instanceReference(reference));
-    setSelectedRootZuid(reference.modelZuid);
   }
 
   function openRootPicker() {
@@ -645,11 +735,33 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     startFormProblem.clear();
     setCatalogInstance(instanceReference(reference));
     setSelectedRootZuid(reference.modelZuid);
-    setChangingRoot(false);
     setSelectingRoot(true);
   }
 
-  const showStart = !reference || tokenRequired || changingRoot || selectingRoot;
+  const showStart = !reference || tokenRequired || selectingRoot;
+  // The same options serve both tabs: a reset returns to the token and instance form.
+  const viewOptions = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon" aria-label="View options" />}
+      >
+        <MoreHorizontal size={17} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={resetView}>
+          <RotateCcw size={14} /> Reset view
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => setClearTokenOpen(true)}>
+          <Trash2 size={14} /> Clear saved token
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  // Tabs belong to a selected instance; the token and instance form comes before them.
+  const showTabs = Boolean(instance) && !viewDecodeError && !(showStart && !selectingRoot);
+  const visibleTab: WorkspaceTab = showTabs ? activeTab : 'explorer';
 
   // Removes the node straight away; the toast offers to restore the previous tree.
   function removeNode(nodeId: CollectionNodeId) {
@@ -735,9 +847,57 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             <h1 className="text-sm font-semibold">Zesty Explorer</h1>
             <span className="text-muted-foreground text-xs">Read-only content browser</span>
           </div>
+          {showTabs ? (
+            <Tabs
+              className="ml-4"
+              value={activeTab}
+              onValueChange={(value: unknown) => {
+                if (value === 'explorer' || value === 'code') changeTab(value);
+              }}
+            >
+              <TabsList aria-label="Workspace">
+                <TabsTrigger value="explorer" className="gap-1.5">
+                  <Database size={13} aria-hidden="true" /> Explorer
+                </TabsTrigger>
+                <TabsTrigger value="code" className="gap-1.5">
+                  <Code2 size={13} aria-hidden="true" /> Code
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {reference ? (
+          {visibleTab === 'code' && instance ? (
+            <>
+              <ToggleGroup
+                aria-label="Code state"
+                value={[code.selection.state]}
+                onValueChange={([next]) => {
+                  if (next) code.select({ ...code.selection, state: next });
+                }}
+              >
+                <ToggleGroupItem value="latest">{codeStateLabels.latest}</ToggleGroupItem>
+                <ToggleGroupItem value="published">{codeStateLabels.published}</ToggleGroupItem>
+              </ToggleGroup>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshCode()}
+                disabled={isRefreshingCode}
+              >
+                <RefreshCw
+                  className={isRefreshingCode ? 'animate-spin' : undefined}
+                  size={14}
+                  aria-hidden="true"
+                />
+                Refresh
+              </Button>
+              <Button variant="outline" size="sm" onClick={copyLink}>
+                <Copy size={14} aria-hidden="true" /> Copy link
+              </Button>
+              {viewOptions}
+            </>
+          ) : reference ? (
             <>
               <label className="relative order-last flex w-full items-center md:order-none md:w-64">
                 <Search
@@ -791,33 +951,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   The last refresh failed. Activate Refresh to retry.
                 </span>
               ) : null}
-              <Button variant="outline" size="sm" onClick={copyViewLink}>
-                <Copy size={14} aria-hidden="true" /> Copy view link
+              <Button variant="outline" size="sm" onClick={copyLink}>
+                <Copy size={14} aria-hidden="true" /> Copy link
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={<Button variant="ghost" size="icon" aria-label="View options" />}
-                >
-                  <MoreHorizontal size={17} />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setCollectionInput(collectionUrl(reference));
-                      setChangingRoot(true);
-                    }}
-                  >
-                    <Database size={14} /> Change view setup
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={resetView}>
-                    <RotateCcw size={14} /> Reset view
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={() => setClearTokenOpen(true)}>
-                    <Trash2 size={14} /> Clear saved token
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {viewOptions}
             </>
           ) : (
             <Badge variant="outline">No collection open</Badge>
@@ -825,7 +962,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div
+        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)]"
+        hidden={visibleTab !== 'explorer'}
+      >
         <aside
           className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
           aria-label="Collection tree"
@@ -996,7 +1136,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       type="button"
                       onClick={() => {
                         setSelectingRoot(false);
-                        if (!reference) setCatalogInstance(undefined);
+                        // Returning to an open view returns to its instance.
+                        setCatalogInstance(reference ? instanceReference(reference) : undefined);
                       }}
                     >
                       Back
@@ -1014,18 +1155,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onSubmit={loadCatalog}
                 >
                   <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                    {tokenRequired
-                      ? 'Session expired'
-                      : changingRoot
-                        ? 'Change this view'
-                        : 'Start a view'}
+                    {tokenRequired ? 'Session expired' : 'Start a view'}
                   </p>
                   <h2 className="text-xl font-semibold" id="start-title">
-                    {tokenRequired
-                      ? 'Replace your session token'
-                      : changingRoot
-                        ? 'Change view setup'
-                        : 'Open a Zesty collection'}
+                    {tokenRequired ? 'Replace your session token' : 'Open a Zesty collection'}
                   </h2>
 
                   <Field error={startFormProblem.messageFor('session-token')}>
@@ -1094,11 +1227,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     </FieldDescription>
                   </Field>
                   <div className="flex flex-wrap justify-end gap-2">
-                    {changingRoot ? (
-                      <Button variant="outline" type="button" onClick={cancelRootReplacement}>
-                        Cancel
-                      </Button>
-                    ) : null}
                     <Button type="submit">Load collections</Button>
                   </div>
                 </form>
@@ -1207,6 +1335,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         </section>
       </div>
 
+      {showTabs && instance && codeOpened ? (
+        <div hidden={visibleTab !== 'code'}>
+          <CodeWorkspace
+            key={code.instanceKey}
+            api={api}
+            instance={instance}
+            credentials={{
+              revision: credentialRevision,
+              sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
+            }}
+            catalog={catalogQuery.catalog}
+            selection={code.selection}
+            onSelectionChange={code.select}
+            onOpenCollection={requestOpenCollection}
+            onAuthenticationFailure={() => setCodeAuthenticationFailureRevision(credentialRevision)}
+          />
+        </div>
+      ) : null}
+
       <ItemDetails
         api={api}
         item={selectedItemContext?.item}
@@ -1241,6 +1388,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           Saved filters, columns, widths, sorts, and relationships will also be removed.
         </p>
       </ConfirmDialog>
+      <OpenCollectionDialog
+        label={pendingCollection?.label}
+        replacesView={Boolean(treeRoot)}
+        onClose={() => setPendingCollection(undefined)}
+        onOpenHere={() => {
+          if (pendingCollection) openCollectionInExplorer(pendingCollection);
+        }}
+        onOpenInNewTab={() => {
+          if (pendingCollection) openCollectionInNewTab(pendingCollection);
+        }}
+      />
       <ConfirmDialog
         open={clearTokenOpen}
         onOpenChange={setClearTokenOpen}

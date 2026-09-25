@@ -1,12 +1,20 @@
 import { Either, Schema } from 'effect';
 import { Gunzip, gzipSync, strFromU8, strToU8 } from 'fflate';
-import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
-import type {
-  CollectionNode,
-  PersistedView,
-  RelationshipDefinition,
-  SortState,
-  ViewFilter,
+import {
+  isDeployment,
+  isInstanceZuid,
+  parseCollectionReference,
+  parseInstanceReference,
+} from '../collection-reference';
+import {
+  isCodeFileZuid,
+  type CodeSelection,
+  type CollectionNode,
+  type PersistedView,
+  type RelationshipDefinition,
+  type SharedState,
+  type SortState,
+  type ViewFilter,
 } from '../domain';
 import { validateCollectionTree } from '../explorer-core/collection-tree';
 
@@ -36,7 +44,7 @@ const maximumEncodedLength = 100_000;
 const maximumDecodedLength = 1_000_000;
 
 export type ViewDecodeResult =
-  | { readonly ok: true; readonly view: PersistedView }
+  | { readonly ok: true; readonly state: SharedState }
   | { readonly ok: false; readonly raw: string; readonly reason: string };
 
 function assertNonSecretState(value: unknown): void {
@@ -286,10 +294,69 @@ function migrateVersionOneNode(node: CollectionNode): CollectionNode {
   };
 }
 
+function validateCodeSelection(value: unknown): CodeSelection | undefined {
+  if (!isRecord(value) || (value.state !== 'latest' && value.state !== 'published')) {
+    return undefined;
+  }
+  if (value.fileId === undefined) return { state: value.state };
+  return typeof value.fileId === 'string' && isCodeFileZuid(value.fileId)
+    ? { state: value.state, fileId: value.fileId }
+    : undefined;
+}
+
+// Version 3 names the instance and the active tab, and holds each tab's state. Versions 1 and 2
+// held only an Explorer view, so they restore as that view in the Explorer tab.
+function validateSharedState(value: unknown): SharedState | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.version === 1 || value.version === 2) {
+    const view = validateDecodedView(value);
+    if (!view) return undefined;
+    const { instanceZuid, deployment } = view.root.reference;
+    return { version: 3, instance: { instanceZuid, deployment }, tab: 'explorer', view };
+  }
+  const instance = value.instance;
+  if (
+    value.version !== 3 ||
+    !isRecord(instance) ||
+    typeof instance.instanceZuid !== 'string' ||
+    !isInstanceZuid(instance.instanceZuid) ||
+    typeof instance.deployment !== 'string' ||
+    !isDeployment(instance.deployment) ||
+    (value.tab !== 'explorer' && value.tab !== 'code')
+  ) {
+    return undefined;
+  }
+  const view = value.view === undefined ? undefined : validateDecodedView(value.view);
+  const codeSelection =
+    value.codeSelection === undefined ? undefined : validateCodeSelection(value.codeSelection);
+  if (
+    (value.view !== undefined && !view) ||
+    (value.codeSelection !== undefined && !codeSelection)
+  ) {
+    return undefined;
+  }
+  // Both tabs always show the same instance.
+  if (
+    view &&
+    (view.root.reference.instanceZuid !== instance.instanceZuid ||
+      view.root.reference.deployment !== instance.deployment)
+  ) {
+    return undefined;
+  }
+  return {
+    version: 3,
+    instance: { instanceZuid: instance.instanceZuid, deployment: instance.deployment },
+    tab: value.tab,
+    ...(view ? { view } : {}),
+    ...(codeSelection ? { codeSelection } : {}),
+  };
+}
+
+/** Encodes and decodes the `#view=` URL fragment that restores the app for one instance. */
 export const ViewCodec = {
-  encode(view: PersistedView): { readonly fragment: string; readonly length: number } {
-    assertNonSecretState(view);
-    const validated = validateDecodedView(view);
+  encode(state: SharedState): { readonly fragment: string; readonly length: number } {
+    assertNonSecretState(state);
+    const validated = validateSharedState(state);
     if (!validated) throw new Error('Only valid, settled non-secret view state may be encoded.');
     const json = JSON.stringify(canonicalize(validated));
     const payload = bytesToBase64Url(gzipSync(strToU8(json), { level: 9, mtime: 0 }));
@@ -305,9 +372,9 @@ export const ViewCodec = {
       const bytes = gunzipBounded(compressed);
       const json = strFromU8(bytes);
       const parsed: unknown = JSON.parse(json);
-      const view = validateDecodedView(parsed);
-      if (!view) throw new Error('Invalid view');
-      return { ok: true, view };
+      const state = validateSharedState(parsed);
+      if (!state) throw new Error('Invalid view');
+      return { ok: true, state };
     } catch {
       return { ok: false, raw, reason: 'The shared view is invalid or truncated.' };
     }

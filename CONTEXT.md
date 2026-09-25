@@ -131,3 +131,19 @@ _Avoid_: Table filter, join condition
 **Table filter**:
 A condition attached to one collection node that limits the rows shown by every table for that node without removing rows from its ancestors. It may inspect that node's content fields and related items below it.
 _Avoid_: View filter, per-parent filter
+
+**Code file**:
+A named Zesty source resource containing a custom endpoint, snippet, model template, or other view source. It belongs to an instance independently of any Explorer view.
+_Avoid_: View, endpoint when referring to every code file
+
+**Code state**:
+The choice between a code file's latest saved source and its currently published source. It is independent of the content state used by an Explorer view.
+_Avoid_: Content state, environment
+
+**Snippet**:
+A reusable named code file included by other Parsley source. Its contents may include further snippets.
+_Avoid_: Endpoint, code fragment when referring to the named file
+
+**Unrecognized code reference**:
+A reference in Parsley source that Zesty Explorer cannot resolve using the information available to the current session. An unrecognized reference does not by itself establish that the source is incorrect or its target is missing.
+_Avoid_: Invalid reference, missing collection, code error

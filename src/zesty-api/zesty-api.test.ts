@@ -440,6 +440,115 @@ describe('ZestyApi', () => {
     expect(fake.requests[0]?.url).toBe('https://accounts.api.zesty.io/v1/instances/8-abc123/users');
   });
 
+  it('loads code files for the requested code state and keeps unknown file types', async () => {
+    const fake = respondWith({
+      _meta: { totalResults: 3 },
+      data: [
+        {
+          ZUID: '11-endpoint123',
+          fileName: '/data/articles.json',
+          type: 'ajax-json',
+          code: '[{{each articles as a}}{{end-each}}]',
+          version: 7,
+          updatedAt: '2026-08-25T20:07:48Z',
+          contentModelZUID: null,
+          active: 1,
+        },
+        {
+          ZUID: '11-template123',
+          fileName: 'articles',
+          type: 'templateset',
+          code: null,
+          version: 2,
+          contentModelZUID: '6-articles123',
+        },
+        {
+          ZUID: '11-future12345',
+          fileName: 'loader',
+          type: 'future-kind',
+          code: '',
+          version: 1,
+          contentModelZUID: 'not-a-model',
+        },
+      ],
+    });
+
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCodeFiles(instance, 'published', 'private-token'),
+    );
+
+    expect(fake.requests[0]).toEqual({
+      ...authenticatedGet,
+      url: 'https://8-abc123.api.zesty.io/v1/web/views?status=live',
+    });
+    expect(list).toEqual({
+      state: 'published',
+      incomplete: false,
+      files: [
+        {
+          id: '11-endpoint123',
+          fileName: '/data/articles.json',
+          type: 'ajax-json',
+          code: '[{{each articles as a}}{{end-each}}]',
+          version: 7,
+          updatedAt: '2026-08-25T20:07:48Z',
+        },
+        {
+          id: '11-template123',
+          fileName: 'articles',
+          type: 'templateset',
+          code: '',
+          version: 2,
+          contentModelZuid: '6-articles123',
+        },
+        { id: '11-future12345', fileName: 'loader', type: 'future-kind', code: '', version: 1 },
+      ],
+    });
+  });
+
+  it('omits unreadable code file records without exposing their source', async () => {
+    const fake = respondWith({
+      data: [
+        { ZUID: '11-endpoint123', fileName: '/ok.json', type: 'ajax-json', code: '', version: 1 },
+        {
+          ZUID: '11-broken1234',
+          fileName: '/broken',
+          type: 'ajax-json',
+          code: 'SECRET',
+          version: '2',
+        },
+      ],
+    });
+
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCodeFiles(instance, 'latest', 'private-token'),
+    );
+
+    expect(fake.requests[0]?.url).toBe('https://8-abc123.api.zesty.io/v1/web/views?status=dev');
+    expect(list.files.map((file) => file.id)).toEqual(['11-endpoint123']);
+    expect(list.incomplete).toBe(true);
+    expect(list.warning).toMatchObject({
+      kind: 'decoding',
+      diagnostic: {
+        operation: 'load-code-files',
+        issues: [{ path: '$.data[1].version', expected: 'number', received: 'string' }],
+      },
+    });
+    expect(JSON.stringify(list.warning)).not.toContain('SECRET');
+  });
+
+  it('describes code file permission failures without naming collections', async () => {
+    const fake = respondWith({ error: 'forbidden' }, 403);
+    const error = await Effect.runPromise(
+      Effect.flip(createZestyApi(fake.transport).loadCodeFiles(instance, 'latest', 'token')),
+    );
+    expect(error).toMatchObject({
+      kind: 'permission',
+      message: 'Your Zesty session cannot read code files in this instance.',
+      diagnostic: { operation: 'load-code-files', responseStatus: 403 },
+    });
+  });
+
   it('retries transient failures but does not retry permission errors', async () => {
     const transient = fakeTransport((_request, attempt) =>
       attempt === 1

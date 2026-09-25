@@ -88,6 +88,7 @@ function api(
     loadItemVersions: () => Effect.succeed([]),
     loadItemPublishings: () => Effect.succeed([]),
     loadInstanceUsers: () => Effect.succeed([]),
+    loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
   };
 }
 
@@ -143,12 +144,20 @@ function openSharedView(root: PersistedView['root'], view: Partial<PersistedView
     null,
     '',
     ViewCodec.encode({
-      version: 2,
-      root,
-      contentState: 'latest',
-      viewFilters: [],
-      globalFreeText: '',
-      ...view,
+      version: 3,
+      instance: {
+        instanceZuid: root.reference.instanceZuid,
+        deployment: root.reference.deployment,
+      },
+      tab: 'explorer',
+      view: {
+        version: 2,
+        root,
+        contentState: 'latest',
+        viewFilters: [],
+        globalFreeText: '',
+        ...view,
+      },
     }).fragment,
   );
 }
@@ -463,7 +472,7 @@ describe('root collection browser', () => {
 
     await waitFor(() => {
       const decoded = ViewCodec.decode(window.location.hash);
-      expect(decoded.ok && decoded.view.root.presentation.freeText).toBe('First');
+      expect(decoded.ok && decoded.state.view?.root.presentation.freeText).toBe('First');
     });
     expect(replaceState).toHaveBeenCalled();
   });
@@ -723,36 +732,6 @@ describe('root collection browser', () => {
     expect(await screen.findByLabelText('Native field')).toHaveTextContent('Story');
   });
 
-  it('does not load with replacement credentials until the new root is submitted', async () => {
-    const store = tokenStore([
-      ['production', 'production-token'],
-      ['stage', 'stage-token'],
-    ]);
-    const requests: string[] = [];
-    const testApi = api((reference, _state, sessionToken) => {
-      requests.push(`${reference.deployment}:${sessionToken}`);
-      return Effect.succeed(snapshot);
-    });
-    render(<App api={testApi} tokenStore={store} />);
-    await submitStartForm(
-      'https://8-abc123.manager.zesty.io/content/6-model123',
-      'production-token',
-    );
-    await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Change view setup' }));
-    fireEvent.change(screen.getByLabelText('Zesty instance URL'), {
-      target: { value: 'https://8-abc123.manager.stage.zesty.io/content/6-model123' },
-    });
-    expect(screen.getByLabelText('Zesty session token')).toHaveValue('stage-token');
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    expect(requests).toEqual(['production:production-token']);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    expect(requests).toEqual(['production:production-token']);
-    expect(screen.getByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-  });
-
   it('rechecks permissions when a token is replaced for the same deployment', async () => {
     const usedTokens: string[] = [];
     const testApi = api((_reference, _state, sessionToken) => {
@@ -998,5 +977,87 @@ describe('form errors', () => {
     expect(parentPath).toHaveAttribute('aria-invalid', 'true');
     expect(parentPath).toHaveAccessibleDescription('Enter a parent field path.');
     expect(parentPath).toHaveFocus();
+  });
+});
+
+describe('Code tab', () => {
+  const source = '{{each stories as story}}{{story.title}}{{end-each}}';
+  const codeApi: ZestyApi = {
+    ...api(),
+    loadCodeFiles: (instance, state) =>
+      Effect.succeed({
+        state,
+        incomplete: false,
+        files: [
+          {
+            id: '11-endpoint01',
+            fileName: `/${instance.instanceZuid}.json`,
+            type: 'ajax-json',
+            code: source,
+            version: 3,
+          },
+        ],
+      }),
+  };
+
+  it('resets the Code tab when another instance is selected', async () => {
+    render(<App api={codeApi} tokenStore={tokenStore()} />);
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: /\/8-abc123\.json/ }));
+
+    expect(await screen.findByRole('heading', { name: '/8-abc123.json' })).toBeInTheDocument();
+    expect(ViewCodec.decode(window.location.hash)).toEqual({
+      ok: true,
+      state: {
+        version: 3,
+        instance: { instanceZuid: '8-abc123', deployment: 'production' },
+        tab: 'code',
+        codeSelection: { state: 'latest', fileId: '11-endpoint01' },
+      },
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Explorer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    loadCollections('https://8-xyz789.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+
+    expect(await screen.findByRole('button', { name: /\/8-xyz789\.json/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose a file' })).toBeInTheDocument();
+  });
+
+  it('clears the saved token from the Code tab without an Explorer view', async () => {
+    const store = tokenStore();
+    const clear = vi.spyOn(store, 'clear');
+    render(<App api={codeApi} tokenStore={store} />);
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Clear saved token' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear token' }));
+
+    expect(clear).toHaveBeenCalledWith('production');
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+  });
+
+  it('resets both tabs from the Code tab and keeps the token', async () => {
+    render(<App api={codeApi} tokenStore={tokenStore()} />);
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: /\/8-abc123\.json/ }));
+    await screen.findByRole('heading', { name: '/8-abc123.json' });
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Reset view' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Open a Zesty collection' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('fixture-session-token');
+    expect(window.location.hash).toBe('');
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    expect(await screen.findByRole('heading', { name: 'Choose a file' })).toBeInTheDocument();
   });
 });

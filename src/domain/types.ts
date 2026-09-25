@@ -3,12 +3,15 @@ export type ModelZuid = `6-${string}`;
 export type ItemZuid = `7-${string}`;
 export type FieldZuid = `12-${string}`;
 export type UserZuid = `5-${string}` | `55-${string}`;
+export type CodeFileZuid = `11-${string}`;
 export type CollectionNodeId = `node-${string}`;
 export type SnapshotId = `snapshot-${string}`;
 
 export type Deployment = 'production' | 'stage' | 'development';
 export type CollectionArea = 'content' | 'blocks' | 'other';
 export type ContentState = 'latest' | 'published';
+// Independent of ContentState: Zesty calls these code statuses `dev` and `live`.
+export type CodeState = 'latest' | 'published';
 export type Scalar = string | number | boolean;
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -49,6 +52,26 @@ export interface CollectionCatalogEntry {
 
 export interface CollectionCatalog {
   readonly collections: readonly CollectionCatalogEntry[];
+  readonly incomplete: boolean;
+  readonly warning?: ExplorerError;
+}
+
+/** One code file (a `/web/views` record) in one code state. Its source never leaves memory. */
+export interface CodeFile {
+  readonly id: CodeFileZuid;
+  readonly fileName: string;
+  /** Zesty's file type, e.g. `ajax-json` or `snippet`. Unknown types are kept as returned. */
+  readonly type: string;
+  readonly code: string;
+  readonly version: number;
+  readonly updatedAt?: string;
+  /** Set for a model template, where `this` is bound to the item it renders. */
+  readonly contentModelZuid?: ModelZuid;
+}
+
+export interface CodeFileList {
+  readonly state: CodeState;
+  readonly files: readonly CodeFile[];
   readonly incomplete: boolean;
   readonly warning?: ExplorerError;
 }
@@ -185,13 +208,34 @@ export interface PersistedView {
   readonly globalFreeText: string;
 }
 
+export type WorkspaceTab = 'explorer' | 'code';
+
+/** The file and code state open in the Code tab. */
+export interface CodeSelection {
+  readonly state: CodeState;
+  readonly fileId?: CodeFileZuid;
+}
+
+/**
+ * Everything a link restores for one instance: the active tab, the Explorer view if one is open,
+ * and the Code tab's selection. It never contains a session token or code source.
+ */
+export interface SharedState {
+  readonly version: 3;
+  readonly instance: { readonly instanceZuid: InstanceZuid; readonly deployment: Deployment };
+  readonly tab: WorkspaceTab;
+  readonly view?: PersistedView;
+  readonly codeSelection?: CodeSelection;
+}
+
 export type ExplorerRequestOperation =
   | 'load-collection-catalog'
   | 'load-collection-schema'
   | 'load-collection-items'
   | 'load-item-versions'
   | 'load-item-publishings'
-  | 'load-instance-users';
+  | 'load-instance-users'
+  | 'load-code-files';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };

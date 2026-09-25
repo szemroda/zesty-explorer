@@ -1,5 +1,4 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query';
-import { Effect, Either } from 'effect';
 import { useMemo, useState } from 'react';
 import type {
   ContentItem,
@@ -12,6 +11,7 @@ import type {
   ItemPublishing,
 } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
+import { explorerFailure, runExplorerQuery } from './explorer-query';
 import {
   buildVersionPreviewOptions,
   contentItemVersionNumber,
@@ -51,26 +51,6 @@ export interface ItemVersionPreviewResult {
   readonly authors: VersionPreviewResource;
 }
 
-class VersionPreviewQueryError extends Error {
-  constructor(readonly failure: ExplorerError) {
-    super(failure.message);
-    this.name = 'VersionPreviewQueryError';
-  }
-}
-
-async function runRequest<Value>(
-  request: Effect.Effect<Value, ExplorerError>,
-  signal: AbortSignal,
-): Promise<Value> {
-  const result = await Effect.runPromise(request.pipe(Effect.either), { signal });
-  if (Either.isLeft(result)) throw new VersionPreviewQueryError(result.left);
-  return result.right;
-}
-
-function failure(error: Error | null): ExplorerError | undefined {
-  return error instanceof VersionPreviewQueryError ? error.failure : undefined;
-}
-
 function resource(query: {
   readonly isLoading: boolean;
   readonly error: Error | null;
@@ -78,7 +58,7 @@ function resource(query: {
 }): VersionPreviewResource {
   return {
     isLoading: query.isLoading,
-    error: failure(query.error),
+    error: explorerFailure(query.error),
     retry: async () => {
       await query.refetch();
     },
@@ -141,7 +121,7 @@ export function useItemVersionPreview({
     gcTime: ITEM_VERSION_PREVIEW_CACHE_MS,
     refetchOnMount: 'always',
     queryFn: ({ signal }) =>
-      runRequest(api.loadItemVersions(reference, credentials.sessionToken), signal),
+      runExplorerQuery(api.loadItemVersions(reference, credentials.sessionToken), signal),
   });
   const publishingsQuery = useQuery<readonly ItemPublishing[], Error>({
     queryKey: publishingsKey,
@@ -150,7 +130,7 @@ export function useItemVersionPreview({
     gcTime: ITEM_VERSION_PREVIEW_CACHE_MS,
     refetchOnMount: 'always',
     queryFn: ({ signal }) =>
-      runRequest(api.loadItemPublishings(reference, credentials.sessionToken), signal),
+      runExplorerQuery(api.loadItemPublishings(reference, credentials.sessionToken), signal),
   });
   const authorsQuery = useQuery<readonly InstanceUser[], Error>({
     queryKey: authorsKey,
@@ -159,7 +139,7 @@ export function useItemVersionPreview({
     gcTime: ITEM_VERSION_PREVIEW_CACHE_MS,
     refetchOnMount: 'always',
     queryFn: ({ signal }) =>
-      runRequest(api.loadInstanceUsers(reference, credentials.sessionToken), signal),
+      runExplorerQuery(api.loadInstanceUsers(reference, credentials.sessionToken), signal),
   });
 
   const currentVersion = contentItemVersionNumber(currentItem);

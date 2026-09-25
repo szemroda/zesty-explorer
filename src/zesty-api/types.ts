@@ -1,5 +1,7 @@
 import type { Effect } from 'effect';
 import type {
+  CodeFileList,
+  CodeState,
   CollectionReference,
   CollectionCatalog,
   CollectionSchema,
@@ -65,7 +67,16 @@ export interface ItemVersionApi {
   ): Effect.Effect<readonly InstanceUser[], ExplorerError>;
 }
 
-export interface ZestyApi extends CollectionApi, ItemVersionApi {}
+export interface CodeFileApi {
+  /** Lists every `/web/views` file with its source in one code state. */
+  loadCodeFiles(
+    reference: InstanceReference,
+    state: CodeState,
+    sessionToken: string,
+  ): Effect.Effect<CodeFileList, ExplorerError>;
+}
+
+export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi {}
 
 export interface ZestyApiOptions {
   readonly pageSize?: number;

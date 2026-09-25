@@ -1,21 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Effect, Either } from 'effect';
 import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalog, ExplorerError, InstanceReference } from '../../domain';
 import type { CollectionApi } from '../../zesty-api';
+import { explorerFailure, runExplorerQuery } from './explorer-query';
 
 interface CollectionCatalogQueryOptions {
   readonly api: CollectionApi;
   readonly reference: InstanceReference | undefined;
   readonly sessionToken: string;
   readonly enabled: boolean;
-}
-
-class CatalogQueryError extends Error {
-  constructor(readonly failure: ExplorerError) {
-    super(failure.message);
-    this.name = 'CatalogQueryError';
-  }
 }
 
 export interface CollectionCatalogQueryResult {
@@ -58,12 +51,10 @@ export function useCollectionCatalog({
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
       if (!reference || !credentials.sessionToken) throw new Error('Catalog request is not ready.');
-      const result = await Effect.runPromise(
-        api.loadCollectionCatalog(reference, credentials.sessionToken).pipe(Effect.either),
-        { signal },
+      return runExplorerQuery(
+        api.loadCollectionCatalog(reference, credentials.sessionToken),
+        signal,
       );
-      if (Either.isLeft(result)) throw new CatalogQueryError(result.left);
-      return result.right;
     },
   });
 
@@ -74,7 +65,7 @@ export function useCollectionCatalog({
 
   return {
     catalog: query.data,
-    error: query.error instanceof CatalogQueryError ? query.error.failure : undefined,
+    error: explorerFailure(query.error),
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     refresh,

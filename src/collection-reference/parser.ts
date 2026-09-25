@@ -8,6 +8,7 @@ import type {
   ItemZuid,
   ModelZuid,
 } from '../domain';
+import { isModelZuid } from '../domain';
 
 interface DeploymentHosts {
   readonly deployment: Deployment;
@@ -40,7 +41,6 @@ const deploymentHosts: readonly DeploymentHosts[] = [
 ];
 
 const instancePattern = /^8-[a-z0-9][a-z0-9-]{4,}$/i;
-const modelPattern = /^6-[a-z0-9][a-z0-9-]{4,}$/i;
 const itemPattern = /^7-[a-z0-9][a-z0-9-]{4,}$/i;
 const editorSuffixes = new Set(['edit', 'preview', 'settings']);
 
@@ -87,6 +87,24 @@ function buildInstanceReference(
   };
 }
 
+/** The Manager and API hosts of an instance, e.g. when restoring it from a Code link. */
+export function instanceReferenceFor(
+  instanceZuid: InstanceZuid,
+  deployment: Deployment,
+): InstanceReference {
+  const hosts = deploymentHosts.find((candidate) => candidate.deployment === deployment);
+  if (!hosts) throw new Error(`Unknown deployment ${deployment}.`);
+  return buildInstanceReference({ instanceZuid, hosts, source: 'manager' });
+}
+
+export function isInstanceZuid(value: string): value is InstanceZuid {
+  return instancePattern.test(value);
+}
+
+export function isDeployment(value: string): value is Deployment {
+  return deploymentHosts.some((hosts) => hosts.deployment === value);
+}
+
 function apiInstanceSuggestions(
   segments: readonly string[],
 ): Pick<InstanceReference, 'suggestedModelZuid'> | undefined {
@@ -96,10 +114,10 @@ function apiInstanceSuggestions(
   }
   if (segments.length === 3) return {};
   const model = segments[3];
-  if (!model || !modelPattern.test(model)) return undefined;
-  if (segments.length === 4) return { suggestedModelZuid: model as ModelZuid };
+  if (!model || !isModelZuid(model)) return undefined;
+  if (segments.length === 4) return { suggestedModelZuid: model };
   if (segments.length === 5 && (segments[4] === 'fields' || segments[4] === 'items')) {
-    return { suggestedModelZuid: model as ModelZuid };
+    return { suggestedModelZuid: model };
   }
   return undefined;
 }
@@ -125,7 +143,7 @@ export function parseInstanceReference(input: string): InstanceReferenceParseRes
       : failure('invalid-input', 'The URL does not identify a supported Zesty instance.');
   }
 
-  const modelIndex = segments.findIndex((segment) => modelPattern.test(segment));
+  const modelIndex = segments.findIndex((segment) => isModelZuid(segment));
   const model = modelIndex >= 0 ? segments[modelIndex] : undefined;
   const item =
     modelIndex >= 0
@@ -180,7 +198,7 @@ function parseManagerPath(segments: readonly string[]):
     }
   | undefined {
   const [area, model, item, suffix, ...extra] = segments;
-  if ((area !== 'content' && area !== 'blocks') || !model || !modelPattern.test(model)) {
+  if ((area !== 'content' && area !== 'blocks') || !model || !isModelZuid(model)) {
     return undefined;
   }
   if (extra.length > 0 || (suffix && !editorSuffixes.has(suffix))) return undefined;
@@ -188,7 +206,7 @@ function parseManagerPath(segments: readonly string[]):
 
   return {
     area,
-    modelZuid: model as ModelZuid,
+    modelZuid: model,
     itemZuid: item ? (item as ItemZuid) : undefined,
   };
 }
@@ -206,13 +224,13 @@ function parseApiPath(segments: readonly string[]):
     content !== 'content' ||
     models !== 'models' ||
     !model ||
-    !modelPattern.test(model) ||
+    !isModelZuid(model) ||
     items !== 'items' ||
     extra.length > 0
   ) {
     return undefined;
   }
-  return { area: 'content', modelZuid: model as ModelZuid, itemZuid: undefined };
+  return { area: 'content', modelZuid: model, itemZuid: undefined };
 }
 
 export function parseCollectionReference(input: string): CollectionReferenceParseResult {
