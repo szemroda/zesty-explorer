@@ -18,17 +18,21 @@ export interface CodeCredentials {
   readonly sessionToken: string;
 }
 
-/**
- * Drops code sources and schemas fetched with another token. Sources live only in this
- * in-memory cache, so a replaced token never reuses them.
- */
-/** Reloads the code files the Code tab shows; sources are cached until refreshed. */
+/** Reloads the code files the Code tab shows, and the hosts serving its endpoints. */
 export async function refreshCodeFiles(queryClient: QueryClient): Promise<void> {
-  await queryClient.refetchQueries({ queryKey: ['code-files'], type: 'active' });
+  await Promise.all(
+    ['code-files', 'code-sites'].map((key) =>
+      queryClient.refetchQueries({ queryKey: [key], type: 'active' }),
+    ),
+  );
 }
 
+/**
+ * Drops code sources, schemas, and hosts fetched with another token. Sources live only in this
+ * in-memory cache, so a replaced token never reuses them.
+ */
 export function clearCodeCacheOutsideRevision(queryClient: QueryClient, revision: string): void {
-  for (const key of ['code-files', 'code-schema']) {
+  for (const key of ['code-files', 'code-schema', 'code-sites']) {
     queryClient.removeQueries({
       queryKey: [key],
       predicate: (query) => query.queryKey[1] !== revision,
@@ -83,6 +87,54 @@ export function useCodeFiles({
     error: explorerFailure(query.error),
     isLoading: query.isLoading,
     refresh,
+  };
+}
+
+interface WebEngineBaseUrlsOptions {
+  readonly api: CodeFileApi;
+  readonly instance: InstanceReference;
+  readonly state: CodeState;
+  readonly credentials: CodeCredentials;
+  readonly enabled: boolean;
+}
+
+export interface WebEngineBaseUrlsResult {
+  /** The preferred origin first; empty when published code has no live domain. */
+  readonly baseUrls: readonly string[] | undefined;
+  readonly error: ExplorerError | undefined;
+  readonly refresh: () => void;
+}
+
+/** Where WebEngine serves the instance's endpoints in a code state, cached until refreshed. */
+export function useWebEngineBaseUrls({
+  api,
+  instance,
+  state,
+  credentials,
+  enabled,
+}: WebEngineBaseUrlsOptions): WebEngineBaseUrlsResult {
+  const query = useQuery<readonly string[], Error>({
+    queryKey: [
+      'code-sites',
+      credentials.revision,
+      instance.deployment,
+      instance.instanceZuid,
+      state,
+    ],
+    enabled: enabled && Boolean(credentials.sessionToken),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) =>
+      runExplorerQuery(
+        api.loadWebEngineBaseUrls(instance, state, credentials.sessionToken),
+        signal,
+      ),
+  });
+  const { refetch } = query;
+  return {
+    baseUrls: query.data,
+    error: explorerFailure(query.error),
+    refresh: useCallback(() => void refetch(), [refetch]),
   };
 }
 

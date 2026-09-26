@@ -440,6 +440,55 @@ describe('ZestyApi', () => {
     expect(fake.requests[0]?.url).toBe('https://accounts.api.zesty.io/v1/instances/8-abc123/users');
   });
 
+  it('finds the preview host of latest code from the instance hash', async () => {
+    const fake = respondWith({ data: { randomHashID: 'h4sh', name: 'Fixture' } });
+
+    const origins = await Effect.runPromise(
+      createZestyApi(fake.transport).loadWebEngineBaseUrls(instance, 'latest', 'private-token'),
+    );
+
+    expect(origins).toEqual(['https://h4sh-dev.webengine.zesty.io']);
+    expect(fake.requests.map((request) => request.url)).toEqual([
+      'https://accounts.api.zesty.io/v1/instances/8-abc123',
+    ]);
+  });
+
+  it('rejects a preview hash that is not a bare host label', async () => {
+    const fake = respondWith({ data: { randomHashID: 'evil.example/' } });
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        createZestyApi(fake.transport).loadWebEngineBaseUrls(instance, 'latest', 'token'),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      kind: 'decoding',
+      diagnostic: { operation: 'load-instance-details' },
+    });
+  });
+
+  it('lists live domains of published code, preferring the newest customer domain', async () => {
+    const fake = respondWith({
+      data: [
+        { domain: 'abc.zesty.dev', branch: 'live', updatedAt: '2026-09-01T00:00:00Z' },
+        { domain: 'preview.example.com', branch: 'dev', updatedAt: '2026-09-03' },
+        { domain: 'stage.example.com', branch: 'stage', updatedAt: '2026-09-03' },
+        { domain: 'www.example.com', branch: 'live', updatedAt: '2026-08-01T00:00:00Z' },
+        { domain: 'example.com/path', branch: 'live', updatedAt: '2026-09-02' },
+      ],
+    });
+
+    const origins = await Effect.runPromise(
+      createZestyApi(fake.transport).loadWebEngineBaseUrls(instance, 'published', 'private-token'),
+    );
+
+    expect(origins).toEqual(['https://www.example.com', 'https://abc.zesty.dev']);
+    expect(fake.requests[0]?.url).toBe(
+      'https://accounts.api.zesty.io/v1/instances/8-abc123/domains',
+    );
+  });
+
   it('loads code files for the requested code state and keeps unknown file types', async () => {
     const fake = respondWith({
       _meta: { totalResults: 3 },

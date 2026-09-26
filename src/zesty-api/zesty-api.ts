@@ -18,6 +18,7 @@ import {
   type CollectionSchema,
   type CollectionSnapshot,
   type ContentItem,
+  type Deployment,
   type ExplorerError,
   type ExplorerDecodingIssue,
   type ExplorerErrorDiagnostic,
@@ -110,6 +111,22 @@ const RawInstanceUserSchema = Schema.Struct({
   email: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const RawInstanceUsersResponseSchema = Schema.Struct({ data: Schema.Array(RawInstanceUserSchema) });
+
+const RawInstanceDetailsSchema = Schema.Struct({
+  data: Schema.Struct({
+    // Becomes part of a host name, so it must not carry anything else.
+    randomHashID: Schema.String.pipe(
+      Schema.filter((value) => /^[a-z0-9-]+$/i.test(value), {
+        message: () => 'Preview hash is invalid',
+      }),
+    ),
+  }),
+});
+const RawDomainSchema = Schema.Struct({
+  domain: Schema.String,
+  branch: Schema.optional(Schema.NullOr(Schema.String)),
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+});
 
 const defaultOptions = {
   pageSize: 2_500,
@@ -379,6 +396,32 @@ const accountsApiBaseUrls = {
   development: 'https://accounts.api.dev.zesty.io/v1',
 } as const;
 
+// The WebEngine preview host of each deployment, built from the instance's preview hash.
+const previewBaseUrls: Readonly<Record<Deployment, (hash: string) => string>> = {
+  production: (hash) => `https://${hash}-dev.webengine.zesty.io`,
+  stage: (hash) => `https://${hash}-dev.preview.stage.zesty.io`,
+  development: (hash) => `http://${hash}-dev.preview.dev.zesty.io`,
+};
+
+/**
+ * Domains on the live branch as origins, ordered the way Zesty Manager picks one: newest first,
+ * then the first domain outside `.zesty.dev`, usually the customer's own, moved to the front.
+ * Records that are not a bare host name are skipped.
+ */
+function liveBaseUrls(domains: readonly (typeof RawDomainSchema.Type)[]): string[] {
+  const origins = [...domains]
+    .filter((record) => record.branch === 'live')
+    .sort((left, right) => (right.updatedAt ?? '').localeCompare(left.updatedAt ?? ''))
+    .flatMap((record) => {
+      const domain = record.domain.trim().toLowerCase();
+      const url = URL.parse(`https://${domain}`);
+      return url && url.host === domain ? [url.origin] : [];
+    });
+  const unique = [...new Set(origins)];
+  const preferred = unique.find((origin) => !new URL(origin).hostname.endsWith('.zesty.dev'));
+  return preferred ? [preferred, ...unique.filter((origin) => origin !== preferred)] : unique;
+}
+
 function statusError(response: ZestyTransportResponse): ExplorerError | undefined {
   if (response.status >= 200 && response.status < 300) return undefined;
   if (response.status === 401) {
@@ -423,6 +466,16 @@ function describeCodeFileError(error: ExplorerError): ExplorerError {
   }
   if (error.kind === 'missing-resource') {
     return { ...error, message: 'Zesty did not find code files for this instance.' };
+  }
+  return error;
+}
+
+function describeSitesError(error: ExplorerError): ExplorerError {
+  if (error.kind === 'permission') {
+    return { ...error, message: 'Your Zesty session cannot read this instance’s domains.' };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'The Accounts API did not find this instance.' };
   }
   return error;
 }
@@ -661,6 +714,53 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             ),
             Effect.mapError((error) =>
               withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadWebEngineBaseUrls: (reference, state, sessionToken) => {
+      const instanceUrl = `${accountsApiBaseUrls[reference.deployment]}/instances/${reference.instanceZuid}`;
+      if (state === 'latest') {
+        const operation = 'load-instance-details' as const;
+        return request(authenticatedRequest(instanceUrl, sessionToken), operation).pipe(
+          Effect.mapError(describeSitesError),
+          Effect.flatMap((response) => {
+            const decoded = Schema.decodeUnknownEither(RawInstanceDetailsSchema, {
+              errors: 'all',
+            })(response.body);
+            return Either.isLeft(decoded)
+              ? Effect.fail(
+                  withRequestDiagnostic(
+                    unsupportedShapeError(
+                      'Zesty returned instance details in an unsupported shape.',
+                      decoded.left,
+                    ),
+                    operation,
+                    instanceUrl,
+                    response.status,
+                  ),
+                )
+              : Effect.succeed([
+                  previewBaseUrls[reference.deployment](decoded.right.data.randomHashID),
+                ]);
+          }),
+        );
+      }
+      const domainsUrl = `${instanceUrl}/domains`;
+      const operation = 'load-instance-domains' as const;
+      return request(authenticatedRequest(domainsUrl, sessionToken), operation).pipe(
+        Effect.mapError(describeSitesError),
+        Effect.flatMap((response) =>
+          decodeRecordList(response.body, RawDomainSchema, {
+            envelope: 'Zesty returned instance domains in an unsupported shape.',
+            record: 'A domain record is invalid.',
+            omitted: 'Some domain records could not be understood and were omitted.',
+          }).pipe(
+            Effect.map(({ records }) => liveBaseUrls(records)),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, domainsUrl, response.status),
             ),
           ),
         ),

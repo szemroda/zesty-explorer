@@ -237,7 +237,9 @@ export type ExplorerRequestOperation =
   | 'load-item-versions'
   | 'load-item-publishings'
   | 'load-instance-users'
-  | 'load-code-files';
+  | 'load-code-files'
+  | 'load-instance-details'
+  | 'load-instance-domains';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };

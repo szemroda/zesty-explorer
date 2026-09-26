@@ -251,9 +251,80 @@ export async function installCodeFixture(page: Page): Promise<void> {
     else await route.abort('blockedbyclient');
   });
   await page.route('https://8-fixture.api.zesty.io/**', fulfill);
-  await page.route('https://accounts.api.zesty.io/**', (route) =>
-    route.request().method() === 'OPTIONS'
-      ? route.fulfill({ status: 204, headers: cors })
-      : route.fulfill({ headers: cors, json: { data: [] } }),
-  );
+  await page.route('https://accounts.api.zesty.io/**', fulfillAccounts);
+  for (const origin of [previewOrigin, liveOrigin, `https://${fixtureDevDomain}`]) {
+    await page.route(`${origin}/**`, fulfillWebEngine);
+  }
+}
+
+export const previewOrigin = 'https://fixture-dev.webengine.zesty.io';
+export const liveOrigin = 'https://www.example.test';
+const fixtureDevDomain = 'fixture.zesty.dev';
+
+async function fulfillAccounts(route: Route): Promise<void> {
+  if (route.request().method() === 'OPTIONS') {
+    await route.fulfill({ status: 204, headers: cors });
+    return;
+  }
+  const { pathname } = new URL(route.request().url());
+  if (pathname.endsWith('/instances/8-fixture')) {
+    await route.fulfill({ headers: cors, json: { data: { randomHashID: 'fixture' } } });
+    return;
+  }
+  if (pathname.endsWith('/instances/8-fixture/domains')) {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        data: [
+          { domain: fixtureDevDomain, branch: 'live', updatedAt: '2026-09-01T00:00:00Z' },
+          { domain: 'www.example.test', branch: 'live', updatedAt: '2026-06-01T00:00:00Z' },
+        ],
+      },
+    });
+    return;
+  }
+  await route.fulfill({ headers: cors, json: { data: [] } });
+}
+
+// A fictional WebEngine. Articles answer with JSON built from the query, events fail with a
+// readable 500, and anything else stands for an error page without CORS headers, which the
+// browser hides from scripts.
+async function fulfillWebEngine(route: Route): Promise<void> {
+  const url = new URL(route.request().url());
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const anyOrigin = { 'access-control-allow-origin': '*' };
+  if (url.pathname === '/data/articles.json') {
+    const limit = Number(url.searchParams.get('limit') || 3);
+    const category = url.searchParams.get('category') || 'news';
+    const articles = Array.from({ length: Math.min(limit, 20) }, (_, index) => ({
+      id: `7-article-${index + 1}`,
+      title: `${category === 'news' ? 'News' : 'Guide'} article ${index + 1}`,
+      url: `/${category}/article-${index + 1}`,
+      category,
+    }));
+    await route.fulfill({
+      headers: { ...anyOrigin, 'content-type': 'application/json' },
+      // Parsley output often starts with blank lines.
+      body: `\n\n${JSON.stringify(articles)}`,
+    });
+    return;
+  }
+  if (url.pathname === '/api/events.json') {
+    await route.fulfill({
+      status: 500,
+      headers: { ...anyOrigin, 'content-type': 'text/html' },
+      body: [
+        '<!doctype html>',
+        '<html>',
+        '<body>',
+        '<h1>WebEngine Error</h1>',
+        '<p>Parsley: unknown field `venue.citty`</p>',
+        '</body>',
+        '</html>',
+      ].join('\n'),
+    });
+    return;
+  }
+  // Playwright's fulfilled responses skip the CORS check, so a failed request stands in for it.
+  await route.abort('failed');
 }

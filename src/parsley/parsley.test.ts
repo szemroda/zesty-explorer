@@ -5,6 +5,7 @@ import {
   formattedLines,
   matchingLines,
   parseParsley,
+  queryParameterNames,
   savedLines,
   sourceModeFor,
   type AnalysisContext,
@@ -515,5 +516,43 @@ describe('Parsley highlighting', () => {
     expect([...matchingLines(formatted, loop.target)]).toEqual([60, 61, 62]);
     expect([...matchingLines(saved, `collection:${articles.modelZuid}`)]).toEqual([60, 61]);
     expect(formatted[61]?.indent).toBe(1);
+  });
+});
+
+describe('Query parameter discovery', () => {
+  const file = (id: `11-${string}`, fileName: string, code: string, type = 'snippet') => ({
+    id,
+    fileName,
+    type,
+    code,
+  });
+
+  it('follows static includes recursively and names each parameter once', () => {
+    const endpoint = file(
+      '11-endpoint',
+      '/api/list.json',
+      '{{get_var.limit}}{{include helpers}}{{request.queryParam(tag)}}{{include {get_var.part} }}{{post_var.email}}',
+      'ajax-json',
+    );
+    const helpers = file(
+      '11-helpers',
+      'helpers',
+      '{{get_var.debug}}{{include nested}}{{get_var.limit}}',
+    );
+    const nested = file('11-nested', 'nested', '{{get_var.page}}{{include helpers}}');
+
+    expect(queryParameterNames(endpoint, [endpoint, helpers, nested])).toEqual([
+      'limit',
+      'tag',
+      'part',
+      'debug',
+      'page',
+    ]);
+  });
+
+  it('only resolves includes among the files it is given', () => {
+    const endpoint = file('11-endpoint', '/a.json', '{{include helpers}}', 'ajax-json');
+
+    expect(queryParameterNames(endpoint, [endpoint])).toEqual([]);
   });
 });

@@ -30,14 +30,18 @@ import {
   managerCodeFileUrl,
 } from '../code-presentation';
 import type { CodeSelection } from '../../domain';
+import { isEndpoint } from '../endpoint-address';
 import {
   clearCodeCacheOutsideRevision,
   useCodeFiles,
   useCodeSchemas,
+  useWebEngineBaseUrls,
   type CodeCredentials,
+  type WebEngineBaseUrlsResult,
 } from '../hooks/useCodeFiles';
 import { cn } from '../lib/utils';
 import { CodeSourceView, type SourcePresentation } from './CodeSourceView';
+import { EndpointRequest } from './EndpointRequest';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -113,8 +117,16 @@ export function CodeWorkspace({
   const inOtherState = otherQuery.list?.files.find((file) => file.id === fileId);
   // Names the file even when the selected code state has no version of it.
   const named = selected ?? inOtherState;
-  const authenticationFailed =
-    latest.error?.kind === 'authentication' || published.error?.kind === 'authentication';
+  const hosts = useWebEngineBaseUrls({
+    api,
+    instance,
+    state,
+    credentials,
+    enabled: selected !== undefined && isEndpoint(selected),
+  });
+  const authenticationFailed = [latest.error, published.error, hosts.error].some(
+    (error) => error?.kind === 'authentication',
+  );
 
   useEffect(() => {
     if (authenticationFailed) onAuthenticationFailure();
@@ -288,8 +300,11 @@ export function CodeWorkspace({
               api={api}
               instance={instance}
               credentials={credentials}
+              state={state}
               file={selected}
               files={files}
+              stateFiles={stateQuery.list?.files ?? []}
+              hosts={hosts}
               catalog={catalog}
               presentation={presentation}
               onPresentationChange={setPresentation}
@@ -326,8 +341,13 @@ interface ExplainedFileProps {
   readonly api: Pick<CollectionApi, 'loadCollectionSchema'>;
   readonly instance: InstanceReference;
   readonly credentials: CodeCredentials;
+  readonly state: CodeState;
   readonly file: CodeFile;
+  /** Every file by its latest saved name, for resolving includes in the explanation. */
   readonly files: readonly CodeFileSummary[];
+  /** The files of the selected code state, for an endpoint's request form. */
+  readonly stateFiles: readonly CodeFile[];
+  readonly hosts: WebEngineBaseUrlsResult;
   readonly catalog: CollectionCatalog | undefined;
   readonly presentation: SourcePresentation;
   readonly onPresentationChange: (presentation: SourcePresentation) => void;
@@ -342,8 +362,11 @@ function ExplainedFile({
   api,
   instance,
   credentials,
+  state,
   file,
   files,
+  stateFiles,
+  hosts,
   catalog,
   presentation,
   onPresentationChange,
@@ -395,7 +418,7 @@ function ExplainedFile({
     [analysis.annotations, document, mode],
   );
 
-  return (
+  const source = (
     <CodeSourceView
       analysis={analysis}
       saved={saved}
@@ -408,6 +431,12 @@ function ExplainedFile({
       onOpenSnippet={onOpenSnippet}
       onOpenCollection={onOpenCollection}
     />
+  );
+  if (!isEndpoint(file)) return source;
+  return (
+    <EndpointRequest instance={instance} state={state} file={file} files={stateFiles} hosts={hosts}>
+      {source}
+    </EndpointRequest>
   );
 }
 

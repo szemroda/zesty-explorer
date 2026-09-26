@@ -140,6 +140,10 @@ _Avoid_: View, endpoint when referring to every code file
 The choice between a code file's latest saved source and its currently published source. It is independent of the content state used by an Explorer view.
 _Avoid_: Content state, environment
 
+**Endpoint**:
+A Zesty custom JSON or HTML code file served by WebEngine at a request path, including legacy endpoints and paths with wildcard segments. Snippets and model templates are separate kinds of code file.
+_Avoid_: Code file when referring specifically to a callable endpoint, collection reference
+
 **Snippet**:
 A reusable named code file included by other Parsley source. Its contents may include further snippets.
 _Avoid_: Endpoint, code fragment when referring to the named file

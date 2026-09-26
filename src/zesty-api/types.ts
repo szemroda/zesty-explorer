@@ -74,6 +74,16 @@ export interface CodeFileApi {
     state: CodeState,
     sessionToken: string,
   ): Effect.Effect<CodeFileList, ExplorerError>;
+  /**
+   * The origins where WebEngine serves the instance's endpoints in a code state, looked up in the
+   * Accounts API: the preview host for latest code, or the live domains for published code, the
+   * preferred one first. An instance may have no live domain.
+   */
+  loadWebEngineBaseUrls(
+    reference: InstanceReference,
+    state: CodeState,
+    sessionToken: string,
+  ): Effect.Effect<readonly string[], ExplorerError>;
 }
 
 export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi {}

@@ -1,6 +1,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ViewCodec } from '../src/view-codec';
-import { codeInstanceUrl, installCodeFixture, syntheticToken } from './code-fixtures';
+import {
+  codeInstanceUrl,
+  installCodeFixture,
+  liveOrigin,
+  previewOrigin,
+  syntheticToken,
+} from './code-fixtures';
 
 // Loads the instance; a collection URL also preselects that collection as the root.
 async function openInstance(page: Page, url = codeInstanceUrl) {
@@ -191,4 +197,71 @@ test('scrolls a long file to a pinned step in both presentations', async ({ page
   await expect(page.getByTestId('code-lines').locator('[data-highlighted]').first()).toContainText(
     "{{each articles as article where article.category = '{category.zuid}'",
   );
+});
+
+const request = (page: Page) => page.getByRole('form', { name: 'Request' });
+const response = (page: Page) => page.getByRole('region', { name: 'Response' });
+
+test('sends an endpoint request to the host of each code state', async ({ page }) => {
+  await openInstance(page);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await fileButton(page, '/data/articles.json').click();
+  const newTab = request(page).getByRole('link', { name: 'Open in a new tab' });
+  await expect(newTab).toHaveAttribute('href', `${previewOrigin}/data/articles.json`);
+
+  await request(page).getByRole('button', { name: 'Add ?limit' }).click();
+  await page.keyboard.type('2');
+  await request(page).getByRole('button', { name: 'Add ?category' }).click();
+  await page.keyboard.type('guides');
+  await page.keyboard.press('Enter');
+
+  const sent = `${previewOrigin}/data/articles.json?limit=2&category=guides`;
+  await expect(response(page)).toContainText('200');
+  await expect(response(page)).toContainText(sent);
+  await expect(page.getByTestId('response-body')).toContainText('"title": "Guide article 2"');
+  await toggle(page, 'Workspace pane', 'Source').click();
+  await expect(page.getByRole('region', { name: 'Source' })).toBeVisible();
+
+  // Published code is served by the live domain the user picks; the form starts afresh.
+  await toggle(page, 'Code state', 'Published').click();
+  const domain = request(page).getByRole('combobox', { name: 'Live domain' });
+  await expect(domain).toHaveValue(liveOrigin);
+  await domain.selectOption('https://fixture.zesty.dev');
+  await expect(newTab).toHaveAttribute('href', 'https://fixture.zesty.dev/data/articles.json');
+
+  await toggle(page, 'Code state', 'Latest').click();
+  await expect(newTab).toHaveAttribute('href', sent);
+  await toggle(page, 'Workspace pane', 'Response 200').click();
+  await expect(response(page)).toContainText(sent);
+});
+
+test('shows a readable HTTP error and explains an unreadable response', async ({ page }) => {
+  await openInstance(page);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await fileButton(page, '/api/events.json').click();
+  await request(page).getByRole('button', { name: 'Send' }).click();
+  await expect(response(page)).toContainText('500');
+  await expect(page.getByTestId('response-body')).toContainText('Parsley: unknown field');
+
+  await fileButton(page, '/archive/by-category.html').click();
+  await request(page).getByRole('button', { name: 'Send' }).click();
+  await expect(response(page)).toContainText('No readable response');
+  await expect(response(page).getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute(
+    'href',
+    `${previewOrigin}/archive/by-category.html`,
+  );
+});
+
+test('keeps a long request URL inside the address bar on a laptop', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openInstance(page);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await fileButton(page, '/data/articles.json').click();
+  await request(page).getByRole('button', { name: 'Add ?category' }).click();
+  await page.keyboard.type('product-announcements-and-engineering-updates-weekly');
+
+  const send = request(page).getByRole('button', { name: 'Send' });
+  await expect(send).toBeInViewport({ ratio: 1 });
+  const bar = await request(page).boundingBox();
+  expect(bar!.x + bar!.width).toBeLessThanOrEqual(1280);
 });
