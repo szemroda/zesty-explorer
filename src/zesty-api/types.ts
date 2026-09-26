@@ -1,6 +1,8 @@
 import type { Effect } from 'effect';
 import type {
   CodeFileList,
+  CodeFileVersionList,
+  CodeFileZuid,
   CodeState,
   CollectionReference,
   CollectionCatalog,
@@ -74,6 +76,12 @@ export interface CodeFileApi {
     state: CodeState,
     sessionToken: string,
   ): Effect.Effect<CodeFileList, ExplorerError>;
+  /** The saved versions of one code file with their source, newest first. */
+  loadCodeFileVersions(
+    reference: InstanceReference,
+    fileId: CodeFileZuid,
+    sessionToken: string,
+  ): Effect.Effect<CodeFileVersionList, ExplorerError>;
   /**
    * The origins where WebEngine serves the instance's endpoints in a code state, looked up in the
    * Accounts API: the preview host for latest code, or the live domains for published code, the

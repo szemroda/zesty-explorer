@@ -265,3 +265,38 @@ test('keeps a long request URL inside the address bar on a laptop', async ({ pag
   const bar = await request(page).boundingBox();
   expect(bar!.x + bar!.width).toBeLessThanOrEqual(1280);
 });
+
+test('previews and compares saved versions of an endpoint', async ({ page }) => {
+  await openInstance(page);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await fileButton(page, '/data/articles.json').click();
+  await page.getByRole('button', { name: 'History' }).click();
+
+  const dialog = page.getByRole('dialog', { name: '/data/articles.json' });
+  const versions = dialog.getByRole('region', { name: 'Saved versions' });
+  await expect(versions.getByText('3 total')).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Version 28' })).toBeVisible();
+  await expect(versions.getByRole('button', { name: /Version 26/ })).toContainText(
+    'Currently published',
+  );
+
+  await versions.getByRole('button', { name: /Version 27/ }).click();
+  await expect(dialog.getByRole('heading', { name: 'Version 27' })).toBeVisible();
+  await expect(dialog.getByText('Ada Keller').first()).toBeVisible();
+  await expect(dialog.getByRole('tabpanel', { name: 'Formatted' })).toContainText(
+    "article.category.slug = '{get_var.category}'",
+  );
+  await dialog.getByRole('tab', { name: 'As saved' }).click();
+  await expect(dialog.getByRole('tabpanel', { name: 'As saved' })).toContainText('{{$limit = 10}}');
+
+  await toggle(page, 'Code history mode', 'Compare').click();
+  await expect(dialog.getByRole('heading', { name: 'Version 26 → 27' })).toBeVisible();
+  const comparison = dialog.getByRole('table', { name: 'Source comparison' });
+  await expect(comparison).toContainText('Before · version 26');
+  await expect(comparison.locator('mark').first()).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Close code history' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('Latest · version 28')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'History' })).toBeFocused();
+});

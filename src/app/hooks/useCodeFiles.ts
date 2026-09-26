@@ -1,16 +1,21 @@
 import { useQueries, useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type {
   CodeFileList,
+  CodeFileVersionList,
+  CodeFileZuid,
   CodeState,
   CollectionReference,
   CollectionSchema,
   ExplorerError,
   InstanceReference,
+  InstanceUser,
   ModelZuid,
 } from '../../domain';
-import type { CodeFileApi, CollectionApi } from '../../zesty-api';
+import type { CodeFileApi, CollectionApi, ItemVersionApi } from '../../zesty-api';
+import { buildCodeVersionOptions, type CodeVersionOption } from '../code-file-history';
 import { explorerFailure, runExplorerQuery } from './explorer-query';
+import { historyResource, type VersionPreviewResource } from './useItemVersionPreview';
 
 /** The session token and the revision that keys every query made with it. */
 export interface CodeCredentials {
@@ -199,5 +204,73 @@ function combineSchemas(
       ),
     ),
     isLoading: results.some((result) => result.isLoading),
+  };
+}
+
+interface CodeFileHistoryOptions {
+  readonly api: CodeFileApi & Pick<ItemVersionApi, 'loadInstanceUsers'>;
+  readonly instance: InstanceReference;
+  readonly fileId: CodeFileZuid;
+  readonly publishedVersion: number | undefined;
+  readonly credentials: CodeCredentials;
+}
+
+export interface CodeFileHistoryResult {
+  readonly options: readonly CodeVersionOption[];
+  /** How many versions Zesty has, including older ones it did not return. */
+  readonly total: number;
+  readonly versions: VersionPreviewResource;
+  readonly authors: VersionPreviewResource;
+}
+
+/**
+ * Every saved version of one code file with its authors. Loaded afresh each time code history
+ * opens, since the Code tab's file list stays cached until refreshed.
+ */
+export function useCodeFileHistory({
+  api,
+  instance,
+  fileId,
+  publishedVersion,
+  credentials,
+}: CodeFileHistoryOptions): CodeFileHistoryResult {
+  const scope = ['code-files', credentials.revision, instance.deployment, instance.instanceZuid];
+  const versionsQuery = useQuery<CodeFileVersionList, Error>({
+    queryKey: [...scope, 'versions', fileId],
+    enabled: Boolean(credentials.sessionToken),
+    retry: false,
+    refetchOnMount: 'always',
+    queryFn: ({ signal }) =>
+      runExplorerQuery(
+        api.loadCodeFileVersions(instance, fileId, credentials.sessionToken),
+        signal,
+      ),
+  });
+  const authorsQuery = useQuery<readonly InstanceUser[], Error>({
+    queryKey: [...scope, 'authors'],
+    enabled: Boolean(credentials.sessionToken),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) =>
+      runExplorerQuery(api.loadInstanceUsers(instance, credentials.sessionToken), signal),
+  });
+
+  // A failed reload leaves earlier versions cached; they are not shown as current.
+  const list = versionsQuery.isError ? undefined : versionsQuery.data;
+  const options = useMemo(
+    () =>
+      buildCodeVersionOptions({
+        versions: list?.versions ?? [],
+        publishedVersion,
+        users: authorsQuery.data ?? [],
+        usersState: authorsQuery.data ? 'ready' : authorsQuery.isLoading ? 'loading' : 'failed',
+      }),
+    [authorsQuery.data, authorsQuery.isLoading, list, publishedVersion],
+  );
+  return {
+    options,
+    total: list?.total ?? 0,
+    versions: historyResource(versionsQuery),
+    authors: historyResource(authorsQuery),
   };
 }

@@ -51,7 +51,8 @@ export interface ItemVersionPreviewResult {
   readonly authors: VersionPreviewResource;
 }
 
-function resource(query: {
+/** Loading state, failure, and retry of one history query. */
+export function historyResource(query: {
   readonly isLoading: boolean;
   readonly error: Error | null;
   readonly refetch: () => Promise<unknown>;
@@ -172,8 +173,8 @@ export function useItemVersionPreview({
     selectedOption,
     selectedItem: selectedOption?.item ?? currentItem,
     selectVersion: setSelectedVersion,
-    history: resource(historyQuery),
-    publishings: resource(publishingsQuery),
-    authors: resource(authorsQuery),
+    history: historyResource(historyQuery),
+    publishings: historyResource(publishingsQuery),
+    authors: historyResource(authorsQuery),
   };
 }

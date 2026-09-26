@@ -69,6 +69,21 @@ export interface CodeFile {
   readonly contentModelZuid?: ModelZuid;
 }
 
+/** One saved version of a code file. Its source never leaves memory. */
+export interface CodeFileVersion {
+  readonly number: number;
+  readonly code: string;
+  readonly savedAt?: string;
+  readonly authorZuid?: UserZuid;
+}
+
+/** The saved versions of a code file, newest first. Zesty returns at most 1,000 of them. */
+export interface CodeFileVersionList {
+  readonly versions: readonly CodeFileVersion[];
+  /** How many versions Zesty has, including older ones it did not return. */
+  readonly total: number;
+}
+
 export interface CodeFileList {
   readonly state: CodeState;
   readonly files: readonly CodeFile[];
@@ -238,6 +253,7 @@ export type ExplorerRequestOperation =
   | 'load-item-publishings'
   | 'load-instance-users'
   | 'load-code-files'
+  | 'load-code-file-versions'
   | 'load-instance-details'
   | 'load-instance-domains';
 

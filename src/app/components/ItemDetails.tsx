@@ -1,30 +1,35 @@
-import { Check, Clock3, Copy, ExternalLink, History, LoaderCircle, Search, X } from 'lucide-react';
+import { Copy, ExternalLink, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type RefObject } from 'react';
-import type { ContentItem, ContentItemReference, ExplorerError } from '../../domain';
+import type { ContentItem, ContentItemReference } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { itemDisplayLabel, managerItemUrl } from '../content-item-presentation';
 import { copyText } from '../copy-text';
-import { describeExplorerError } from '../error-message';
 import { useItemVersionPreview } from '../hooks/useItemVersionPreview';
 import {
   compareContentItems,
   describeComparison,
   resolveVersionPair,
   type VersionNumberPair,
-  type VersionPair,
 } from '../item-version-comparison';
-import { matchesVersionPreviewOption, type VersionPreviewOption } from '../item-version-preview';
-import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
+import {
+  authorLabel,
+  matchesVersionPreviewOption,
+  savedDescription,
+} from '../item-version-preview';
 import { FieldsComparison, RawJsonComparison } from './ItemVersionComparison';
-import { Badge } from './ui/badge';
+import {
+  ModeToggle,
+  ResourceNotice,
+  VersionBadges,
+  VersionCard,
+  SavedVersionsSidebar,
+  VersionPairSelect,
+  type HistoryMode,
+} from './SavedVersions';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { Field, FieldDescription, FieldLabel } from './ui/field';
-import { Input } from './ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 interface ItemDetailsProps {
   readonly api: ItemVersionApi;
@@ -42,32 +47,8 @@ function formatted(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? '';
 }
 
-function formattedDate(value: string | undefined): string {
-  if (!value || !Number.isFinite(Date.parse(value))) return 'Save time unavailable';
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  }).format(new Date(value));
-}
-
-function savedDescription(value: string | undefined): string {
-  const date = formattedDate(value);
-  return value && Number.isFinite(Date.parse(value)) ? `Saved ${date}` : date;
-}
-
 function isDetailFormat(value: unknown): value is 'fields' | 'raw' {
   return value === 'fields' || value === 'raw';
-}
-
-type HistoryMode = 'view' | 'compare';
-
-function authorLabel(option: VersionPreviewOption): string {
-  if (option.author) return option.author;
-  return option.authorState === 'loading' ? 'Loading author…' : 'Author unavailable';
 }
 
 function CopyValue({ value, name }: { readonly value: unknown; readonly name: string }) {
@@ -81,207 +62,6 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
     >
       <Copy size={13} />
     </Button>
-  );
-}
-
-function VersionBadges({ option }: { readonly option: VersionPreviewOption }) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {option.latestSaved ? (
-        <Badge className="border-sky-500/40 bg-sky-500/10 text-sky-300">Latest saved</Badge>
-      ) : null}
-      {option.currentlyPublished ? (
-        <Badge className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
-          Currently published
-        </Badge>
-      ) : null}
-      {option.scheduledAt ? (
-        <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-300">Scheduled</Badge>
-      ) : null}
-      {option.currentInView ? <Badge variant="outline">Current in view</Badge> : null}
-    </div>
-  );
-}
-
-function VersionCard({
-  option,
-  selected,
-  onSelect,
-}: {
-  readonly option: VersionPreviewOption;
-  readonly selected: boolean;
-  readonly onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/50 ${
-        selected
-          ? 'border-primary/70 bg-primary/10'
-          : 'border-transparent hover:border-border hover:bg-accent/40'
-      }`}
-      onClick={onSelect}
-    >
-      <span className="flex items-center justify-between gap-3">
-        <strong className="text-sm">Version {option.number}</strong>
-        {selected ? <Check className="text-primary" size={16} aria-hidden="true" /> : null}
-      </span>
-      <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
-        {formattedDate(option.savedAt)} · {authorLabel(option)}
-      </span>
-      <span className="mt-2 block">
-        <VersionBadges option={option} />
-      </span>
-      {option.scheduledAt ? (
-        <span className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-amber-300">
-          <Clock3 className="mt-0.5 shrink-0" size={12} aria-hidden="true" />
-          Publishes {formattedDate(option.scheduledAt)}
-          {option.additionalSchedules > 0 ? ` · +${option.additionalSchedules} more` : ''}
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-function ResourceNotice({
-  label,
-  error,
-  retry,
-}: {
-  readonly label: string;
-  readonly error: ExplorerError;
-  readonly retry: () => Promise<void>;
-}) {
-  const description = describeExplorerError(error, window.location.origin);
-  return (
-    <div
-      className="rounded-md border border-destructive/35 bg-destructive/10 p-2 text-xs"
-      role="alert"
-    >
-      <p>{label}</p>
-      <p className="mt-1 text-muted-foreground">{description.recovery}</p>
-      <ErrorTechnicalDetails error={error} />
-      <Button className="mt-2 h-7" size="sm" variant="outline" onClick={() => void retry()}>
-        Retry
-      </Button>
-    </div>
-  );
-}
-
-function versionLabel(option: VersionPreviewOption): string {
-  return `Version ${option.number}${option.latestSaved ? ' · latest saved' : ''}${option.currentlyPublished ? ' · published' : ''}`;
-}
-
-function VersionSelect({
-  label,
-  options,
-  selected,
-  isDisabled,
-  onChange,
-}: {
-  readonly label: string;
-  readonly options: readonly VersionPreviewOption[];
-  readonly selected: VersionPreviewOption;
-  readonly isDisabled: (number: number) => boolean;
-  readonly onChange: (number: number) => void;
-}) {
-  return (
-    <Field className="gap-1.5">
-      <FieldLabel className="text-muted-foreground">{label}</FieldLabel>
-      <Select
-        items={options.map((option) => ({ label: versionLabel(option), value: option.number }))}
-        value={selected.number}
-        onValueChange={(number) => {
-          if (number !== null) onChange(number);
-        }}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start" alignItemWithTrigger={false}>
-          {options.map((option) => (
-            <SelectItem
-              key={option.number}
-              value={option.number}
-              label={`Version ${option.number}`}
-              disabled={isDisabled(option.number)}
-            >
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-medium">Version {option.number}</span>
-                <VersionBadges option={option} />
-              </div>
-              <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                {formattedDate(option.savedAt)} · {authorLabel(option)}
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <FieldDescription className="px-1 text-[11px] leading-4">
-        {formattedDate(selected.savedAt)} · {authorLabel(selected)}
-      </FieldDescription>
-    </Field>
-  );
-}
-
-// Before must stay older than After, so each select disables versions that would invert them.
-function VersionPairSelect({
-  options,
-  pair,
-  onChange,
-}: {
-  readonly options: readonly VersionPreviewOption[];
-  readonly pair: VersionPair;
-  readonly onChange: (pair: VersionNumberPair) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <VersionSelect
-        label="Before"
-        options={options}
-        selected={pair.before}
-        isDisabled={(number) => number >= pair.after.number}
-        onChange={(before) => onChange({ before, after: pair.after.number })}
-      />
-      <VersionSelect
-        label="After"
-        options={options}
-        selected={pair.after}
-        isDisabled={(number) => number <= pair.before.number}
-        onChange={(after) => onChange({ before: pair.before.number, after })}
-      />
-    </div>
-  );
-}
-
-const HISTORY_MODES: readonly { readonly value: HistoryMode; readonly label: string }[] = [
-  { value: 'view', label: 'View' },
-  { value: 'compare', label: 'Compare' },
-];
-
-function ModeToggle({
-  mode,
-  onChange,
-}: {
-  readonly mode: HistoryMode;
-  readonly onChange: (mode: HistoryMode) => void;
-}) {
-  return (
-    <ToggleGroup
-      className="h-9 rounded-lg p-1"
-      aria-label="Item history mode"
-      value={[mode]}
-      onValueChange={([next]) => {
-        if (next) onChange(next);
-      }}
-    >
-      {HISTORY_MODES.map(({ value, label }) => (
-        <ToggleGroupItem key={value} value={value} className="px-3">
-          {label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
   );
 }
 
@@ -397,100 +177,59 @@ function ItemDetailsPanel({
         </DialogHeader>
 
         <div className="grid min-h-0 grid-cols-[285px_minmax(0,1fr)]">
-          <aside
-            className="flex min-h-0 flex-col border-r border-border bg-background/70"
-            aria-label="Saved versions"
-            role="region"
+          <SavedVersionsSidebar
+            isLoading={preview.history.isLoading}
+            total={preview.options.length}
+            search={mode === 'view' ? search : undefined}
+            onSearchChange={setSearch}
           >
-            <div className="border-b border-border p-3">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2 text-xs font-bold tracking-wide uppercase">
-                  <History className="text-primary" size={14} aria-hidden="true" /> Saved versions
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {preview.history.isLoading ? '…' : preview.options.length} total
-                </span>
-              </div>
-              {mode === 'view' ? (
-                <label className="relative block">
-                  <Search
-                    className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-                    size={14}
-                    aria-hidden="true"
-                  />
-                  <Input
-                    className="pl-9 text-xs"
-                    type="search"
-                    aria-label="Search saved versions"
-                    placeholder="Search version, author, or status"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </label>
-              ) : null}
-            </div>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {preview.history.isLoading ? (
-                <p
-                  className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
-                  role="status"
-                >
-                  <LoaderCircle className="animate-spin" size={14} aria-hidden="true" /> Loading
-                  saved versions…
+            {preview.history.error ? (
+              <ResourceNotice
+                label="Saved versions could not load."
+                error={preview.history.error}
+                retry={preview.history.retry}
+              />
+            ) : null}
+            {preview.publishings.error ? (
+              <ResourceNotice
+                label="Publishing statuses could not load."
+                error={preview.publishings.error}
+                retry={preview.publishings.retry}
+              />
+            ) : null}
+            {preview.authors.error ? (
+              <ResourceNotice
+                label="Authors could not load."
+                error={preview.authors.error}
+                retry={preview.authors.retry}
+              />
+            ) : null}
+            {mode === 'compare' ? (
+              pair ? (
+                <VersionPairSelect options={preview.options} pair={pair} onChange={setChosenPair} />
+              ) : historyLoaded ? (
+                <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                  {comparisonUnavailable}
                 </p>
-              ) : null}
-              {preview.history.error ? (
-                <ResourceNotice
-                  label="Saved versions could not load."
-                  error={preview.history.error}
-                  retry={preview.history.retry}
-                />
-              ) : null}
-              {preview.publishings.error ? (
-                <ResourceNotice
-                  label="Publishing statuses could not load."
-                  error={preview.publishings.error}
-                  retry={preview.publishings.retry}
-                />
-              ) : null}
-              {preview.authors.error ? (
-                <ResourceNotice
-                  label="Authors could not load."
-                  error={preview.authors.error}
-                  retry={preview.authors.retry}
-                />
-              ) : null}
-              {mode === 'compare' ? (
-                pair ? (
-                  <VersionPairSelect
-                    options={preview.options}
-                    pair={pair}
-                    onChange={setChosenPair}
+              ) : null
+            ) : (
+              <>
+                {visibleOptions.map((option) => (
+                  <VersionCard
+                    key={option.number}
+                    option={option}
+                    selected={selected?.number === option.number}
+                    onSelect={() => preview.selectVersion(option.number)}
                   />
-                ) : historyLoaded ? (
+                ))}
+                {!preview.history.isLoading && visibleOptions.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                    {comparisonUnavailable}
+                    No saved versions match this search.
                   </p>
-                ) : null
-              ) : (
-                <>
-                  {visibleOptions.map((option) => (
-                    <VersionCard
-                      key={option.number}
-                      option={option}
-                      selected={selected?.number === option.number}
-                      onSelect={() => preview.selectVersion(option.number)}
-                    />
-                  ))}
-                  {!preview.history.isLoading && visibleOptions.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      No saved versions match this search.
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </aside>
+                ) : null}
+              </>
+            )}
+          </SavedVersionsSidebar>
 
           <section
             className="min-h-0 overflow-y-auto p-5 md:p-6"
@@ -534,7 +273,7 @@ function ItemDetailsPanel({
                   <TabsTrigger value="fields">Fields</TabsTrigger>
                   <TabsTrigger value="raw">Raw JSON</TabsTrigger>
                 </TabsList>
-                <ModeToggle mode={mode} onChange={selectMode} />
+                <ModeToggle label="Item history mode" mode={mode} onChange={selectMode} />
               </div>
               <TabsContent value="raw">
                 {mode === 'view' ? (

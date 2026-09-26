@@ -1,7 +1,7 @@
 import { diffArrays, diffWordsWithSpace } from 'diff';
 import microdiff, { type Difference } from 'microdiff';
 import type { ContentItem } from '../domain';
-import type { VersionPreviewOption } from './item-version-preview';
+import type { SavedVersionOption, VersionPreviewOption } from './item-version-preview';
 
 // Version comparison model, independent of React. Structural differences come from microdiff
 // for both Fields and Raw JSON; changed text lines and fragments come from JsDiff.
@@ -46,8 +46,8 @@ export interface NumberedLine {
   readonly fragments: readonly TextFragment[];
 }
 
-/** One side-by-side raw JSON row. A side is absent where the other version has an extra line. */
-export interface RawJsonRow {
+/** One side-by-side diff row. A side is absent where the other version has an extra line. */
+export interface SideBySideRow {
   readonly changed: boolean;
   readonly before?: NumberedLine;
   readonly after?: NumberedLine;
@@ -63,9 +63,9 @@ export interface VersionNumberPair {
   readonly after: number;
 }
 
-export interface VersionPair {
-  readonly before: VersionPreviewOption;
-  readonly after: VersionPreviewOption;
+export interface VersionPair<Option extends SavedVersionOption = VersionPreviewOption> {
+  readonly before: Option;
+  readonly after: Option;
 }
 
 // Beyond these edit distances a diff is too costly to compute and too scattered to read.
@@ -296,28 +296,13 @@ function pathKey(path: ValuePath): string {
   return JSON.stringify(path);
 }
 
-/**
- * Side-by-side rows of two raw objects printed as sorted-key JSON. microdiff decides what
- * changed, so array entries are compared by position, as in Fields.
- */
-export function diffRawJson(
-  before: Readonly<Record<string, unknown>>,
-  after: Readonly<Record<string, unknown>>,
-): readonly RawJsonRow[] {
-  const differences = microdiff(before, after, { cyclesFix: false });
-  const differenceAt = new Map(
-    differences.map((difference) => [pathKey(difference.path), difference]),
-  );
-  const containsDifference = new Set(
-    differences.flatMap((difference) =>
-      difference.path.map((_, length) => pathKey(difference.path.slice(0, length))),
-    ),
-  );
-  const rows: RawJsonRow[] = [];
+// Appends side-by-side rows, numbering the lines of each side.
+function sideBySideWriter() {
+  const rows: SideBySideRow[] = [];
   let beforeNumber = 0;
   let afterNumber = 0;
 
-  function pushRows(
+  function push(
     changed: boolean,
     beforeLines: readonly (readonly TextFragment[])[],
     afterLines: readonly (readonly TextFragment[])[],
@@ -335,18 +320,39 @@ export function diffRawJson(
     }
   }
 
-  function pushUnchanged(beforeLines: readonly string[], afterLines: readonly string[]) {
-    pushRows(false, beforeLines.map(unhighlighted), afterLines.map(unhighlighted));
-  }
+  return {
+    rows,
+    unchanged: (beforeLines: readonly string[], afterLines: readonly string[]) => {
+      push(false, beforeLines.map(unhighlighted), afterLines.map(unhighlighted));
+    },
+    changed: (block: LineBlock) => {
+      const fragments = changedBlockFragments(block);
+      push(true, fragments.before, fragments.after);
+    },
+  };
+}
 
-  function pushChanged(beforeLines: readonly string[], afterLines: readonly string[]) {
-    const fragments = changedBlockFragments({
-      changed: true,
-      before: beforeLines,
-      after: afterLines,
-    });
-    pushRows(true, fragments.before, fragments.after);
-  }
+/**
+ * Side-by-side rows of two raw objects printed as sorted-key JSON. microdiff decides what
+ * changed, so array entries are compared by position, as in Fields.
+ */
+export function diffRawJson(
+  before: Readonly<Record<string, unknown>>,
+  after: Readonly<Record<string, unknown>>,
+): readonly SideBySideRow[] {
+  const differences = microdiff(before, after, { cyclesFix: false });
+  const differenceAt = new Map(
+    differences.map((difference) => [pathKey(difference.path), difference]),
+  );
+  const containsDifference = new Set(
+    differences.flatMap((difference) =>
+      difference.path.map((_, length) => pathKey(difference.path.slice(0, length))),
+    ),
+  );
+  const writer = sideBySideWriter();
+  const pushUnchanged = writer.unchanged;
+  const pushChanged = (beforeLines: readonly string[], afterLines: readonly string[]) =>
+    writer.changed({ changed: true, before: beforeLines, after: afterLines });
 
   // One object property or array element, printed at `indent` with an optional trailing comma.
   function entryLines(label: string, value: unknown, indent: string, comma: boolean): string[] {
@@ -397,7 +403,28 @@ export function diffRawJson(
   }
 
   entry([], '', { before, after }, '', { before: false, after: false });
-  return rows;
+  return writer.rows;
+}
+
+/** Lines removed from the older version and added in the newer one. */
+export function countChangedLines(rows: readonly SideBySideRow[]): {
+  readonly removed: number;
+  readonly added: number;
+} {
+  return {
+    removed: rows.filter((row) => row.changed && row.before).length,
+    added: rows.filter((row) => row.changed && row.after).length,
+  };
+}
+
+/** Side-by-side rows of two source texts, aligned by a line diff. */
+export function diffTextSideBySide(before: string, after: string): readonly SideBySideRow[] {
+  const writer = sideBySideWriter();
+  for (const block of lineBlocks(before.split('\n'), after.split('\n'))) {
+    if (block.changed) writer.changed(block);
+    else writer.unchanged(block.before, block.after);
+  }
+  return writer.rows;
 }
 
 /**
@@ -435,11 +462,11 @@ export function collapseUnchanged<Row>(
  * The versions to compare, ordered older to newer. A valid chosen pair wins; otherwise the
  * previewed version is compared with the save before it. `options` are newest first.
  */
-export function resolveVersionPair(
-  options: readonly VersionPreviewOption[],
+export function resolveVersionPair<Option extends SavedVersionOption>(
+  options: readonly Option[],
   previewedNumber: number | undefined,
   chosen: VersionNumberPair | undefined,
-): VersionPair | undefined {
+): VersionPair<Option> | undefined {
   if (chosen && chosen.before < chosen.after) {
     const before = options.find((option) => option.number === chosen.before);
     const after = options.find((option) => option.number === chosen.after);

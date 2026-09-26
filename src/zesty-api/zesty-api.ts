@@ -9,6 +9,8 @@ import {
   UserZuidSchema,
   type CodeFile,
   type CodeFileList,
+  type CodeFileVersion,
+  type CodeFileVersionList,
   type CodeState,
   type CollectionCatalog,
   type CollectionCatalogEntry,
@@ -95,6 +97,20 @@ const RawCodeFileSchema = Schema.Struct({
   // Any other value, such as a stale ZUID, only means `this` stays unbound.
   contentModelZUID: Schema.optional(Schema.Unknown),
 });
+
+const RawCodeFileVersionSchema = Schema.Struct({
+  version: Schema.Number,
+  code: Schema.NullOr(Schema.String),
+  createdAt: Schema.optional(Schema.NullOr(Schema.String)),
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  // Any other value only leaves the version without an author.
+  createdByUserZUID: Schema.optional(Schema.Unknown),
+});
+const RawCodeFileVersionsResponseSchema = Schema.Struct({
+  data: Schema.Array(RawCodeFileVersionSchema),
+  _meta: Schema.optional(Schema.Struct({ totalResults: Schema.optional(Schema.Number) })),
+});
+const isUserZuid = Schema.is(UserZuidSchema);
 
 const RawPublishingSchema = Schema.Struct({
   ZUID: Schema.String,
@@ -343,6 +359,36 @@ function decodeCodeFiles(
   );
 }
 
+function decodeCodeFileVersions(input: unknown): Effect.Effect<CodeFileVersionList, ExplorerError> {
+  const decoded = Schema.decodeUnknownEither(RawCodeFileVersionsResponseSchema, {
+    errors: 'all',
+  })(input);
+  if (Either.isLeft(decoded)) {
+    return Effect.fail(
+      unsupportedShapeError(
+        'Zesty returned code file versions in an unsupported shape.',
+        decoded.left,
+      ),
+    );
+  }
+  const { data, _meta } = decoded.right;
+  return Effect.succeed({
+    versions: data
+      .map((version): CodeFileVersion => {
+        const savedAt = version.createdAt ?? version.updatedAt;
+        const author = version.createdByUserZUID;
+        return {
+          number: version.version,
+          code: version.code ?? '',
+          ...(savedAt ? { savedAt } : {}),
+          ...(isUserZuid(author) ? { authorZuid: author } : {}),
+        };
+      })
+      .toSorted((left, right) => right.number - left.number),
+    total: Math.max(_meta?.totalResults ?? 0, data.length),
+  });
+}
+
 function decodePublishings(
   input: unknown,
 ): Effect.Effect<readonly ItemPublishing[], ExplorerError> {
@@ -466,6 +512,19 @@ function describeCodeFileError(error: ExplorerError): ExplorerError {
   }
   if (error.kind === 'missing-resource') {
     return { ...error, message: 'Zesty did not find code files for this instance.' };
+  }
+  return error;
+}
+
+function describeCodeFileVersionsError(error: ExplorerError): ExplorerError {
+  if (error.kind === 'permission') {
+    return {
+      ...error,
+      message: 'Your Zesty session cannot read the saved versions of this code file.',
+    };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'Zesty did not find this code file. It may have been deleted.' };
   }
   return error;
 }
@@ -712,6 +771,22 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
                   }
                 : list,
             ),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadCodeFileVersions: (reference, fileId, sessionToken) => {
+      // Zesty returns at most 1,000 versions of a file.
+      const requestUrl = `${reference.apiBaseUrl}/web/views/${fileId}/versions?limit=1000`;
+      const operation = 'load-code-file-versions' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.mapError(describeCodeFileVersionsError),
+        Effect.flatMap((response) =>
+          decodeCodeFileVersions(response.body).pipe(
             Effect.mapError((error) =>
               withRequestDiagnostic(error, operation, requestUrl, response.status),
             ),

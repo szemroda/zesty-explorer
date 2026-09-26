@@ -136,6 +136,14 @@ _Avoid_: View filter, per-parent filter
 A named Zesty source resource containing a custom endpoint, snippet, model template, or other view source. It belongs to an instance independently of any Explorer view.
 _Avoid_: View, endpoint when referring to every code file
 
+**Code file version**:
+One saved state of a code file, identified by its version number, save time, and author when that user can be resolved. The latest saved and currently published versions of a code file are the ones its code states select.
+_Avoid_: Revision, code state when referring to one save
+
+**Code history**:
+A read-only presentation of a code file's saved versions. It previews any code file version's source and compares any two of them, formatted or as saved, without changing the Code tab's selected code state.
+_Avoid_: Code state switch, version comparison when referring to content items
+
 **Code state**:
 The choice between a code file's latest saved source and its currently published source. It is independent of the content state used by an Explorer view.
 _Avoid_: Content state, environment

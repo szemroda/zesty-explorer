@@ -5,6 +5,7 @@ import {
   compareContentItems,
   diffRawJson,
   diffText,
+  diffTextSideBySide,
   resolveVersionPair,
   type NumberedLine,
   type TextFragment,
@@ -170,6 +171,21 @@ describe('diffRawJson', () => {
 
     expect(highlighted(changed!.before!.fragments)).toEqual(['2']);
     expect(highlighted(changed!.after!.fragments)).toEqual(['3']);
+  });
+});
+
+describe('diffTextSideBySide', () => {
+  it('aligns unchanged lines and pairs a changed line with its changed words', () => {
+    const rows = diffTextSideBySide('a\nlimit 10\nz', 'a\nlimit 20\nnew\nz');
+
+    expect(rows.map((row) => [row.before?.number, row.after?.number, row.changed])).toEqual([
+      [1, 1, false],
+      [2, 2, true],
+      [undefined, 3, true],
+      [3, 4, false],
+    ]);
+    expect(highlighted(rows[1]!.before!.fragments)).toEqual(['10']);
+    expect(highlighted(rows[1]!.after!.fragments)).toEqual(['20']);
   });
 });
 

@@ -1,25 +1,27 @@
 import { useState, type ReactNode } from 'react';
 import {
   collapseUnchanged,
+  countChangedLines,
   diffRawJson,
   diffText,
   type ChangedValue,
   type ContentItemComparison,
   type DiffSection,
   type NumberedLine,
-  type RawJsonRow,
+  type SideBySideRow,
   type TextFragment,
   type TextLine,
   type ValueChange,
   type ValuePath,
   type VersionPair,
 } from '../item-version-comparison';
+import type { SavedVersionOption } from '../item-version-preview';
 
 type Side = 'before' | 'after';
 
 // Unchanged rows kept around each change before the rest collapse.
 const FIELD_TEXT_CONTEXT = 2;
-const RAW_JSON_CONTEXT = 3;
+const SIDE_BY_SIDE_CONTEXT = 3;
 
 const SIDE_STYLE: Readonly<
   Record<
@@ -403,17 +405,37 @@ function RawJsonCells({
 
 /** Side-by-side code diff of the complete raw data of two versions. */
 export function RawJsonComparison({ pair }: { readonly pair: VersionPair }) {
-  const rows = diffRawJson(pair.before.item.raw, pair.after.item.raw);
-  const removed = rows.filter((row) => row.changed && row.before).length;
-  const added = rows.filter((row) => row.changed && row.after).length;
-  const sections = collapseUnchanged(rows, (row) => row.changed, RAW_JSON_CONTEXT);
+  return (
+    <SideBySideComparison
+      label="Raw JSON comparison"
+      rows={diffRawJson(pair.before.item.raw, pair.after.item.raw)}
+      pair={pair}
+      identicalMessage="The raw data of these versions is identical apart from property order and formatting."
+    />
+  );
+}
+
+/** Side-by-side diff rows of two versions, with unchanged runs collapsed. */
+export function SideBySideComparison({
+  label,
+  rows,
+  pair,
+  identicalMessage,
+}: {
+  readonly label: string;
+  readonly rows: readonly SideBySideRow[];
+  readonly pair: VersionPair<SavedVersionOption>;
+  readonly identicalMessage: string;
+}) {
+  const { removed, added } = countChangedLines(rows);
+  const sections = collapseUnchanged(rows, (row) => row.changed, SIDE_BY_SIDE_CONTEXT);
 
   // Clipping, unlike scrolling, keeps the header sticky within the comparison pane.
   return (
     <div className="mt-3 overflow-clip rounded-lg border border-border bg-background">
       <table
         className="w-full table-fixed border-collapse font-mono text-[11px] leading-5"
-        aria-label="Raw JSON comparison"
+        aria-label={label}
       >
         <colgroup>
           <col className="w-[38px]" />
@@ -424,7 +446,7 @@ export function RawJsonComparison({ pair }: { readonly pair: VersionPair }) {
           <col />
         </colgroup>
         {/* Sticky cells leave collapsed borders behind, so their dividers are inset shadows. The
-            negative offset cancels the padding of the scrolling comparison pane in ItemDetails. */}
+            negative offset cancels the padding of the scrolling comparison pane of a history dialog. */}
         <thead className="font-sans text-xs">
           <tr>
             <th
@@ -457,12 +479,11 @@ export function RawJsonComparison({ pair }: { readonly pair: VersionPair }) {
           {added + removed === 0 ? (
             <tr>
               <td colSpan={6} className="px-3 py-4 font-sans text-xs text-muted-foreground">
-                The raw data of these versions is identical apart from property order and
-                formatting.
+                {identicalMessage}
               </td>
             </tr>
           ) : (
-            <CollapsibleRows<RawJsonRow>
+            <CollapsibleRows<SideBySideRow>
               sections={sections}
               renderRow={(row, key) => (
                 <tr key={key} className="border-b border-divider-subtle last:border-b-0">

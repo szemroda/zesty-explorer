@@ -89,6 +89,7 @@ function api(
     loadItemPublishings: () => Effect.succeed([]),
     loadInstanceUsers: () => Effect.succeed([]),
     loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
+    loadCodeFileVersions: () => Effect.succeed({ versions: [], total: 0 }),
     loadWebEngineBaseUrls: () => Effect.succeed([]),
   };
 }
@@ -1000,6 +1001,96 @@ describe('Code tab', () => {
         ],
       }),
   };
+
+  async function openCodeHistory(loadCodeFileVersions: ZestyApi['loadCodeFileVersions']) {
+    render(<App api={{ ...codeApi, loadCodeFileVersions }} tokenStore={tokenStore()} />);
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: /\/8-abc123\.json/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'History' }));
+    return screen.findByRole('dialog', { name: '/8-abc123.json' });
+  }
+
+  it('says when code history lists only the newest saved versions', async () => {
+    const dialog = await openCodeHistory(() =>
+      Effect.succeed({ versions: [{ number: 3, code: source }], total: 1200 }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        'Zesty returned only the newest 1 of 1200 saved versions. Older versions are not listed.',
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('1200 total')).toBeInTheDocument();
+  });
+
+  it('says when Zesty returns no saved versions of a code file', async () => {
+    const dialog = await openCodeHistory(() => Effect.succeed({ versions: [], total: 0 }));
+
+    expect(
+      await within(dialog).findByText('Zesty returned no saved versions of this file.'),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole('heading', { name: /Version/ })).not.toBeInTheDocument();
+  });
+
+  it('retries code history after its saved versions fail to load', async () => {
+    const loadCodeFileVersions = vi
+      .fn<ZestyApi['loadCodeFileVersions']>()
+      .mockReturnValueOnce(Effect.fail({ kind: 'network', message: 'Zesty could not be reached.' }))
+      .mockReturnValue(Effect.succeed({ versions: [{ number: 3, code: source }], total: 1 }));
+    const dialog = await openCodeHistory(loadCodeFileVersions);
+
+    expect(await within(dialog).findByText('Zesty could not be reached.')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+
+    expect(await within(dialog).findByRole('heading', { name: 'Version 3' })).toBeInTheDocument();
+    expect(loadCodeFileVersions).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not list earlier saved versions when reopened code history fails to load', async () => {
+    const loadCodeFileVersions = vi
+      .fn<ZestyApi['loadCodeFileVersions']>()
+      .mockReturnValueOnce(Effect.succeed({ versions: [{ number: 3, code: source }], total: 1 }))
+      .mockReturnValue(Effect.fail({ kind: 'network', message: 'Zesty could not be reached.' }));
+    const first = await openCodeHistory(loadCodeFileVersions);
+    await within(first).findByRole('heading', { name: 'Version 3' });
+    fireEvent.click(within(first).getByRole('button', { name: 'Close code history' }));
+    await waitFor(() => expect(first).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    const reopened = await screen.findByRole('dialog', { name: '/8-abc123.json' });
+
+    expect(await within(reopened).findByText('Zesty could not be reached.')).toBeInTheDocument();
+    expect(within(reopened).queryByRole('button', { name: /Version 3/ })).not.toBeInTheDocument();
+  });
+
+  it('explains why code history could not load a deleted file', async () => {
+    const dialog = await openCodeHistory(() =>
+      Effect.fail({
+        kind: 'missing-resource',
+        message: 'Zesty did not find this code file. It may have been deleted.',
+        status: 404,
+      }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        'Zesty did not find this code file. It may have been deleted.',
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/model still exists/)).not.toBeInTheDocument();
+  });
+
+  it('closes code history and asks for a new token when the session expires', async () => {
+    const dialog = await openCodeHistory(() =>
+      Effect.fail({ kind: 'authentication', message: 'The session token expired.', status: 401 }),
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+    expect(dialog).not.toBeInTheDocument();
+  });
 
   it('resets the Code tab when another instance is selected', async () => {
     render(<App api={codeApi} tokenStore={tokenStore()} />);

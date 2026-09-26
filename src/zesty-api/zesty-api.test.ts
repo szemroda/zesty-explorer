@@ -586,6 +586,75 @@ describe('ZestyApi', () => {
     expect(JSON.stringify(list.warning)).not.toContain('SECRET');
   });
 
+  it('loads saved versions of a code file newest first, with their authors', async () => {
+    const fake = respondWith({
+      data: [
+        { version: 1, code: null, status: 'dev', createdAt: '2026-09-01T10:00:00Z' },
+        {
+          version: 2,
+          code: '{{$a = 1}}',
+          status: 'dev',
+          createdAt: '2026-09-02T10:00:00Z',
+          createdByUserZUID: '5-author-one',
+        },
+        { version: 3, code: '{{$a = 2}}', status: 'dev', createdByUserZUID: 'stale value' },
+      ],
+    });
+
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCodeFileVersions(
+        instance,
+        '11-endpoint123',
+        'private-token',
+      ),
+    );
+
+    expect(fake.requests[0]?.url).toBe(
+      'https://8-abc123.api.zesty.io/v1/web/views/11-endpoint123/versions?limit=1000',
+    );
+    expect(list.total).toBe(3);
+    expect(list.versions).toEqual([
+      { number: 3, code: '{{$a = 2}}' },
+      {
+        number: 2,
+        code: '{{$a = 1}}',
+        savedAt: '2026-09-02T10:00:00Z',
+        authorZuid: '5-author-one',
+      },
+      { number: 1, code: '', savedAt: '2026-09-01T10:00:00Z' },
+    ]);
+  });
+
+  it('counts code file versions Zesty has beyond those it returned', async () => {
+    const fake = respondWith({
+      data: [{ version: 1200, code: '', status: 'dev' }],
+      _meta: { totalResults: 1200, limit: 1000 },
+    });
+
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCodeFileVersions(instance, '11-endpoint123', 'token'),
+    );
+
+    expect(list.total).toBe(1200);
+  });
+
+  it.each([
+    [403, 'permission', 'Your Zesty session cannot read the saved versions of this code file.'],
+    [404, 'missing-resource', 'Zesty did not find this code file. It may have been deleted.'],
+  ])('describes a %i when loading code file versions', async (status, kind, message) => {
+    const fake = respondWith({ error: 'failed' }, status);
+    const error = await Effect.runPromise(
+      Effect.flip(
+        createZestyApi(fake.transport).loadCodeFileVersions(instance, '11-endpoint123', 'token'),
+      ),
+    );
+    expect(error).toMatchObject({
+      kind,
+      message,
+      diagnostic: { operation: 'load-code-file-versions', responseStatus: status },
+    });
+  });
+
   it('describes code file permission failures without naming collections', async () => {
     const fake = respondWith({ error: 'forbidden' }, 403);
     const error = await Effect.runPromise(

@@ -66,6 +66,10 @@ const articlesJson = `(** Blog listing for the Next.js site. Do not rename, the 
 
 const publishedArticlesJson = `[{{each articles as article sort by article.published_at desc limit 10}}{"id":"{{article.zuid}}","title":"{{article.title.escapeForJs()}}"}{{if {article._length} > {article._num} }},{{end-if}}{{end-each}}]`;
 
+// The save between the published and latest versions: a category filter without a limit.
+const filteredArticlesJson = `{{$limit = 10}}
+[{{each articles as article where article.category.slug = '{get_var.category}' sort by article.published_at desc limit {$limit} }}{"id":"{{article.zuid}}","title":"{{article.title.escapeForJs()}}","url":"{{article.getUrl()}}"}{{if {article._length} > {article._num} }},{{end-if}}{{end-each}}]`;
+
 const eventsJson = `{"generated":"{{site.date(c)}}","events":[{{each events as event where event.starts_at >= '{site.date(Y-m-d)}' sort by event.starts_at limit 0,20}}{"title":"{{event.title.escapeForJs()}}","venue":"{{event.venue.name}}","city":"{{event.venue.city}}"}{{if {event._length} > {event._num} }},{{end-if}}{{end-each}}],
 "weather":[{{each api.json.get(https://api.example-weather.test/v1/forecast?city={request.queryParam(city)}) as day limit 3}}"{{day.summary}}"{{if {day._length} > {day._num} }},{{end-if}}{{end-each}}],
 "sponsors":[{{each sponsors as sponsor}}"{{sponsor.name}}"{{if {sponsor._length} > {sponsor._num} }},{{end-if}}{{end-each}}],
@@ -113,7 +117,18 @@ interface FixtureFile {
   readonly dev: { readonly version: number; readonly code: string };
   readonly live?: { readonly version: number; readonly code: string };
   readonly contentModelZUID?: string;
+  /** Saved versions older than `dev`, oldest first. */
+  readonly earlier?: readonly {
+    readonly version: number;
+    readonly code: string;
+    readonly author: string;
+  }[];
 }
+
+const authors = [
+  { ZUID: '5-fixture-ada', firstName: 'Ada', lastName: 'Keller' },
+  { ZUID: '5-fixture-tom', firstName: 'Tom', lastName: 'Brandt' },
+];
 
 const files: readonly FixtureFile[] = [
   {
@@ -122,6 +137,10 @@ const files: readonly FixtureFile[] = [
     type: 'ajax-json',
     dev: { version: 28, code: articlesJson },
     live: { version: 26, code: publishedArticlesJson },
+    earlier: [
+      { version: 26, code: publishedArticlesJson, author: '5-fixture-tom' },
+      { version: 27, code: filteredArticlesJson, author: '5-fixture-ada' },
+    ],
   },
   {
     ZUID: '11-drafts-json0',
@@ -189,6 +208,24 @@ function viewsFor(status: string) {
   });
 }
 
+// Versions newest first, like the Instances API. Without earlier saves, a file has one version.
+function versionsFor(fileId: string) {
+  const file = files.find((candidate) => candidate.ZUID === fileId);
+  if (!file) return [];
+  const saves = [
+    ...(file.earlier ?? []),
+    { version: file.dev.version, code: file.dev.code, author: '5-fixture-ada' },
+  ];
+  return saves.toReversed().map((save, index) => ({
+    version: save.version,
+    code: save.code,
+    status: 'dev',
+    createdByUserZUID: save.author,
+    createdAt: new Date(Date.UTC(2026, 8, 20 - index * 3, 10)).toISOString(),
+    updatedAt: new Date(Date.UTC(2026, 8, 20 - index * 3, 10)).toISOString(),
+  }));
+}
+
 const cors = {
   'access-control-allow-origin': 'http://localhost:5173',
   'access-control-allow-headers': 'authorization,content-type',
@@ -216,6 +253,11 @@ async function fulfill(route: Route): Promise<void> {
     return;
   }
   const url = new URL(request.url());
+  const versionsOf = url.pathname.match(/\/web\/views\/(11-[^/]+)\/versions$/)?.[1];
+  if (versionsOf) {
+    await route.fulfill({ headers: cors, json: { data: versionsFor(versionsOf) } });
+    return;
+  }
   if (url.pathname.endsWith('/web/views')) {
     await route.fulfill({
       headers: cors,
@@ -269,6 +311,10 @@ async function fulfillAccounts(route: Route): Promise<void> {
   const { pathname } = new URL(route.request().url());
   if (pathname.endsWith('/instances/8-fixture')) {
     await route.fulfill({ headers: cors, json: { data: { randomHashID: 'fixture' } } });
+    return;
+  }
+  if (pathname.endsWith('/instances/8-fixture/users')) {
+    await route.fulfill({ headers: cors, json: { data: authors } });
     return;
   }
   if (pathname.endsWith('/instances/8-fixture/domains')) {

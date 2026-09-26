@@ -399,7 +399,7 @@ export function CodeSourceView({
   );
 }
 
-function IndentGuides({ count }: { readonly count: number }) {
+export function IndentGuides({ count }: { readonly count: number }) {
   return Array.from({ length: count }, (_, guide) => (
     <span
       key={guide}
@@ -421,7 +421,7 @@ function SavedIndent({ text }: { readonly text: string }) {
   ));
 }
 
-function LineTokens({
+export function LineTokens({
   line,
   saved,
   toneFor,

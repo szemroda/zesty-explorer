@@ -1,5 +1,5 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
-import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, Search } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, History, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
@@ -20,7 +20,7 @@ import {
   type CodeCollection,
   type CodeFileSummary,
 } from '../../parsley';
-import type { CodeFileApi, CollectionApi } from '../../zesty-api';
+import type { CodeFileApi, CollectionApi, ItemVersionApi } from '../../zesty-api';
 import {
   catalogTones,
   codeFileMatches,
@@ -40,6 +40,7 @@ import {
   type WebEngineBaseUrlsResult,
 } from '../hooks/useCodeFiles';
 import { cn } from '../lib/utils';
+import { CodeFileHistory } from './CodeFileHistory';
 import { CodeSourceView, type SourcePresentation } from './CodeSourceView';
 import { EndpointRequest } from './EndpointRequest';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
@@ -57,7 +58,9 @@ interface CallSite {
 }
 
 interface CodeWorkspaceProps {
-  readonly api: CodeFileApi & Pick<CollectionApi, 'loadCollectionSchema'>;
+  readonly api: CodeFileApi &
+    Pick<CollectionApi, 'loadCollectionSchema'> &
+    Pick<ItemVersionApi, 'loadInstanceUsers'>;
   readonly instance: InstanceReference;
   readonly credentials: CodeCredentials;
   readonly catalog: CollectionCatalog | undefined;
@@ -85,6 +88,7 @@ export function CodeWorkspace({
   // Include navigation history; the top entry is where "Back" returns to.
   const [callSites, setCallSites] = useState<readonly CallSite[]>([]);
   const [returnPin, setReturnPin] = useState<string>();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const { state, fileId } = selection;
   const queryClient = useQueryClient();
   // A call site belongs to the version the user came from, so switching code states drops it.
@@ -108,7 +112,9 @@ export function CodeWorkspace({
     instance,
     state: 'published',
     credentials,
-    enabled: state === 'published' || Boolean(latest.list && fileId && !selectedInLatest),
+    // Code history marks the published version.
+    enabled:
+      state === 'published' || historyOpen || Boolean(latest.list && fileId && !selectedInLatest),
   });
   const stateQuery = state === 'latest' ? latest : published;
   const otherQuery = state === 'latest' ? published : latest;
@@ -261,8 +267,17 @@ export function CodeWorkspace({
                 {codeStateLabels[state]} · version {selected.version}
               </span>
             ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setHistoryOpen(true)}
+            >
+              <History size={14} aria-hidden="true" />
+              History
+            </Button>
             <a
-              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'ml-auto')}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
               href={managerCodeFileUrl(instance, named.id)}
               target="_blank"
               rel="noreferrer"
@@ -271,6 +286,20 @@ export function CodeWorkspace({
               Open in Zesty Manager
             </a>
           </div>
+        ) : null}
+        {historyOpen && named ? (
+          <CodeFileHistory
+            key={named.id}
+            api={api}
+            instance={instance}
+            credentials={credentials}
+            file={named}
+            shownVersion={selected?.version}
+            publishedVersion={published.list?.files.find((file) => file.id === named.id)?.version}
+            initialPresentation={presentation}
+            onClose={() => setHistoryOpen(false)}
+            onAuthenticationFailure={onAuthenticationFailure}
+          />
         ) : null}
 
         {callSites.length ? (

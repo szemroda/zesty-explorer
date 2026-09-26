@@ -8,25 +8,33 @@ import type {
 
 export type VersionAuthorState = 'loading' | 'resolved' | 'unavailable';
 
-export interface VersionPreviewOption {
+/** One entry of a saved versions list, for a content item or a code file. */
+export interface SavedVersionOption {
   readonly number: number;
-  readonly item: ContentItem;
   readonly savedAt?: string;
   readonly author?: string;
   readonly authorState: VersionAuthorState;
   readonly latestSaved: boolean;
   readonly currentlyPublished: boolean;
   readonly scheduledAt?: string;
+  readonly additionalSchedules?: number;
+  readonly currentInView?: boolean;
+}
+
+export interface VersionPreviewOption extends SavedVersionOption {
+  readonly item: ContentItem;
   readonly additionalSchedules: number;
   readonly currentInView: boolean;
 }
+
+export type AuthorsState = 'loading' | 'ready' | 'failed';
 
 export interface BuildVersionPreviewOptionsInput {
   readonly currentItem: ContentItem;
   readonly versions: readonly ContentItemVersion[];
   readonly publishings: readonly ItemPublishing[];
   readonly users: readonly InstanceUser[];
-  readonly usersState: 'loading' | 'ready' | 'failed';
+  readonly usersState: AuthorsState;
   readonly now: Date;
 }
 
@@ -77,13 +85,14 @@ function displayName(user: InstanceUser | undefined): string | undefined {
   return user.email?.trim() || undefined;
 }
 
-function authorFor(
-  version: ContentItemVersion,
+/** The display name of whoever saved a version, while instance users load or once they have. */
+export function authorFor(
+  authorZuid: UserZuid | undefined,
   usersById: ReadonlyMap<UserZuid, InstanceUser>,
-  usersState: BuildVersionPreviewOptionsInput['usersState'],
-): Pick<VersionPreviewOption, 'author' | 'authorState'> {
-  if (!version.authorZuid) return { authorState: 'unavailable' };
-  const author = displayName(usersById.get(version.authorZuid));
+  usersState: AuthorsState,
+): Pick<SavedVersionOption, 'author' | 'authorState'> {
+  if (!authorZuid) return { authorState: 'unavailable' };
+  const author = displayName(usersById.get(authorZuid));
   if (author) return { author, authorState: 'resolved' };
   return { authorState: usersState === 'loading' ? 'loading' : 'unavailable' };
 }
@@ -133,7 +142,7 @@ export function buildVersionPreviewOptions({
       number: version.number,
       item: version.item,
       ...(version.savedAt ? { savedAt: version.savedAt } : {}),
-      ...authorFor(version, usersById, usersState),
+      ...authorFor(version.authorZuid, usersById, usersState),
       latestSaved: version.number === latestNumber,
       currentlyPublished: activeVersions.has(version.number),
       ...(scheduledAt ? { scheduledAt } : {}),
@@ -143,7 +152,7 @@ export function buildVersionPreviewOptions({
   });
 }
 
-export function matchesVersionPreviewOption(option: VersionPreviewOption, query: string): boolean {
+export function matchesVersionPreviewOption(option: SavedVersionOption, query: string): boolean {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return true;
   const searchable = [
@@ -158,4 +167,26 @@ export function matchesVersionPreviewOption(option: VersionPreviewOption, query:
     .join(' ')
     .toLocaleLowerCase();
   return searchable.includes(normalized);
+}
+
+export function formattedDate(value: string | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return 'Save time unavailable';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(new Date(value));
+}
+
+export function savedDescription(value: string | undefined): string {
+  const date = formattedDate(value);
+  return value && Number.isFinite(Date.parse(value)) ? `Saved ${date}` : date;
+}
+
+export function authorLabel(option: SavedVersionOption): string {
+  if (option.author) return option.author;
+  return option.authorState === 'loading' ? 'Loading author…' : 'Author unavailable';
 }
