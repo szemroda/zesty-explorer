@@ -25,6 +25,7 @@ import {
 import { endpointPath, endpointUrl, wildcardCount, type QueryParameter } from '../endpoint-address';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
 import { cn } from '../lib/utils';
+import { formattedBody } from '../response-body';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
@@ -364,7 +365,7 @@ function ResponsePane({
   const [presentation, setPresentation] = useState<BodyPresentation>('formatted');
   const response = result?.kind === 'response' ? result.response : undefined;
   const formatted = useMemo(
-    () => (response && !response.truncated ? formattedJson(response.body) : undefined),
+    () => (response && !response.truncated ? formattedBody(response.body) : undefined),
     [response],
   );
   const body = presentation === 'formatted' && formatted !== undefined ? formatted : response?.body;
@@ -530,17 +531,6 @@ function AutoWidthInput({
       onChange={(event) => onChange(event.target.value)}
     />
   );
-}
-
-/** The body indented when it is JSON, whatever its content type says. */
-function formattedJson(body: string): string | undefined {
-  const text = body.trim();
-  if (!text.startsWith('{') && !text.startsWith('[')) return undefined;
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return undefined;
-  }
 }
 
 function formatBytes(bytes: number): string {
