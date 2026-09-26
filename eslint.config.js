@@ -23,4 +23,40 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  // Security invariants for runtime code: see docs/adr/0007 and docs/adr/0011.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'no-console': 'error',
+      'no-restricted-globals': [
+        'error',
+        { name: 'localStorage', message: 'Keep the session token tab-scoped in sessionStorage.' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'window',
+          property: 'localStorage',
+          message: 'Keep the session token tab-scoped in sessionStorage.',
+        },
+        {
+          object: 'globalThis',
+          property: 'localStorage',
+          message: 'Keep the session token tab-scoped in sessionStorage.',
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          message: 'Content markup must stay inert.',
+        },
+        {
+          selector: "Property[key.name='method'][value.value=/^(POST|PUT|PATCH|DELETE)$/i]",
+          message: 'Zesty Explorer sends only GET requests.',
+        },
+      ],
+    },
+  },
 );

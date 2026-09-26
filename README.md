@@ -89,7 +89,7 @@ pnpm build
 - `pnpm test:performance` measures generated 1,000-, 10,000-, and 50,000-item graphs against stored baselines and product budgets.
 - `pnpm build` creates the production bundle in `dist`.
 
-See the [security audit](docs/security-audit.md) and [performance report](docs/performance-report.md) for repeatable evidence, and [the architecture decision records](docs/adr/) for the reasoning behind key constraints.
+See the [performance report](docs/performance-report.md) for repeatable evidence, and [the architecture decision records](docs/adr/) for the reasoning behind key constraints.
 
 ## Troubleshooting
 
