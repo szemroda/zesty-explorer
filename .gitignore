@@ -1,5 +1,7 @@
 node_modules/
 dist/
+/build/
+*.tgz
 playwright-report/
 test-results/
 coverage/
