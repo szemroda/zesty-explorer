@@ -4,23 +4,44 @@ Zesty Explorer is a local, read-only browser for inspecting related content coll
 
 ## Prerequisites
 
-- Node.js 22.12 or newer
-- pnpm 11.18 or a compatible pnpm 11 release
+- [Node.js](https://nodejs.org) 22.12 or newer
 - Current Chrome or Edge on a desktop or laptop
 - Access to the relevant Zesty instance
 
 The app runs only on your computer. It has no backend, hosted deployment, analytics, or runtime CDN assets.
 
-## Install and run
+## Run
+
+```sh
+npx --yes --prefer-online zestyx@latest
+```
+
+The command downloads the latest release, starts a local server, and opens [http://localhost:5173](http://localhost:5173) in your default browser. Use Chrome or Edge if your default browser is different. Requests go directly from your browser to Zesty; the local server only serves the app files.
+
+Keep the terminal open while using the app and press `Ctrl+C` to stop it. To update, stop the server and run the same command again. Running the command while the app is already running opens the browser at the existing server.
+
+Options go after the package name, for example `npx --yes --prefer-online zestyx@latest --no-open`:
+
+- `--port <number>` serves on another port when 5173 is taken. Shared links contain the port, so recipients must run the app on the same port to open them.
+- `--no-open` starts the server without opening the browser.
+- `--version` and `--help` print the version and usage.
+
+Open the app at `localhost`, not `127.0.0.1` or `[::1]`: Zesty accepts only `localhost` as a browser origin. The app redirects `127.0.0.1` URLs to `localhost` while preserving the complete view URL.
+
+On Windows, PowerShell may refuse to run `npx` with "running scripts is disabled on this system". Type `npx.cmd` instead of `npx`, with the same arguments.
+
+## Develop
+
+Development also requires Git and pnpm 11.18 or a compatible pnpm 11 release.
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/szemroda/zesty-explorer.git
 cd zesty-explorer
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). Use that exact hostname: Zesty accepts `localhost` as a browser origin but rejects the equivalent loopback addresses `127.0.0.1` and `[::1]`. The application redirects `http://127.0.0.1:5173` to `localhost` while preserving the complete view URL. The development server remains bound to IPv4 loopback, does not serve `[::1]`, and exits if port 5173 is already in use.
+The development server opens [http://localhost:5173](http://localhost:5173) and exits if port 5173 is already in use. To run the CLI that npm users get, use `pnpm build` and then `pnpm start`.
 
 ## Start a view
 
@@ -84,10 +105,12 @@ pnpm build
 ```
 
 - `pnpm check` verifies formatting, lint, TypeScript, and Effect diagnostics.
-- `pnpm test` runs focused module and React tests.
-- `pnpm test:e2e` builds the production app and runs offline Chromium flows at laptop and desktop sizes.
+- `pnpm test` runs focused module, React, and CLI tests.
+- `pnpm test:e2e` builds the app, serves it with the CLI, and runs offline Chromium flows at laptop and desktop sizes, followed by browser performance budgets.
 - `pnpm test:performance` measures generated 1,000-, 10,000-, and 50,000-item graphs against stored baselines and product budgets.
-- `pnpm build` creates the production bundle in `dist`.
+- `pnpm build` creates the frontend in `dist` and the CLI in `build/cli`.
+
+CI runs everything except the performance budgets, which are calibrated on a developer machine, then starts the packed CLI on Linux, Windows, and macOS.
 
 See the [performance report](docs/performance-report.md) for repeatable evidence, and [the architecture decision records](docs/adr/) for the reasoning behind key constraints.
 

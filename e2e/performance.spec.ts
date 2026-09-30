@@ -149,8 +149,7 @@ async function installPerformanceApi(page: Page) {
   });
 }
 
-test('reports loaded-data browser p50 and p95 budgets', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium-desktop', 'One calibrated Chromium run is enough.');
+test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await page.addInitScript(() => {
     const metrics = window as unknown as { __zestyMetrics: BrowserMetrics };
     metrics.__zestyMetrics = { longTasks: [] };

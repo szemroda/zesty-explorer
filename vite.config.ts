@@ -11,5 +11,4 @@ export default defineConfig({
     strictPort: true,
     open: 'http://localhost:5173',
   },
-  preview: { host: '127.0.0.1', port: 4173, strictPort: true },
 });
