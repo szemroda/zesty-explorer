@@ -41,7 +41,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-The development server opens [http://localhost:5173](http://localhost:5173) and exits if port 5173 is already in use. To run the CLI that npm users get, use `pnpm build` and then `pnpm start`.
+The development server starts on port 5173 or the next available port without opening a browser. Open `http://localhost:<port>` using the port printed in the terminal. To run the CLI that npm users get, use `pnpm build` and then `pnpm start`.
 
 ## Start a view
 
