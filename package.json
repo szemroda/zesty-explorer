@@ -22,7 +22,7 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev": "vite",
     "build": "tsc -b && vite build && tsc -p tsconfig.cli.build.json",
     "start": "node build/cli/index.js",
     "prepack": "pnpm build",
