@@ -189,6 +189,18 @@ export async function loadView(
   return { snapshots: { snapshots, totalItems }, schemas, schemaErrors };
 }
 
+/** A node's loaded snapshot, complete or partial; undefined while it loads or after it failed. */
+export function loadedSnapshot(
+  node: CollectionNode,
+  loaded: LoadedView,
+  state: ContentState,
+): CollectionSnapshot | undefined {
+  const snapshotState = loaded.snapshots.snapshots.get(snapshotQueryKey(node.reference, state));
+  return snapshotState?.status === 'complete' || snapshotState?.status === 'partial'
+    ? snapshotState.snapshot
+    : undefined;
+}
+
 export function buildLoadedViewGraph(
   root: CollectionNode,
   loaded: LoadedView,
@@ -211,10 +223,8 @@ export function buildLoadedViewGraph(
       node.id,
       node.children.map((child) => child.id),
     );
-    const snapshotState = loaded.snapshots.snapshots.get(snapshotQueryKey(node.reference, state));
-    if (snapshotState?.status === 'complete' || snapshotState?.status === 'partial') {
-      snapshots.set(node.id, snapshotState.snapshot);
-    }
+    const snapshot = loadedSnapshot(node, loaded, state);
+    if (snapshot) snapshots.set(node.id, snapshot);
   }
 
   const visit = (parent: CollectionNode) => {

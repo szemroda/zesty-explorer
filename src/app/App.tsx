@@ -6,11 +6,9 @@ import {
   Database,
   Eye,
   EyeOff,
-  ListFilter,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
-  Search,
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,7 +49,6 @@ import {
   type SessionTokenStore,
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } from '../zesty-api';
-import { FilterBuilder } from './components/FilterBuilder';
 import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
@@ -203,11 +200,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [contentState, setContentState] = useState<ContentState>(
     initialView?.contentState ?? 'latest',
   );
-  const [globalFreeText, setGlobalFreeText] = useState(initialView?.globalFreeText ?? '');
   const [viewFilters, setViewFilters] = useState<readonly ViewFilter[]>(
     initialView?.viewFilters ?? [],
   );
-  const [viewFiltersOpen, setViewFiltersOpen] = useState(Boolean(initialView?.viewFilters.length));
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
   // A link without an Explorer view opens Explorer at the root picker.
   const [selectingRoot, setSelectingRoot] = useState(
@@ -255,7 +250,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     const view =
       treeRoot?.reference.instanceZuid === instance.instanceZuid &&
       treeRoot.reference.deployment === instance.deployment
-        ? ({ version: 2, root: treeRoot, contentState, viewFilters, globalFreeText } as const)
+        ? ({ version: 2, root: treeRoot, contentState, viewFilters } as const)
         : undefined;
     const selection = code.selection;
     const fileFilter = shareableFileFilter(code.fileFilter);
@@ -272,7 +267,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     code.fileFilter,
     code.selection,
     contentState,
-    globalFreeText,
     instance,
     treeRoot,
     viewDecodeError,
@@ -297,10 +291,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const requiresCompleteView = Boolean(
     treeRoot?.children.length &&
-    (globalFreeText ||
-      treeRoot.presentation.freeText ||
-      viewFilters.some((filter) => filter.nodePath.length > 0) ||
-      treeRoot.presentation.filters.some((filter) => filter.nodePath.length > 0)),
+    (treeRoot.presentation.freeText || viewFilters.some((filter) => filter.nodePath.length > 0)),
   );
   const loadedViewQuery = useLoadedView({
     api,
@@ -580,7 +571,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   function replaceRoot(replacement: RootChoice) {
     setViewFilters([]);
-    setGlobalFreeText('');
     setContentState('latest');
     openRoot(replacement);
   }
@@ -626,7 +616,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       root: treeRoot,
       contentState,
       viewFilters,
-      globalFreeText,
     };
     clearView();
     offerUndo('View reset', 'Your session token was kept.', undefined, () => restoreView(previous));
@@ -646,7 +635,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setReference(rootReference);
     setCollectionInput(collectionUrl(rootReference));
     setContentState(view.contentState);
-    setGlobalFreeText(view.globalFreeText);
     setViewFilters(view.viewFilters);
     setCatalogInstance(instanceReference(rootReference));
     setSelectedRootZuid(rootReference.modelZuid);
@@ -660,7 +648,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setReference(undefined);
     setCollectionInput('');
     setContentState('latest');
-    setGlobalFreeText('');
     setViewFilters([]);
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
@@ -722,7 +709,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         root: createRootNode(entry.reference, entry.label),
         contentState: 'latest',
         viewFilters: [],
-        globalFreeText: '',
       },
     });
     window.open(appUrl(fragment), '_blank', 'noopener,noreferrer');
@@ -898,21 +884,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </>
           ) : reference ? (
             <>
-              <label className="relative order-last flex w-full items-center md:order-none md:w-64">
-                <Search
-                  className="text-muted-foreground absolute left-3"
-                  size={15}
-                  aria-hidden="true"
-                />
-                <Input
-                  className="pl-9"
-                  type="search"
-                  aria-label="Search the complete view"
-                  placeholder="Search all collections"
-                  value={globalFreeText}
-                  onChange={(event) => setGlobalFreeText(event.target.value)}
-                />
-              </label>
               <ToggleGroup
                 aria-label="Content state"
                 value={[contentState]}
@@ -1260,35 +1231,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           ) : null}
           {!showStart && loadedView && treeRoot && rootSnapshot && rootSchema ? (
             <>
-              <Card className="mb-4 gap-0 py-0">
-                <Collapsible
-                  aria-label="View filters"
-                  open={viewFiltersOpen}
-                  onOpenChange={setViewFiltersOpen}
-                >
-                  <CollapsibleTrigger className="hover:bg-accent/40 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors">
-                    <span className="flex items-center gap-2">
-                      <ListFilter size={15} />
-                      <strong>View filters</strong>
-                      <span className="text-muted-foreground hidden text-sm font-normal sm:inline">
-                        Filter results across the collection tree
-                      </span>
-                    </span>
-                    {viewFilters.length > 0 ? (
-                      <Badge variant="outline">{viewFilters.length}</Badge>
-                    ) : null}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="border-border border-t p-4">
-                    <FilterBuilder
-                      label="View filter"
-                      root={treeRoot}
-                      schemas={loadedView.schemas}
-                      filters={viewFilters}
-                      onChange={setViewFilters}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
-              </Card>
               {descendantResultsPending ? (
                 <p
                   className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
@@ -1307,28 +1249,28 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   incomplete.
                 </p>
               ) : null}
-              {!descendantResultsPending ? (
-                <PublicationStatusProvider
-                  api={api}
-                  sessionToken={activeToken}
-                  credentialRevision={credentialRevision}
-                >
-                  <RootTable
-                    key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
-                    schema={rootSchema}
-                    snapshot={rootSnapshot}
-                    reference={treeRoot.reference}
-                    treeRoot={treeRoot}
-                    loadedView={loadedView}
-                    contentState={contentState}
-                    globalFreeText={globalFreeText}
-                    viewFilters={viewFilters}
-                    onOpenDetails={openDetails}
-                    onRetry={() => void refreshCollections()}
-                    onPresentationChange={changePresentation}
-                  />
-                </PublicationStatusProvider>
-              ) : null}
+              {/* Stays mounted while related data loads, so search, sort, and pages are kept. */}
+              <PublicationStatusProvider
+                api={api}
+                sessionToken={activeToken}
+                credentialRevision={credentialRevision}
+              >
+                <RootTable
+                  key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                  schema={rootSchema}
+                  snapshot={rootSnapshot}
+                  reference={treeRoot.reference}
+                  treeRoot={treeRoot}
+                  loadedView={loadedView}
+                  contentState={contentState}
+                  resultsPending={descendantResultsPending}
+                  viewFilters={viewFilters}
+                  onViewFiltersChange={setViewFilters}
+                  onOpenDetails={openDetails}
+                  onRetry={() => void refreshCollections()}
+                  onPresentationChange={changePresentation}
+                />
+              </PublicationStatusProvider>
             </>
           ) : null}
         </section>

@@ -3,6 +3,7 @@ import {
   generateRelationshipGraph,
   type CollectionSnapshot,
   type ContentItem,
+  type FilterOperator,
   type ItemZuid,
 } from '../domain';
 import {
@@ -110,6 +111,49 @@ describe('field paths and filter operators', () => {
         value: ['news', 'guide'],
       }),
     ).toBe(true);
+  });
+
+  it('reads text "is not" as the exact inverse of "is"', () => {
+    const story = item('7-story0', { title: '<b>Story</b>' });
+    const condition = { fieldPath: ['title'], value: 'story' } as const;
+    expect(matchesFilter(story, { ...condition, operator: 'equals' })).toBe(true);
+    expect(matchesFilter(story, { ...condition, operator: 'not-equal' })).toBe(false);
+  });
+
+  describe('a date-only operand compares whole days of datetime values', () => {
+    const ids = ['7-before', '7-start0', '7-end000', '7-after0'] as const;
+    const dated = [
+      item(ids[0], { published: '2026-01-30 23:59:59' }),
+      item(ids[1], { published: '2026-01-31 00:00:00' }),
+      item(ids[2], { published: '2026-01-31 23:59:59' }),
+      item(ids[3], { published: '2026-02-01 00:00:00' }),
+    ];
+    const matching = (operator: FilterOperator, value: unknown) =>
+      dated
+        .filter((entry) => matchesFilter(entry, { fieldPath: ['published'], operator, value }))
+        .map((entry) => entry.id);
+
+    it('keeps any time on the day for "on" and none of it for "not on"', () => {
+      expect(matching('equals', '2026-01-31')).toEqual(['7-start0', '7-end000']);
+      expect(matching('not-equal', '2026-01-31')).toEqual(['7-before', '7-after0']);
+    });
+
+    it('excludes the day itself for "after" and "before"', () => {
+      expect(matching('greater-than', '2026-01-31')).toEqual(['7-after0']);
+      expect(matching('less-than', '2026-01-31')).toEqual(['7-before']);
+    });
+
+    it('includes both whole days for "between"', () => {
+      expect(matching('between', ['2026-01-31', '2026-02-01'])).toEqual([
+        '7-start0',
+        '7-end000',
+        '7-after0',
+      ]);
+    });
+
+    it('compares an operand with a time in full', () => {
+      expect(matching('greater-than', '2026-01-31 12:00:00')).toEqual(['7-end000', '7-after0']);
+    });
   });
 });
 

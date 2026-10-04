@@ -4,7 +4,7 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { ListFilter, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type {
   CollectionNode,
@@ -34,13 +34,12 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { buildLoadedViewGraph, type LoadedView } from '../load-view';
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
-import { FilterBuilder } from './FilterBuilder';
+import { tableFilterControls } from './FilterControls';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { PublicationStatusCell } from './PublicationStatusCell';
+import { ScrollDockProvider } from './ScrollDock';
 import { TableSkeleton } from './TableSkeleton';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/skeleton';
 
@@ -58,7 +57,7 @@ export function RootTableSkeleton() {
           <Skeleton className="h-2.5 w-20" />
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
-          <Skeleton className="h-10 w-56 rounded-lg" />
+          <Skeleton className="h-10 w-72 rounded-lg" />
           <Skeleton className="h-9 w-20" />
           <Skeleton className="h-9 w-24" />
         </div>
@@ -75,8 +74,13 @@ interface RootTableProps {
   readonly treeRoot: CollectionNode;
   readonly loadedView: LoadedView;
   readonly contentState: ContentState;
-  readonly globalFreeText?: string;
+  /**
+   * Related data the search or view filters need is still loading, so the current results may be
+   * wrong. The toolbar and chips stay usable while the results wait.
+   */
+  readonly resultsPending?: boolean;
   readonly viewFilters?: readonly ViewFilter[];
+  readonly onViewFiltersChange: (filters: readonly ViewFilter[]) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
@@ -89,8 +93,9 @@ export function RootTable({
   treeRoot,
   loadedView,
   contentState,
-  globalFreeText = '',
+  resultsPending = false,
   viewFilters = [],
+  onViewFiltersChange,
   onOpenDetails,
   onRetry,
   onPresentationChange,
@@ -99,7 +104,6 @@ export function RootTable({
     new Map(),
   );
   const [tableFreeText, setTableFreeText] = useState(treeRoot.presentation.freeText);
-  const [filters, setFilters] = useState<readonly ViewFilter[]>(treeRoot.presentation.filters);
   const itemColumnDefinitions = useMemo(
     () => contentItemColumns(schema, snapshot.items),
     [schema, snapshot.items],
@@ -122,7 +126,6 @@ export function RootTable({
   );
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const deferredTableText = useDebouncedValue(tableFreeText);
-  const deferredGlobalText = useDebouncedValue(globalFreeText);
 
   useEffect(() => {
     if (treeRoot.presentation.freeText === tableFreeText) return;
@@ -163,38 +166,36 @@ export function RootTable({
   );
   const filteredItems = useMemo(() => {
     const allIds = snapshot.items.map((item) => item.id);
-    const viewIds = filterNodeItemIds(
+    const matchingIds = filterNodeItemIds(
       graph,
       treeRoot.id,
       allIds,
       viewFilters,
-      deferredGlobalText.value,
-    );
-    const tableIds = filterNodeItemIds(
-      graph,
-      treeRoot.id,
-      viewIds,
-      filters,
       deferredTableText.value,
     );
     const activeSort = sorting[0];
-    const sortedIds = sortItemIds(snapshot, tableIds, {
+    const sortedIds = sortItemIds(snapshot, matchingIds, {
       ...sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
     });
     return sortedIds.flatMap((id) => {
       const item = snapshot.itemsById.get(id);
       return item ? [item] : [];
     });
-  }, [
-    deferredGlobalText.value,
-    deferredTableText.value,
-    filters,
+  }, [deferredTableText.value, graph, snapshot, sorting, treeRoot.id, viewFilters]);
+  // The root collection's filters are the view filters.
+  const filterControls = tableFilterControls({
+    node: treeRoot,
+    label: 'View filter',
+    addLabel: 'Add view filter',
+    subject: treeRoot.name,
+    heading: 'View filters',
+    loadedView,
+    contentState,
     graph,
-    snapshot,
-    sorting,
-    treeRoot.id,
-    viewFilters,
-  ]);
+    itemIds: snapshot.items.map((item) => item.id),
+    filters: viewFilters,
+    onChange: applyViewFilters,
+  });
   const hasManagerLink = reference.area !== 'other';
   const canExpand = treeRoot.children.length > 0;
   const actionColumnWidth = contentActionColumnWidth(canExpand, hasManagerLink);
@@ -243,16 +244,15 @@ export function RootTable({
     onPresentationChange(treeRoot.id, { ...treeRoot.presentation, ...patch });
   }
 
-  function applyTableFilters(next: readonly ViewFilter[], patch: Partial<NodePresentation> = {}) {
-    setFilters(next);
-    persistPresentation({ ...patch, filters: next });
+  function applyViewFilters(next: readonly ViewFilter[]) {
+    onViewFiltersChange(next);
     setPagination((current) => ({ ...current, pageIndex: 0 }));
   }
 
-  // View filters and the global search belong to the whole view, so this leaves them alone.
-  function clearTableSearchAndFilters() {
+  function clearSearchAndFilters() {
     setTableFreeText('');
-    applyTableFilters([], { freeText: '' });
+    persistPresentation({ freeText: '' });
+    applyViewFilters([]);
   }
 
   function updateNodeState(nodeId: CollectionNodeId, state: SharedNodeTableState) {
@@ -263,129 +263,121 @@ export function RootTable({
     });
   }
 
-  if (snapshot.items.length === 0)
-    return (
-      <div className="rounded-xl border border-border bg-panel p-7 text-center text-sm text-muted-foreground">
-        This collection has no content items.
-      </div>
-    );
-
   return (
-    <section
-      className={`relative overflow-visible ${panelClassName}`}
-      aria-label={`${schema.label} collection`}
-    >
-      <div className={headerClassName}>
-        <div className="min-w-36">
-          <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {filteredItems.length} of {snapshot.items.length} items
-          </span>
-        </div>
-        <div className="flex items-center gap-2 max-lg:w-full">
-          <label className="flex h-10 min-w-56 items-center gap-2 rounded-lg border border-input bg-surface-control pl-3 text-muted-foreground transition-[border-color,box-shadow] focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/10">
-            <Search
-              className="text-foreground/70"
-              size={15}
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-            <Input
-              className="h-[38px] min-h-0 min-w-0 border-0 bg-transparent px-0 pr-2.5 shadow-none focus-visible:border-0 focus-visible:ring-0"
-              type="search"
-              aria-label="Filter this table"
-              placeholder="Search this collection"
-              value={tableFreeText}
-              onChange={(event) => setTableFreeText(event.target.value)}
-            />
-          </label>
-          <Popover>
-            <PopoverTrigger
-              render={
-                <Button variant="outline" aria-label="Configure table filters">
-                  <ListFilter size={14} /> Filters
-                  {filters.length > 0 ? <Badge>{filters.length}</Badge> : null}
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="end"
-              className="w-[min(760px,calc(100vw-2rem))] min-w-0 p-0 lg:w-[min(760px,calc(100vw-330px))]"
-            >
-              <FilterBuilder
-                label="Table filter"
-                root={treeRoot}
-                schemas={loadedView.schemas}
-                filters={filters}
-                onChange={(next) => applyTableFilters(next)}
-              />
-            </PopoverContent>
-          </Popover>
-          <ContentColumnsMenu
-            table={table}
-            columns={itemColumnDefinitions}
-            label="Choose visible columns"
-          />
-        </div>
-      </div>
-      {deferredTableText.showProgress || deferredGlobalText.showProgress ? (
-        <div
-          className="absolute top-16 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
-          role="status"
-        >
-          Updating results…
-        </div>
-      ) : null}
-      {snapshot.partial ? (
-        <p
-          className="m-0 border-b border-warning-border bg-warning px-3.5 py-2 text-xs text-warning-foreground"
-          role="status"
-        >
-          Showing a partial collection. Results may be incomplete.
-        </p>
-      ) : null}
-      <ContentTableGrid
-        table={table}
-        reference={reference}
-        canExpand={canExpand}
-        onOpenDetails={onOpenDetails}
-        emptyContent={
-          <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
-            <p className="m-0 font-medium text-foreground">No items match your search or filters</p>
-            {viewFilters.length > 0 || globalFreeText !== '' ? (
-              <p className="m-0 text-xs">
-                View filters and the global search can also narrow these results.
-              </p>
-            ) : null}
-            {filters.length > 0 || tableFreeText !== '' ? (
-              <Button variant="outline" size="sm" onClick={clearTableSearchAndFilters}>
-                Clear search and filters
-              </Button>
-            ) : null}
+    <ScrollDockProvider>
+      <section
+        className={`relative overflow-visible ${panelClassName}`}
+        aria-label={`${schema.label} collection`}
+      >
+        <div className={headerClassName}>
+          <div className="min-w-36">
+            <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
+            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+              {resultsPending
+                ? `${snapshot.items.length} items`
+                : `${filteredItems.length} of ${snapshot.items.length} items`}
+            </span>
           </div>
-        }
-        renderExpandedRow={(item) => (
-          <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
-            {treeRoot.children.map((child) => (
-              <NestedTable
-                key={child.id}
-                node={child}
-                parentNode={treeRoot}
-                parentItemId={item.id}
-                graph={graph}
-                loadedView={loadedView}
-                contentState={contentState}
-                nodeStates={nodeStates}
-                updateNodeState={updateNodeState}
-                onPresentationChange={onPresentationChange}
+          <div className="flex items-center gap-2 max-lg:w-full">
+            <label className="flex h-10 min-w-72 items-center gap-2 rounded-lg border border-input bg-surface-control pl-3 text-muted-foreground transition-[border-color,box-shadow] focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/10">
+              <Search
+                className="text-foreground/70"
+                size={15}
+                strokeWidth={2.25}
+                aria-hidden="true"
+              />
+              <Input
+                className="h-[38px] min-h-0 min-w-0 border-0 bg-transparent px-0 pr-2.5 shadow-none focus-visible:border-0 focus-visible:ring-0"
+                type="search"
+                aria-label="Filter this table"
+                placeholder="Search, including related items"
+                value={tableFreeText}
+                onChange={(event) => setTableFreeText(event.target.value)}
+              />
+            </label>
+            {filterControls.toolbarButton}
+            <ContentColumnsMenu
+              table={table}
+              columns={itemColumnDefinitions}
+              label="Choose visible columns"
+            />
+          </div>
+        </div>
+        {filterControls.chipRow}
+        {deferredTableText.showProgress ? (
+          <div
+            className="absolute top-16 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
+            role="status"
+          >
+            Updating results…
+          </div>
+        ) : null}
+        {snapshot.partial ? (
+          <p
+            className="m-0 border-b border-warning-border bg-warning px-3.5 py-2 text-xs text-warning-foreground"
+            role="status"
+          >
+            Showing a partial collection. Results may be incomplete.
+          </p>
+        ) : null}
+        {snapshot.items.length === 0 ? (
+          <p className="m-0 p-7 text-center text-sm text-muted-foreground">
+            This collection has no content items.
+          </p>
+        ) : (
+          <>
+            {resultsPending ? <TableSkeleton label="Loading related results" rows={8} /> : null}
+            {/* Hidden rather than unmounted while results wait, so expanded rows stay open. */}
+            <div hidden={resultsPending}>
+              <ContentTableGrid
+                table={table}
+                label={schema.label}
+                reference={reference}
+                canExpand={canExpand}
                 onOpenDetails={onOpenDetails}
-                onRetry={onRetry}
+                renderColumnControl={filterControls.columnControl}
+                emptyContent={
+                  <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
+                    <p className="m-0 font-medium text-foreground">
+                      No items match your search or filters
+                    </p>
+                    {viewFilters.length > 0 || tableFreeText !== '' ? (
+                      <Button variant="outline" size="sm" onClick={clearSearchAndFilters}>
+                        Clear search and filters
+                      </Button>
+                    ) : null}
+                  </div>
+                }
+                renderExpandedRow={(item) => (
+                  <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
+                    {treeRoot.children.map((child) => (
+                      <NestedTable
+                        key={child.id}
+                        node={child}
+                        parentNode={treeRoot}
+                        parentItemId={item.id}
+                        graph={graph}
+                        loadedView={loadedView}
+                        contentState={contentState}
+                        nodeStates={nodeStates}
+                        updateNodeState={updateNodeState}
+                        onPresentationChange={onPresentationChange}
+                        onOpenDetails={onOpenDetails}
+                        onRetry={onRetry}
+                      />
+                    ))}
+                  </div>
+                )}
               />
-            ))}
-          </div>
+              <ContentTablePagination
+                table={table}
+                itemCount={filteredItems.length}
+                itemLabel="items"
+              />
+            </div>
+          </>
         )}
-      />
-      <ContentTablePagination table={table} itemCount={filteredItems.length} itemLabel="items" />
-    </section>
+      </section>
+    </ScrollDockProvider>
   );
 }
