@@ -149,6 +149,9 @@ export interface CollectionField {
   readonly name: string;
   readonly label: string;
   readonly kind: FieldKind;
+  /** Zesty's own datatype, e.g. `images` or `one_to_many`, before it is reduced to a kind. */
+  readonly datatype?: string;
+  readonly required?: boolean;
   readonly relatedModelZuid?: ModelZuid;
   /** The values the field allows, each with its display label. */
   readonly options?: readonly FieldOption[];
@@ -228,7 +231,7 @@ export interface PersistedView {
   readonly viewFilters: readonly ViewFilter[];
 }
 
-export type WorkspaceTab = 'explorer' | 'code';
+export type WorkspaceTab = 'explorer' | 'code' | 'import';
 
 /** The file and code state open in the Code tab. */
 export interface CodeSelection {
