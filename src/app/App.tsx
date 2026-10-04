@@ -6,6 +6,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileCheck2,
   ListFilter,
   MoreHorizontal,
   RefreshCw,
@@ -61,6 +62,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { OpenCollectionDialog } from './components/OpenCollectionDialog';
+import { ImportCheck } from './components/ImportCheck';
 import { createChildNode, createRootNode } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
@@ -190,9 +192,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       : (initialInstance?.managerBaseUrl ?? ''),
   );
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
-  // The Code tab loads source only once it has been opened.
+  // The Code and Import check tabs load only once opened, then keep their state while hidden.
   const [codeOpened, setCodeOpened] = useState(initial.state?.tab === 'code');
-  const [codeAuthenticationFailureRevision, setCodeAuthenticationFailureRevision] =
+  const [importOpened, setImportOpened] = useState(initial.state?.tab === 'import');
+  // Set when the Code or Import check tab finds the instance's session token rejected.
+  const [workspaceAuthenticationFailureRevision, setWorkspaceAuthenticationFailureRevision] =
     useState<string>();
   const [pendingCollection, setPendingCollection] = useState<CollectionCatalogEntry>();
   const [isRefreshingCode, setIsRefreshingCode] = useState(false);
@@ -395,7 +399,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ? catalogInstance?.deployment
       : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
         ? reference?.deployment
-        : codeAuthenticationFailureRevision === credentialRevision
+        : workspaceAuthenticationFailureRevision === credentialRevision
           ? instance?.deployment
           : undefined;
     if (!failedDeployment) return;
@@ -413,7 +417,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     authenticationFailed,
     catalogAuthenticationFailed,
     catalogInstance?.deployment,
-    codeAuthenticationFailureRevision,
+    workspaceAuthenticationFailureRevision,
     credentialRevision,
     instance?.deployment,
     previewAuthenticationFailureRevision,
@@ -693,6 +697,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   function changeTab(tab: WorkspaceTab) {
     setActiveTab(tab);
     if (tab === 'code') setCodeOpened(true);
+    if (tab === 'import') setImportOpened(true);
   }
 
   function requestOpenCollection(modelZuid: ModelZuid) {
@@ -856,7 +861,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               className="ml-4"
               value={activeTab}
               onValueChange={(value: unknown) => {
-                if (value === 'explorer' || value === 'code') changeTab(value);
+                if (value === 'explorer' || value === 'code' || value === 'import') {
+                  changeTab(value);
+                }
               }}
             >
               <TabsList aria-label="Workspace">
@@ -865,6 +872,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 </TabsTrigger>
                 <TabsTrigger value="code" className="gap-1.5">
                   <Code2 size={13} aria-hidden="true" /> Code
+                </TabsTrigger>
+                <TabsTrigger value="import" className="gap-1.5">
+                  <FileCheck2 size={13} aria-hidden="true" /> Import check
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -901,7 +911,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </Button>
               {viewOptions}
             </>
-          ) : reference ? (
+          ) : visibleTab === 'import' ? null : reference ? (
             <>
               <label className="relative order-last flex w-full items-center md:order-none md:w-64">
                 <Search
@@ -1355,7 +1365,27 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             fileFilter={code.fileFilter}
             onFileFilterChange={code.setFileFilter}
             onOpenCollection={requestOpenCollection}
-            onAuthenticationFailure={() => setCodeAuthenticationFailureRevision(credentialRevision)}
+            onAuthenticationFailure={() =>
+              setWorkspaceAuthenticationFailureRevision(credentialRevision)
+            }
+          />
+        </div>
+      ) : null}
+
+      {showTabs && instance && importOpened ? (
+        <div hidden={visibleTab !== 'import'}>
+          <ImportCheck
+            key={`${instance.instanceZuid}:${instance.deployment}`}
+            api={api}
+            credentials={{
+              revision: credentialRevision,
+              sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
+            }}
+            catalog={catalogQuery.catalog}
+            initialModelZuid={reference?.modelZuid ?? instance.suggestedModelZuid}
+            onAuthenticationFailure={() =>
+              setWorkspaceAuthenticationFailureRevision(credentialRevision)
+            }
           />
         </div>
       ) : null}

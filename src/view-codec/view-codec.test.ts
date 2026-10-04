@@ -80,6 +80,16 @@ describe('ViewCodec', () => {
     expect(ViewCodec.decode(ViewCodec.encode(both).fragment)).toEqual({ ok: true, state: both });
   });
 
+  it('restores the Import check tab and rejects an unknown tab', () => {
+    const importTab: SharedState = { ...shared(view), tab: 'import' };
+
+    expect(ViewCodec.decode(ViewCodec.encode(importTab).fragment)).toEqual({
+      ok: true,
+      state: importTab,
+    });
+    expect(ViewCodec.decode(gzipFragment({ ...shared(view), tab: 'settings' })).ok).toBe(false);
+  });
+
   it('restores a version-two view link in the Explorer tab', () => {
     expect(ViewCodec.decode(gzipFragment(view))).toEqual({ ok: true, state: shared(view) });
   });
