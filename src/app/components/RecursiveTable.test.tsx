@@ -78,6 +78,7 @@ function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
       onOpenDetails={vi.fn()}
       onRetry={vi.fn()}
       onPresentationChange={vi.fn()}
+      onViewFiltersChange={vi.fn()}
       {...props}
     />
   );
@@ -243,8 +244,9 @@ describe('recursive collection tables', () => {
     ).toBeInTheDocument();
   });
 
-  it('explains an empty root result and clears only the table search and filters', () => {
+  it('explains an empty root result and clears its search and view filters', () => {
     const onPresentationChange = vi.fn();
+    const onViewFiltersChange = vi.fn();
     const noMatch: ViewFilter = {
       id: 'no-match',
       nodePath: [root.id],
@@ -256,30 +258,24 @@ describe('recursive collection tables', () => {
       rootTable({
         treeRoot: {
           ...root,
-          presentation: { ...root.presentation, filters: [noMatch], freeText: 'Parent' },
+          presentation: { ...root.presentation, freeText: 'Parent' },
         },
         viewFilters: [noMatch],
         onPresentationChange,
+        onViewFiltersChange,
       }),
     );
 
     const collection = screen.getByRole('region', { name: 'Parents collection' });
     expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
-    expect(
-      within(collection).getByText(/View filters and the global search can also narrow/),
-    ).toBeVisible();
     fireEvent.click(within(collection).getByRole('button', { name: 'Clear search and filters' }));
 
     expect(within(collection).getByLabelText('Filter this table')).toHaveValue('');
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       root.id,
-      expect.objectContaining({ filters: [], freeText: '' }),
+      expect.objectContaining({ freeText: '' }),
     );
-    // The view filter still applies, so the table stays empty but no longer offers a table reset.
-    expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
-    expect(
-      within(collection).queryByRole('button', { name: 'Clear search and filters' }),
-    ).not.toBeInTheDocument();
+    expect(onViewFiltersChange).toHaveBeenLastCalledWith([]);
   });
 
   it('sorts root and nested collections from their column headers', async () => {

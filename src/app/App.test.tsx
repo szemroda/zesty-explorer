@@ -157,7 +157,6 @@ function openSharedView(root: PersistedView['root'], view: Partial<PersistedView
         root,
         contentState: 'latest',
         viewFilters: [],
-        globalFreeText: '',
         ...view,
       },
     }).fragment,
@@ -434,13 +433,13 @@ describe('root collection browser', () => {
         },
         children: [],
       },
-      { contentState: 'published', globalFreeText: 'story' },
+      { contentState: 'published' },
     );
 
     render(<App api={api()} tokenStore={storedTokenStore()} />);
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Search the complete view')).toHaveValue('story');
+    expect(screen.getByLabelText('Filter this table')).toHaveValue('First');
     expect(screen.getByRole('button', { name: 'Published' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -752,6 +751,44 @@ describe('root collection browser', () => {
     await waitFor(() => expect(screen.getByLabelText('Zesty session token')).toHaveFocus());
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
+  });
+
+  it('keeps the root search typed and focused while related data loads for it', async () => {
+    let releaseChild = () => {};
+    const childLoaded = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    openSharedView(rootWithChild);
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionSchema: (reference) =>
+        Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),
+      loadCollectionSnapshot: (reference) =>
+        reference.modelZuid === '6-child123'
+          ? Effect.promise(() => childLoaded).pipe(
+              Effect.as({ ...snapshot, modelZuid: '6-child123' }),
+            )
+          : Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={storedTokenStore()} />);
+    const search = await screen.findByLabelText('Filter this table');
+    search.focus();
+    fireEvent.change(search, { target: { value: 'First' } });
+
+    expect(
+      await screen.findByText(
+        'Related data is loading. Descendant-dependent results will appear when it is ready.',
+      ),
+    ).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('status', { name: 'Loading related results' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Filter this table')).toBe(search);
+    expect(search).toHaveValue('First');
+    expect(search).toHaveFocus();
+
+    releaseChild();
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(search).toHaveFocus();
   });
 
   it('resumes descendant loading after a nested authentication failure', async () => {

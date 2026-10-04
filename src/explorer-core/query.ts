@@ -46,6 +46,10 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+export function isScalar(value: unknown): value is Scalar {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
 export function resolveFieldPath(item: ContentItem, path: FieldPath): ResolvedFieldValue {
   const [head, ...tail] = path;
   if (!head) return invalid;
@@ -68,9 +72,7 @@ export function resolveFieldPath(item: ContentItem, path: FieldPath): ResolvedFi
 
   if (value === undefined) return missing;
   if (value === null) return { kind: 'null' };
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return { kind: 'scalar', value };
-  }
+  if (isScalar(value)) return { kind: 'scalar', value };
   if (typeof value === 'object') return { kind: 'structured', value };
   return invalid;
 }
@@ -94,12 +96,47 @@ function isEmpty(value: ResolvedFieldValue): boolean {
   );
 }
 
+/**
+ * The identity of an option value. Zesty sends `value → label` options as strings while items
+ * may store numbers or booleans, e.g. `1` for the option `'1'`, so both compare as text.
+ */
+export function optionKey(value: Scalar): string {
+  return String(value);
+}
+
+const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+const datePrefixPattern = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/;
+
+/** Whether `value` is a calendar day without a time, e.g. `2026-01-31`. */
+export function isDateOnly(value: unknown): value is string {
+  return typeof value === 'string' && dateOnlyPattern.test(value);
+}
+
+// Zesty dates and datetimes are strings like `2026-01-31 12:00:00`. A date-only operand compares
+// with the day of a date value, so "on D" matches any time that day and "after D" skips day D.
+function atOperandPrecision(value: Scalar, operand: unknown): Scalar {
+  return typeof value === 'string' && isDateOnly(operand) && datePrefixPattern.test(value)
+    ? value.slice(0, 10)
+    : value;
+}
+
+// Text is equal after HTML is stripped, whitespace collapsed, and case folded; other scalars
+// must be identical.
+function scalarEquals(value: Scalar, operand: unknown): boolean {
+  const left = atOperandPrecision(value, operand);
+  if (typeof left === 'string' && typeof operand === 'string') {
+    return normalizedText(left) === normalizedText(operand);
+  }
+  return left === operand;
+}
+
 function comparablePair(
-  left: Scalar,
-  right: unknown,
+  value: Scalar,
+  operand: unknown,
 ): [number | string, number | string] | undefined {
-  if (typeof left === 'number' && typeof right === 'number') return [left, right];
-  if (typeof left === 'string' && typeof right === 'string') return [left, right];
+  const left = atOperandPrecision(value, operand);
+  if (typeof left === 'number' && typeof operand === 'number') return [left, operand];
+  if (typeof left === 'string' && typeof operand === 'string') return [left, operand];
   return undefined;
 }
 
@@ -107,13 +144,20 @@ export function matchesFilter(item: ContentItem, filter: FilterCondition): boole
   const resolved = resolveFieldPath(item, filter.fieldPath);
   if (filter.operator === 'is-empty') return isEmpty(resolved);
   if (filter.operator === 'is-not-empty') return !isEmpty(resolved);
+  // Missing and structured values match neither "is" nor "is not"; "is empty" finds them.
   if (resolved.kind !== 'scalar') return false;
 
   const value = resolved.value;
-  if (filter.operator === 'true') return value === true;
-  if (filter.operator === 'false') return value === false;
+  // `true` and `false` are the single-choice form of a boolean option filter.
+  if (filter.operator === 'true' || filter.operator === 'false') {
+    return optionKey(value) === filter.operator;
+  }
   if (filter.operator === 'one-of') {
-    return Array.isArray(filter.value) && filter.value.some((candidate) => candidate === value);
+    const key = optionKey(value);
+    return (
+      Array.isArray(filter.value) &&
+      filter.value.some((candidate) => isScalar(candidate) && optionKey(candidate) === key)
+    );
   }
   if (filter.operator === 'contains') {
     return typeof value === 'string' && typeof filter.value === 'string'
@@ -125,13 +169,8 @@ export function matchesFilter(item: ContentItem, filter: FilterCondition): boole
       ? normalizedText(value).startsWith(normalizedText(filter.value))
       : false;
   }
-  if (filter.operator === 'equals') {
-    if (typeof value === 'string' && typeof filter.value === 'string') {
-      return normalizedText(value) === normalizedText(filter.value);
-    }
-    return value === filter.value;
-  }
-  if (filter.operator === 'not-equal') return value !== filter.value;
+  if (filter.operator === 'equals') return scalarEquals(value, filter.value);
+  if (filter.operator === 'not-equal') return !scalarEquals(value, filter.value);
 
   if (filter.operator === 'between') {
     if (!Array.isArray(filter.value) || filter.value.length !== 2) return false;
@@ -177,6 +216,18 @@ function matchesPath(
   return graph
     .relatedItemIds(childNodeId, itemId)
     .some((childId) => matchesPath(graph, childNodeId, childId, rest, filter));
+}
+
+/** The distinct items reached from `itemIds` by following `nodePath` down from their node. */
+export function relatedItemsAlong(
+  graph: ExplorerGraph,
+  itemIds: readonly ItemZuid[],
+  nodePath: readonly CollectionNodeId[],
+): readonly ItemZuid[] {
+  return nodePath.reduce<readonly ItemZuid[]>(
+    (ids, childNodeId) => [...new Set(ids.flatMap((id) => graph.relatedItemIds(childNodeId, id)))],
+    itemIds,
+  );
 }
 
 function scalarText(value: unknown): readonly string[] {

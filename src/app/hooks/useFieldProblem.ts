@@ -14,6 +14,8 @@ export function useFieldProblem<Field extends string>(
 ) {
   const [problem, setProblem] = useState<FieldProblem<Field>>();
   return {
+    /** The field that has the problem, if any. */
+    field: problem?.field,
     report(field: Field, message: string) {
       setProblem({ field, message });
       controls[field].current?.focus();

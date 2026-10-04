@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { gzipSync, strToU8 } from 'fflate';
+import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate';
 import type { CollectionNode, PersistedView, SharedState } from '../domain';
 import { v1EmptyColumnsFragment } from './fixtures/v1-empty-columns-fragment';
 import { v1Fragment } from './fixtures/v1-fragment';
@@ -31,7 +31,6 @@ const view: PersistedView = {
   root,
   contentState: 'latest',
   viewFilters: [],
-  globalFreeText: '',
 };
 
 // The link for an Explorer view in the Explorer tab.
@@ -82,6 +81,44 @@ describe('ViewCodec', () => {
 
   it('restores a version-two view link in the Explorer tab', () => {
     expect(ViewCodec.decode(gzipFragment(view))).toEqual({ ok: true, state: shared(view) });
+  });
+
+  it('folds the former whole-view search and root table filters into the root search and view filters', () => {
+    const viewFilter = {
+      id: 'view',
+      nodePath: [],
+      fieldPath: ['title'],
+      operator: 'contains',
+      value: 'a',
+    } as const;
+    const rootFilter = { ...viewFilter, id: 'root', value: 'b' };
+    const decoded = ViewCodec.decode(
+      gzipFragment({
+        ...view,
+        root: { ...root, presentation: { ...root.presentation, filters: [rootFilter] } },
+        viewFilters: [viewFilter],
+        globalFreeText: 'story',
+      }),
+    );
+
+    expect(decoded).toEqual({
+      ok: true,
+      state: shared({
+        ...view,
+        root: { ...root, presentation: { ...root.presentation, freeText: 'story' } },
+        viewFilters: [viewFilter, rootFilter],
+      }),
+    });
+  });
+
+  it('writes an empty whole-view search, so older releases can still open new links', () => {
+    const payload = ViewCodec.encode(shared(view)).fragment.slice('#view='.length);
+    const bytes = Uint8Array.from(atob(payload.replaceAll('-', '+').replaceAll('_', '/')), (char) =>
+      char.charCodeAt(0),
+    );
+    const json: unknown = JSON.parse(strFromU8(gunzipSync(bytes)));
+
+    expect(json).toMatchObject({ view: { globalFreeText: '' } });
   });
 
   it('rejects a view from another instance and invalid Code tab state', () => {

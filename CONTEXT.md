@@ -125,11 +125,11 @@ A collection for which the view loaded only the first 10,000 content items. Resu
 _Avoid_: Complete collection, failed collection
 
 **View filter**:
-A condition evaluated for each root content item against its content fields and related items. A matching root item retains its complete set of related items.
-_Avoid_: Table filter, join condition
+A condition evaluated for each root content item against its content fields and related items. A matching root item retains its complete set of related items. The root table's filters are the view filters, and its search also matches text in related items.
+_Avoid_: Table filter, root table filter, join condition
 
 **Table filter**:
-A condition attached to one collection node that limits the rows shown by every table for that node without removing rows from its ancestors. It may inspect that node's content fields and related items below it.
+A condition attached to one nested collection node that limits the rows shown by every table for that node without removing rows from its ancestors. It may inspect that node's content fields and related items below it. The root collection node has view filters instead.
 _Avoid_: View filter, per-parent filter
 
 **Code file**:

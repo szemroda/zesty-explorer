@@ -23,7 +23,8 @@ const VersionedViewSchema = Schema.Struct({
   root: Schema.Unknown,
   contentState: Schema.Union(Schema.Literal('latest'), Schema.Literal('published')),
   viewFilters: Schema.Array(Schema.Unknown),
-  globalFreeText: Schema.String,
+  // Older links kept a separate search of the whole view; see validateDecodedView.
+  globalFreeText: Schema.optional(Schema.String),
 });
 
 const forbiddenKeys = new Set([
@@ -271,14 +272,23 @@ function validateDecodedView(value: unknown): PersistedView | undefined {
   ) {
     return undefined;
   }
-  const root = decoded.right.version === 1 ? migrateVersionOneNode(migratedRoot) : migratedRoot;
-  if (!validateCollectionTree(root).ok) return undefined;
+  const migrated = decoded.right.version === 1 ? migrateVersionOneNode(migratedRoot) : migratedRoot;
+  if (!validateCollectionTree(migrated).ok) return undefined;
+  // Older links could carry a whole-view search and root table filters. They fold into the root
+  // search and the view filters; the root table search wins when both searches are set.
+  const { presentation } = migrated;
   return {
     version: 2,
-    root,
+    root: {
+      ...migrated,
+      presentation: {
+        ...presentation,
+        freeText: presentation.freeText || (decoded.right.globalFreeText ?? ''),
+        filters: [],
+      },
+    },
     contentState: decoded.right.contentState,
-    viewFilters: decoded.right.viewFilters,
-    globalFreeText: decoded.right.globalFreeText,
+    viewFilters: [...decoded.right.viewFilters, ...presentation.filters],
   };
 }
 
@@ -360,7 +370,14 @@ export const ViewCodec = {
     assertNonSecretState(state);
     const validated = validateSharedState(state);
     if (!validated) throw new Error('Only valid, settled non-secret view state may be encoded.');
-    const json = JSON.stringify(canonicalize(validated));
+    // Releases that still had the whole-view search reject views without its field.
+    const json = JSON.stringify(
+      canonicalize(
+        validated.view
+          ? { ...validated, view: { ...validated.view, globalFreeText: '' } }
+          : validated,
+      ),
+    );
     const payload = bytesToBase64Url(gzipSync(strToU8(json), { level: 9, mtime: 0 }));
     const fragment = `#view=${payload}`;
     return { fragment, length: fragment.length };

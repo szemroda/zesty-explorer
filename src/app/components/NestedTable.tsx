@@ -4,7 +4,7 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { ListFilter, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useState } from 'react';
 import type {
   CollectionNode,
@@ -25,13 +25,13 @@ import {
   validateRelationshipPaths,
   type ExplorerGraph,
 } from '../../explorer-core';
-import { snapshotQueryKey, type SnapshotLoadState } from '../../zesty-api';
+import { snapshotQueryKey } from '../../zesty-api';
 import {
   contentActionColumnWidth,
   createContentTableColumns,
   useContentTable,
 } from '../content-table-model';
-import type { LoadedView } from '../load-view';
+import { loadedSnapshot, type LoadedView } from '../load-view';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { describeExplorerError } from '../error-message';
 import {
@@ -44,12 +44,10 @@ import {
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
-import { FilterBuilder } from './FilterBuilder';
+import { tableFilterControls } from './FilterControls';
 import { PublicationStatusCell } from './PublicationStatusCell';
 import { TableSkeleton } from './TableSkeleton';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Input } from './ui/input';
 
 export interface SharedNodeTableState {
@@ -131,7 +129,7 @@ function cachedScalarFieldPaths(
 }
 
 interface SortedIdsInput {
-  readonly state: SnapshotLoadState | undefined;
+  readonly snapshot: CollectionSnapshot | undefined;
   readonly graph: ExplorerGraph;
   readonly nodeId: CollectionNodeId;
   readonly parentItemId: ItemZuid;
@@ -147,7 +145,7 @@ function createSortedIdsMemo() {
   return (input: SortedIdsInput): readonly ItemZuid[] => {
     if (
       previousInput !== undefined &&
-      previousInput.state === input.state &&
+      previousInput.snapshot === input.snapshot &&
       previousInput.graph === input.graph &&
       previousInput.nodeId === input.nodeId &&
       previousInput.parentItemId === input.parentItemId &&
@@ -159,7 +157,7 @@ function createSortedIdsMemo() {
     }
 
     previousInput = input;
-    if (!input.state || (input.state.status !== 'complete' && input.state.status !== 'partial')) {
+    if (!input.snapshot) {
       previousResult = [];
       return previousResult;
     }
@@ -172,7 +170,7 @@ function createSortedIdsMemo() {
       input.filters,
       input.freeText,
     );
-    previousResult = sortItemIds(input.state.snapshot, filtered, input.sort);
+    previousResult = sortItemIds(input.snapshot, filtered, input.sort);
     return previousResult;
   };
 }
@@ -218,14 +216,6 @@ function stateFor(
   );
 }
 
-function snapshotState(
-  node: CollectionNode,
-  loadedView: LoadedView,
-  contentState: ContentState,
-): SnapshotLoadState | undefined {
-  return loadedView.snapshots.snapshots.get(snapshotQueryKey(node.reference, contentState));
-}
-
 export function NestedTable(props: NestedTableProps) {
   const {
     node,
@@ -243,16 +233,11 @@ export function NestedTable(props: NestedTableProps) {
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [deriveSortedIds] = useState(createSortedIdsMemo);
   const [deriveItems] = useState(createItemsMemo);
-  const state = snapshotState(node, loadedView, contentState);
+  const state = loadedView.snapshots.snapshots.get(snapshotQueryKey(node.reference, contentState));
   const schema = loadedView.schemas.get(node.id);
   const parentSchema = loadedView.schemas.get(parentNode.id);
-  const parentState = snapshotState(parentNode, loadedView, contentState);
-  const parentSnapshot =
-    parentState?.status === 'complete' || parentState?.status === 'partial'
-      ? parentState.snapshot
-      : undefined;
-  const childSnapshot =
-    state?.status === 'complete' || state?.status === 'partial' ? state.snapshot : undefined;
+  const parentSnapshot = loadedSnapshot(parentNode, loadedView, contentState);
+  const childSnapshot = loadedSnapshot(node, loadedView, contentState);
   const columns = schema ? cachedContentItemColumns(schema, childSnapshot) : emptyColumns;
   const sharedState = stateFor(node, nodeStates, columns);
   const deferredText = useDebouncedValue(sharedState.freeText);
@@ -268,7 +253,7 @@ export function NestedTable(props: NestedTableProps) {
   );
 
   const sortedIds = deriveSortedIds({
-    state,
+    snapshot: childSnapshot,
     graph,
     nodeId: node.id,
     parentItemId,
@@ -361,6 +346,22 @@ export function NestedTable(props: NestedTableProps) {
     );
   }
 
+  const filterControls = tableFilterControls({
+    node,
+    label: `${node.name} table filter`,
+    addLabel: `Add ${node.name} filter`,
+    subject: node.name,
+    loadedView,
+    contentState,
+    graph,
+    itemIds: graph.relatedItemIds(node.id, parentItemId),
+    filters: sharedState.filters,
+    onChange: (filters) => {
+      updateSharedState({ ...sharedState, filters });
+      setPagination((current) => ({ ...current, pageIndex: 0 }));
+    },
+  });
+
   function updateSharedState(next: SharedNodeTableState) {
     updateNodeState(node.id, next);
     onPresentationChange(node.id, {
@@ -410,33 +411,7 @@ export function NestedTable(props: NestedTableProps) {
               }}
             />
           </label>
-          <Popover>
-            <PopoverTrigger
-              render={
-                <Button variant="outline" aria-label={`Configure ${node.name} filters`}>
-                  <ListFilter size={14} /> Filters
-                  {sharedState.filters.length > 0 ? (
-                    <Badge>{sharedState.filters.length}</Badge>
-                  ) : null}
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="end"
-              className="w-[min(760px,calc(100vw-2rem))] min-w-0 p-0 lg:w-[min(760px,calc(100vw-330px))]"
-            >
-              <FilterBuilder
-                label={`${node.name} table filter`}
-                root={node}
-                schemas={loadedView.schemas}
-                filters={sharedState.filters}
-                onChange={(filters) => {
-                  updateSharedState({ ...sharedState, filters });
-                  setPagination((current) => ({ ...current, pageIndex: 0 }));
-                }}
-              />
-            </PopoverContent>
-          </Popover>
+          {filterControls.toolbarButton}
           <ContentColumnsMenu
             table={table}
             columns={columns}
@@ -444,6 +419,7 @@ export function NestedTable(props: NestedTableProps) {
           />
         </div>
       </div>
+      {filterControls.chipRow}
       {deferredText.showProgress ? (
         <div
           className="absolute top-14 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
@@ -471,9 +447,11 @@ export function NestedTable(props: NestedTableProps) {
       ) : null}
       <ContentTableGrid
         table={table}
+        label={node.name}
         reference={node.reference}
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
+        renderColumnControl={filterControls.columnControl}
         emptyContent={
           <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
         }
