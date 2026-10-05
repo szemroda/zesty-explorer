@@ -127,7 +127,7 @@ describe('ZestyApi', () => {
   it('loads a collection schema with an authenticated GET and maps Zesty datatypes', async () => {
     const fake = respondWith({
       data: [
-        { ZUID: '12-title123', name: 'title', label: 'Title', datatype: 'text' },
+        { ZUID: '12-title123', name: 'title', label: 'Title', datatype: 'text', required: true },
         {
           ZUID: '12-author12',
           name: 'author',
@@ -166,12 +166,20 @@ describe('ZestyApi', () => {
     );
 
     expect(schema.fields).toEqual([
-      { id: '12-title123', name: 'title', label: 'Title', kind: 'text' },
+      {
+        id: '12-title123',
+        name: 'title',
+        label: 'Title',
+        kind: 'text',
+        datatype: 'text',
+        required: true,
+      },
       {
         id: '12-author12',
         name: 'author',
         label: 'Author',
         kind: 'relationship',
+        datatype: 'one-to-one',
         relatedModelZuid: '6-author123',
       },
       {
@@ -179,14 +187,22 @@ describe('ZestyApi', () => {
         name: 'editor',
         label: 'Editor',
         kind: 'relationship',
+        datatype: 'one_to_one',
         relatedModelZuid: '6-author123',
       },
-      { id: '12-featured', name: 'featured', label: 'Featured', kind: 'boolean' },
+      {
+        id: '12-featured',
+        name: 'featured',
+        label: 'Featured',
+        kind: 'boolean',
+        datatype: 'yes_no',
+      },
       {
         id: '12-category1',
         name: 'category',
         label: 'Category',
         kind: 'text',
+        datatype: 'dropdown',
         options: ['news', 'guide'],
       },
     ]);

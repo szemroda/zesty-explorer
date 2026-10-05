@@ -132,6 +132,10 @@ _Avoid_: Table filter, join condition
 A condition attached to one collection node that limits the rows shown by every table for that node without removing rows from its ancestors. It may inspect that node's content fields and related items below it.
 _Avoid_: View filter, per-parent filter
 
+**Import check**:
+A read-only prediction of what Zesty's Import CSV would do with a CSV file for one collection. It reconciles the file's lines with the content items expected and explains every line that won't become one. It never writes to Zesty.
+_Avoid_: Dry run, import validation
+
 **Code file**:
 A named Zesty source resource containing a custom endpoint, snippet, model template, or other view source. It belongs to an instance independently of any Explorer view.
 _Avoid_: View, endpoint when referring to every code file

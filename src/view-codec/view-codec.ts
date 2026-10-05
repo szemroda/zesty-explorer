@@ -322,7 +322,7 @@ function validateSharedState(value: unknown): SharedState | undefined {
     !isInstanceZuid(instance.instanceZuid) ||
     typeof instance.deployment !== 'string' ||
     !isDeployment(instance.deployment) ||
-    (value.tab !== 'explorer' && value.tab !== 'code')
+    (value.tab !== 'explorer' && value.tab !== 'code' && value.tab !== 'import')
   ) {
     return undefined;
   }
@@ -336,7 +336,7 @@ function validateSharedState(value: unknown): SharedState | undefined {
   ) {
     return undefined;
   }
-  // Both tabs always show the same instance.
+  // Every tab always shows the same instance.
   if (
     view &&
     (view.root.reference.instanceZuid !== instance.instanceZuid ||

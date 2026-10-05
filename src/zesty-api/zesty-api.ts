@@ -63,6 +63,7 @@ const RawFieldSchema = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
   datatype: Schema.String,
+  required: Schema.optional(Schema.NullOr(Schema.Boolean)),
   relatedModelZUID: Schema.optional(Schema.NullOr(ModelZuidSchema)),
   options: Schema.optional(RawOptionsSchema),
   settings: Schema.optional(
@@ -214,6 +215,8 @@ function decodeSchema(
       name: field.name,
       label: field.label,
       kind: fieldKind(field.datatype),
+      datatype: field.datatype,
+      ...(field.required ? { required: true } : {}),
       ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID } : {}),
       ...(options ? { options } : {}),
     };

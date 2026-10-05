@@ -74,6 +74,14 @@ The token is stored only in that tab's `sessionStorage`, separated by deployment
 - Closing item history resets its selected version. Responses remain cached for five minutes while inactive, then refresh in the background when reopened. The external-link button opens the same item in the matching Zesty Manager deployment.
 - Content HTML is shown as inert text; it is never executed.
 
+## Check a CSV import
+
+The `Import check` tab predicts what Zesty's `Import CSV` would do with a file before you import it. Choose the collection and a CSV file. The file is read in the browser, and nothing is written to Zesty.
+
+The summary reconciles the file's line count with the items expected. Lines that won't import, and lines that aren't entries (blank lines and line breaks inside quoted cells), are subtracted from the total; rows that may fail are counted as imported. Pick a finding to see its lines, search by value, `line 12` or `row 12`, and select a line to see why. The `More actions` menu downloads the rows with problems or the importable rows as CSV, and copies a Markdown report.
+
+Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each.
+
 ## Limits and failures
 
 A view supports at most 10 collection nodes and five levels.
@@ -86,7 +94,7 @@ The app loads at most 10,000 items per collection and 50,000 items across a view
 
 ## Share, replace, and reset
 
-`Copy link` copies the current localhost URL. Its compressed fragment contains the active tab, the relationship tree, references, names, content state, filters, columns, widths, sorts, and the Code tab's selected file and code state. It never contains the session token, code source, endpoint request forms or responses, pages, expanded rows, open details or code history, or loading state.
+`Copy link` copies the current localhost URL. Its compressed fragment contains the active tab, the relationship tree, references, names, content state, filters, columns, widths, sorts, and the Code tab's selected file and code state. It never contains the session token, code source, the Import check's file, endpoint request forms or responses, pages, expanded rows, open details or code history, or loading state.
 
 The recipient opens the link and supplies a token in their own tab if one is not already stored there. Links over 8,000 characters remain copyable but show a compatibility warning. A damaged link can be copied as raw data for diagnosis or reset explicitly; it is never silently discarded.
 
