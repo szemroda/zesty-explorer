@@ -841,12 +841,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     <main className="bg-background text-foreground flex min-h-screen flex-col">
       <header className="border-border bg-card/95 sticky top-0 z-30 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 shadow-xs backdrop-blur lg:px-6">
         <div className="flex items-center gap-3">
-          <span
-            className="bg-primary text-primary-foreground flex size-9 items-center justify-center rounded-lg"
-            aria-hidden="true"
-          >
-            <Database size={17} />
-          </span>
+          <img src="/favicon.svg" alt="" className="size-9" />
           <div>
             <h1 className="text-sm font-semibold">Zesty Explorer</h1>
             <span className="text-muted-foreground text-xs">Read-only content browser</span>
