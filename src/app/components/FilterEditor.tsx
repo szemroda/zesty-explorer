@@ -372,8 +372,9 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
       }}
       itemToStringLabel={fieldText}
       isItemEqualToValue={(left, right) => left.key === right.key}
+      // Fields only, not their collection, so a collection's name doesn't list all of its fields.
       filter={(candidate, query) =>
-        [candidate.field.label, candidate.field.name, candidate.scope ?? '']
+        [candidate.field.label, candidate.field.name]
           .join(' ')
           .toLocaleLowerCase()
           .includes(query.trim().toLocaleLowerCase())
@@ -404,7 +405,7 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
                 No fields match.
               </div>
             </Combobox.Empty>
-            <Combobox.List className="max-h-[min(22rem,var(--available-height))] overflow-y-auto p-1 outline-none">
+            <Combobox.List className="max-h-[min(22rem,var(--available-height))] overflow-y-auto px-1 pb-1 outline-none">
               {(group: FilterFieldGroup) => (
                 <Combobox.Group key={group.label} items={group.items} className="pb-1">
                   <Combobox.GroupLabel className="sticky top-0 z-1 bg-popover px-2 pt-2 pb-1 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
