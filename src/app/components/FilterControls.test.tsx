@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  CollectionNodeId,
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
@@ -128,6 +129,61 @@ describe('column filter button', () => {
     fireEvent.click(screen.getByRole('button', { name: /Update/ }));
 
     expect(onChange).toHaveBeenCalledWith([{ ...existing, value: ['draft', 'review'] }]);
+  });
+});
+
+describe('field picker', () => {
+  it('matches field names, not the collection that holds them', async () => {
+    const sections = { ...collectionNode('node-sections', '6-sections'), name: 'Sections' };
+    const parent = { ...node, children: [sections] };
+    const view = {
+      ...loadedView,
+      schemas: new Map<CollectionNodeId, CollectionSchema>([
+        [
+          node.id,
+          {
+            ...schema,
+            fields: [
+              {
+                id: '12-count',
+                name: 'sectionCount',
+                label: 'Section count',
+                kind: 'number',
+              },
+            ],
+          },
+        ],
+        [
+          sections.id,
+          {
+            modelZuid: '6-sections',
+            label: 'Sections',
+            fields: [{ id: '12-heading', name: 'heading', label: 'Heading', kind: 'text' }],
+          },
+        ],
+      ]),
+    };
+    const Toolbar = () =>
+      tableFilterControls({
+        node: parent,
+        label: 'View filter',
+        addLabel: 'Add view filter',
+        subject: 'Articles',
+        loadedView: view,
+        contentState: 'latest',
+        graph: buildLoadedViewGraph(parent, view, 'latest'),
+        itemIds: allItemIds,
+        filters: [],
+        onChange: vi.fn(),
+      }).toolbarButton;
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'View filter field' }), {
+      target: { value: 'section' },
+    });
+
+    expect(await screen.findByRole('option', { name: /Section count/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Heading/ })).not.toBeInTheDocument();
   });
 });
 

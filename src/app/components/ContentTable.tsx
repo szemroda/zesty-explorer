@@ -206,7 +206,7 @@ export function ContentTableGrid({
                         {header.isPlaceholder ? null : header.column.getCanSort() ? (
                           <Button
                             variant="ghost"
-                            className="h-auto min-w-0 gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
+                            className="h-auto min-w-0 shrink gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
                             onClick={header.column.getToggleSortingHandler()}
                           >
                             <span className="truncate">

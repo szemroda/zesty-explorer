@@ -200,7 +200,7 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
   await page.waitForTimeout(350);
 
-  const scoreSort = page.getByRole('button', { name: 'Score' });
+  const scoreSort = page.getByRole('button', { name: 'Score', exact: true });
   await nextPaintAfterClick(scoreSort);
   const sortSamples: number[] = [];
   for (let index = 0; index < 20; index += 1)
