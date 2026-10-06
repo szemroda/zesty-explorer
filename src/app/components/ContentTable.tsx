@@ -6,9 +6,10 @@ import {
   ExternalLink,
   SlidersHorizontal,
 } from 'lucide-react';
-import { Fragment, memo, type ReactNode, useCallback, useState } from 'react';
+import { Fragment, memo, type ReactNode, use, useCallback, useState } from 'react';
 import type { CollectionReference, ContentItem } from '../../domain';
 import type { ContentTableInstance } from '../content-table-model';
+import { ScrollDockContext } from '../scroll-dock';
 import {
   itemDisplayLabel,
   managerItemUrl,
@@ -28,14 +29,40 @@ import { TooltipTrigger } from './ui/tooltip';
 
 interface ContentTableGridProps {
   readonly table: ContentTableInstance;
+  /** Names the table's collection, e.g. for its docked scrollbar. */
+  readonly label: string;
   readonly reference: CollectionReference;
   readonly canExpand: boolean;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly renderExpandedRow: (item: ContentItem) => ReactNode;
+  /** Extra header control for a column, e.g. its filter button; nothing when it returns null. */
+  readonly renderColumnControl?: (columnId: string) => ReactNode;
   readonly emptyContent?: ReactNode;
 }
 
 type ContentTableRowModel = ReturnType<ContentTableInstance['getRowModel']>['rows'][number];
+
+/**
+ * Returns the function that flips the frame's edge state, 0 or 1, for CSS to read:
+ * `--grid-scrolled` once the scroller leaves its left edge, and `--grid-more-right` while
+ * columns are hidden to the right. It writes only the values that changed.
+ */
+function edgeStateUpdater(scroller: HTMLElement, frame: HTMLElement) {
+  const written = new Map<string, string>();
+  const write = (name: string, on: boolean) => {
+    const value = on ? '1' : '0';
+    if (written.get(name) === value) return;
+    written.set(name, value);
+    frame.style.setProperty(name, value);
+  };
+  return () => {
+    write('--grid-scrolled', scroller.scrollLeft > 1);
+    write(
+      '--grid-more-right',
+      scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft > 1,
+    );
+  };
+}
 
 interface ContentTableBodyRowProps {
   readonly table: ContentTableInstance;
@@ -67,7 +94,7 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
           <TableCell
             key={cell.id}
             className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
-              cell.column.id === 'actions' ? 'sticky left-0 z-3 bg-panel px-2.5 shadow-sticky' : ''
+              cell.column.id === 'actions' ? 'sticky left-0 z-3 bg-panel px-2.5 sticky-edge' : ''
             }`}
           >
             {cell.column.id === 'actions' ? (
@@ -91,7 +118,10 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
             className="h-auto bg-surface-recessed p-0 hover:bg-surface-recessed"
             colSpan={visibleColumnCount}
           >
-            {renderExpandedRow(row.original)}
+            {/* Pinned to the scroller's visible width, so scrolling it never moves related tables. */}
+            <div className="sticky left-0 z-6 w-[100cqw] bg-surface-recessed">
+              {renderExpandedRow(row.original)}
+            </div>
           </TableCell>
         </TableRow>
       ) : null}
@@ -101,10 +131,12 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
 
 export function ContentTableGrid({
   table,
+  label,
   reference,
   canExpand,
   onOpenDetails,
   renderExpandedRow,
+  renderColumnControl,
   emptyContent,
 }: ContentTableGridProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
@@ -116,84 +148,124 @@ export function ContentTableGrid({
       return next;
     });
   }, []);
+  const registerScroller = use(ScrollDockContext);
+  // Stable, so the scroller registers once rather than on every render.
+  const scrollerRef = useCallback(
+    (scroller: HTMLDivElement | null) => {
+      const frame = scroller?.parentElement;
+      if (!scroller || !frame) return;
+      const updateEdges = edgeStateUpdater(scroller, frame);
+      updateEdges();
+      scroller.addEventListener('scroll', updateEdges, { passive: true });
+      const unregister = registerScroller(scroller, label, updateEdges);
+      return () => {
+        scroller.removeEventListener('scroll', updateEdges);
+        unregister();
+      };
+    },
+    [label, registerScroller],
+  );
   const visibleColumnCount = table.getVisibleLeafColumns().length;
 
   if (table.getRowModel().rows.length === 0 && emptyContent) return emptyContent;
 
   return (
-    <div className="w-full min-w-0 overflow-x-auto">
-      <Table
-        className="border-separate border-spacing-0 text-xs"
-        style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}
-      >
-        <colgroup>
-          {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
-            <col
-              key={column.id}
-              style={index === visibleColumns.length - 1 ? undefined : { width: column.getSize() }}
-            />
-          ))}
-        </colgroup>
-        <TableHeader>
-          {table.getHeaderGroups().map((group) => (
-            <TableRow className="hover:bg-transparent" key={group.id}>
-              {group.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  className={`relative h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
-                    header.id === 'actions'
-                      ? 'sticky left-0 z-4 bg-surface-header shadow-sticky'
-                      : ''
-                  }`}
-                >
-                  {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                    <Button
-                      variant="ghost"
-                      className="h-auto gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
-                      onClick={header.column.getToggleSortingHandler()}
+    <div className="relative isolate w-full min-w-0">
+      <div ref={scrollerRef} className="@container w-full min-w-0 overflow-x-auto">
+        <Table
+          className="border-separate border-spacing-0 text-xs"
+          style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}
+        >
+          <colgroup>
+            {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
+              <col
+                key={column.id}
+                style={
+                  index === visibleColumns.length - 1 ? undefined : { width: column.getSize() }
+                }
+              />
+            ))}
+          </colgroup>
+          <TableHeader>
+            {table.getHeaderGroups().map((group) => (
+              <TableRow className="hover:bg-transparent" key={group.id}>
+                {group.headers.map((header) => {
+                  const control = header.isPlaceholder
+                    ? null
+                    : renderColumnControl?.(header.column.id);
+                  return (
+                    <TableHead
+                      key={header.id}
+                      className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
+                        header.column.id === 'actions'
+                          ? 'sticky left-0 z-4 sticky-edge'
+                          : 'relative'
+                      }`}
                     >
-                      <table.FlexRender header={header} />
-                      {header.column.getIsSorted() === 'asc' ? <ChevronUp size={13} /> : null}
-                      {header.column.getIsSorted() === 'desc' ? <ChevronDown size={13} /> : null}
-                    </Button>
-                  ) : header.id === 'actions' ? (
-                    <span className="sr-only">
-                      <table.FlexRender header={header} />
-                    </span>
-                  ) : (
-                    <table.FlexRender header={header} />
-                  )}
-                  {header.column.getCanResize() ? (
-                    <span
-                      data-slot="column-resize-handle"
-                      aria-hidden="true"
-                      className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                    />
-                  ) : null}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody className="[&_tr:last-child_td]:border-b-0">
-          {table.getRowModel().rows.map((row) => (
-            <ContentTableBodyRow
-              key={row.original.id}
-              table={table}
-              row={row}
-              reference={reference}
-              canExpand={canExpand}
-              expanded={expanded.has(row.original.id)}
-              visibleColumnCount={visibleColumnCount}
-              toggleExpanded={toggleExpanded}
-              onOpenDetails={onOpenDetails}
-              renderExpandedRow={renderExpandedRow}
-            />
-          ))}
-        </TableBody>
-      </Table>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                          <Button
+                            variant="ghost"
+                            className="h-auto min-w-0 shrink gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            <span className="truncate">
+                              <table.FlexRender header={header} />
+                            </span>
+                            {header.column.getIsSorted() === 'asc' ? <ChevronUp size={13} /> : null}
+                            {header.column.getIsSorted() === 'desc' ? (
+                              <ChevronDown size={13} />
+                            ) : null}
+                          </Button>
+                        ) : header.id === 'actions' ? (
+                          <span className="sr-only">
+                            <table.FlexRender header={header} />
+                          </span>
+                        ) : (
+                          <span className="truncate">
+                            <table.FlexRender header={header} />
+                          </span>
+                        )}
+                        {control ? <span className="ml-auto flex shrink-0">{control}</span> : null}
+                      </div>
+                      {header.column.getCanResize() ? (
+                        <span
+                          data-slot="column-resize-handle"
+                          aria-hidden="true"
+                          className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                        />
+                      ) : null}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody className="[&_tr:last-child_td]:border-b-0">
+            {table.getRowModel().rows.map((row) => (
+              <ContentTableBodyRow
+                key={row.original.id}
+                table={table}
+                row={row}
+                reference={reference}
+                canExpand={canExpand}
+                expanded={expanded.has(row.original.id)}
+                visibleColumnCount={visibleColumnCount}
+                toggleExpanded={toggleExpanded}
+                onOpenDetails={onOpenDetails}
+                renderExpandedRow={renderExpandedRow}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 z-5 w-14 bg-linear-to-l from-black/70 via-black/30 to-transparent transition-opacity duration-150"
+        style={{ opacity: 'var(--grid-more-right, 0)' }}
+      />
     </div>
   );
 }

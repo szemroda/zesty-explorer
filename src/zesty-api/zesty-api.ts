@@ -179,21 +179,27 @@ function fieldKind(datatype: string): FieldKind {
   return 'text';
 }
 
-function fieldOptions(
-  field: typeof RawFieldSchema.Type,
-): readonly (string | number | boolean)[] | undefined {
+// Zesty sends options as a list of values or as a `value → label` record.
+function fieldOptions(field: typeof RawFieldSchema.Type): Pick<CollectionField, 'options'> {
   const options = field.options ?? field.settings?.options;
   if (Array.isArray(options)) {
-    const scalarOptions: (string | number | boolean)[] = [];
-    for (const option of options) {
-      if (typeof option === 'string' || typeof option === 'number' || typeof option === 'boolean') {
-        scalarOptions.push(option);
-      }
-    }
-    return scalarOptions;
+    return {
+      options: options.flatMap((value) =>
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+          ? [{ value, label: String(value) }]
+          : [],
+      ),
+    };
   }
-  if (options && typeof options === 'object') return Object.keys(options);
-  return undefined;
+  if (options && typeof options === 'object') {
+    return {
+      options: Object.entries(options).map(([value, label]) => ({
+        value,
+        label: typeof label === 'string' && label !== '' ? label : value,
+      })),
+    };
+  }
+  return {};
 }
 
 function decodeSchema(
@@ -207,17 +213,14 @@ function decodeSchema(
     );
   }
 
-  const fields: CollectionField[] = decoded.right.data.map((field) => {
-    const options = fieldOptions(field);
-    return {
-      id: field.ZUID as FieldZuid,
-      name: field.name,
-      label: field.label,
-      kind: fieldKind(field.datatype),
-      ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID } : {}),
-      ...(options ? { options } : {}),
-    };
-  });
+  const fields: CollectionField[] = decoded.right.data.map((field) => ({
+    id: field.ZUID as FieldZuid,
+    name: field.name,
+    label: field.label,
+    kind: fieldKind(field.datatype),
+    ...(field.relatedModelZUID ? { relatedModelZuid: field.relatedModelZUID } : {}),
+    ...fieldOptions(field),
+  }));
   return Effect.succeed({ modelZuid: reference.modelZuid, label: reference.modelZuid, fields });
 }
 

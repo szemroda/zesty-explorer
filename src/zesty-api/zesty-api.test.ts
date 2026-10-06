@@ -187,7 +187,10 @@ describe('ZestyApi', () => {
         name: 'category',
         label: 'Category',
         kind: 'text',
-        options: ['news', 'guide'],
+        options: [
+          { value: 'news', label: 'News' },
+          { value: 'guide', label: 'Guide' },
+        ],
       },
     ]);
     expect(fake.requests).toEqual([
