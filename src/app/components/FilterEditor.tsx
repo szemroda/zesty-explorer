@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 export interface FilterContext {
   /** Names the editor for assistive technology, e.g. `View filter`. */
   readonly label: string;
-  /** The collection node whose rows the filter keeps, used in the related-items hint. */
+  /** The collection whose rows the filter keeps, e.g. `Articles`, used in the related-items hint. */
   readonly subject: string;
   readonly fields: FilterFields;
   /** The items a field's option counts cover; undefined while the field's node loads. */
@@ -293,8 +293,8 @@ function FilterEditor({
       )}
       {field?.scope ? (
         <p className="-mt-1 m-0 text-[11px] leading-snug text-muted-foreground">
-          Keeps a {subject} row when at least one related{' '}
-          <span className="text-foreground/80">{field.scope}</span> item matches.
+          Keeps only {subject} with at least one matching item in{' '}
+          <span className="text-foreground/80">{field.scope}</span>.
         </p>
       ) : null}
       {field ? (
