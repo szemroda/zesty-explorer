@@ -2,7 +2,19 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CodeFile, CodeFileZuid, CodeState, InstanceReference } from '../../domain';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
+import type * as EndpointRequests from '../../zesty-api/webengine-request';
 import { EndpointRequest } from './EndpointRequest';
+
+// jsdom has no native Web Locks; browser tests cover shared active slots.
+vi.mock('../../zesty-api/webengine-request', async (importOriginal) => {
+  const actual = await importOriginal<typeof EndpointRequests>();
+  const { immediateRequestBudget } = await import('../../test/request-budget');
+  return {
+    ...actual,
+    requestEndpoint: (url: string, options: EndpointRequests.EndpointRequestOptions = {}) =>
+      actual.requestEndpoint(url, { budget: immediateRequestBudget(), ...options }),
+  };
+});
 
 const instance: InstanceReference = {
   instanceZuid: '8-fixture',

@@ -1,4 +1,5 @@
 import type { Effect } from 'effect';
+import type { RequestBudget } from './request-budget';
 import type {
   CodeFileList,
   CodeFileVersionList,
@@ -97,6 +98,7 @@ export interface CodeFileApi {
 export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi {}
 
 export interface ZestyApiOptions {
+  readonly budget?: RequestBudget;
   readonly pageSize?: number;
   readonly collectionLimit?: number;
   readonly timeoutMs?: number;

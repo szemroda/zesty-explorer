@@ -1,4 +1,5 @@
 import { Either, Effect, Schema } from 'effect';
+import { defaultRequestBudget, retryAfterMs, type RequestBudget } from './request-budget';
 import {
   decodeCollectionPage,
   decodeItemVersions,
@@ -487,14 +488,6 @@ function statusError(response: ZestyTransportResponse): ExplorerError | undefine
   if (response.status === 404) {
     return { kind: 'missing-resource', status: 404, message: 'The collection was not found.' };
   }
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers['retry-after']);
-    return {
-      kind: 'rate-limit',
-      message: 'Zesty is rate limiting requests. Try again shortly.',
-      ...(Number.isFinite(retryAfter) ? { retryAfterMs: retryAfter * 1_000 } : {}),
-    };
-  }
   if (response.status >= 500) {
     return {
       kind: 'server',
@@ -540,7 +533,7 @@ function describeSitesError(error: ExplorerError): ExplorerError {
 }
 
 function retryable(error: ExplorerError): boolean {
-  return error.kind === 'network' || error.kind === 'rate-limit' || error.kind === 'server';
+  return error.kind === 'network' || error.kind === 'server';
 }
 
 function withRequestDiagnostic(
@@ -562,47 +555,91 @@ function createRequester(
   transport: ZestyTransport,
   timeoutMs: number,
   retryDelaysMs: readonly number[],
+  budget: RequestBudget,
 ) {
   const requestAttempt = (
     request: ZestyTransportRequest,
     operation: ExplorerRequestOperation,
   ): Effect.Effect<ZestyTransportResponse, ExplorerError> =>
-    transport.request(request).pipe(
-      Effect.mapError((): ExplorerError =>
-        withRequestDiagnostic(
-          { kind: 'network', message: 'The Zesty request could not reach the server.' },
-          operation,
-          request.url,
-        ),
-      ),
-      Effect.flatMap((response) => {
-        const error = statusError(response);
-        return error
-          ? Effect.fail(withRequestDiagnostic(error, operation, request.url, response.status))
-          : Effect.succeed(response);
-      }),
-      Effect.timeoutFail({
-        duration: timeoutMs,
-        onTimeout: (): ExplorerError =>
-          withRequestDiagnostic(
-            { kind: 'timeout', message: 'The Zesty request timed out.' },
-            operation,
-            request.url,
+    budget
+      .run(
+        new URL(request.url).hostname.startsWith('accounts.') ? 'accounts' : 'instances',
+        (rateLimited) =>
+          Effect.suspend(() => transport.request(request)).pipe(
+            Effect.mapError((): ExplorerError =>
+              withRequestDiagnostic(
+                { kind: 'network', message: 'The Zesty request could not reach the server.' },
+                operation,
+                request.url,
+              ),
+            ),
+            Effect.flatMap((response) => {
+              if (response.status === 429) {
+                const header = Object.entries(response.headers).find(
+                  ([name]) => name.toLowerCase() === 'retry-after',
+                )?.[1];
+                const hint = retryAfterMs(header);
+                return rateLimited(hint).pipe(
+                  Effect.flatMap((retryAt) =>
+                    Effect.fail<ExplorerError>({
+                      kind: 'rate-limit',
+                      message: `Zesty is rate limiting requests. Retry after ${new Date(retryAt).toLocaleString()}.`,
+                      retryAt,
+                      ...(hint === undefined ? {} : { retryAfterMs: hint }),
+                    }),
+                  ),
+                  Effect.mapError((error) =>
+                    withRequestDiagnostic(error, operation, request.url, 429),
+                  ),
+                );
+              }
+              const error = statusError(response);
+              return error
+                ? Effect.fail(withRequestDiagnostic(error, operation, request.url, response.status))
+                : Effect.succeed(response);
+            }),
+            Effect.timeoutFail({
+              duration: timeoutMs,
+              onTimeout: (): ExplorerError =>
+                withRequestDiagnostic(
+                  { kind: 'timeout', message: 'The Zesty request timed out.' },
+                  operation,
+                  request.url,
+                ),
+            }),
           ),
-      }),
-    );
+      )
+      .pipe(Effect.mapError((error) => withRequestDiagnostic(error, operation, request.url)));
 
   const requestWithRetry = (
     request: ZestyTransportRequest,
     operation: ExplorerRequestOperation,
     retryIndex = 0,
+    allowRateLimitRecovery = true,
   ): Effect.Effect<ZestyTransportResponse, ExplorerError> =>
     requestAttempt(request, operation).pipe(
       Effect.catchAll((error) => {
         const delay = retryDelaysMs[retryIndex];
+        if (error.kind === 'rate-limit') {
+          const remaining = Math.max(0, error.retryAt - Date.now());
+          if (
+            !allowRateLimitRecovery ||
+            error.retryAfterMs === undefined ||
+            error.retryAfterMs > 5_000 ||
+            remaining > 5_000 ||
+            delay === undefined
+          ) {
+            return Effect.fail(error);
+          }
+          return Effect.sleep(remaining).pipe(
+            Effect.flatMap(() => requestWithRetry(request, operation, retryIndex + 1, false)),
+          );
+        }
         if (!retryable(error) || delay === undefined) return Effect.fail(error);
         return Effect.sleep(delay).pipe(
-          Effect.flatMap(() => requestWithRetry(request, operation, retryIndex + 1)),
+          Effect.flatMap(() =>
+            requestWithRetry(request, operation, retryIndex + 1, allowRateLimitRecovery),
+          ),
         );
       }),
     );
@@ -620,7 +657,12 @@ function authenticatedRequest(url: string, sessionToken: string): ZestyTransport
 
 export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptions = {}): ZestyApi {
   const resolved = { ...defaultOptions, ...options };
-  const request = createRequester(transport, resolved.timeoutMs, resolved.retryDelaysMs);
+  const request = createRequester(
+    transport,
+    resolved.timeoutMs,
+    resolved.retryDelaysMs,
+    resolved.budget ?? defaultRequestBudget,
+  );
 
   return {
     loadCollectionCatalog: (reference, sessionToken) => {

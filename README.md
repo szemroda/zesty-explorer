@@ -61,6 +61,14 @@ The development server starts on port 5173 or the next available port without op
 
 The token is stored only in that tab's `sessionStorage`, separated by deployment. A `401` removes the expired token but preserves the view so a replacement can be entered.
 
+All API and endpoint reads use one request budget per tab. Each budget permits at most four starts per second, with a short dispatch window adding conservative spacing. Web Locks limit active HTTP requests to four across app tabs on the same origin. Publication badges take background priority within each tab. This is a conservative app policy; authenticated Zesty API quotas are not confirmed. Larger cold loads can take longer because requests are paced.
+
+A readable `429` pauses the affected service in that tab. The app honors exposed `Retry-After` seconds or HTTP dates. Without a valid header, authenticated reads pause for one minute; WebEngine reads pause for its documented thirty-minute ban. Authenticated reads can recover automatically once for an explicit wait of at most five seconds. Endpoint sends are never replayed automatically. Other paused work reports when to retry, without waiting behind a long cooldown.
+
+Scheduling stays in memory. Only three numeric cooldown deadlines are saved in the tab's `sessionStorage`, so pauses survive reloads and end when the tab closes. If saving fails, the pause still applies in memory and the app asks you to keep the tab open. Unreadable saved pauses or unavailable Web Locks stop new requests with an error. The browser releases active slots when a tab closes.
+
+V1 assumes one open tab: multiple tabs can multiply the request rate, and a cooldown in one tab does not pause another. Different ports, profiles, browsers, and traffic outside this app do not share active slots. No IndexedDB or localStorage is used for request scheduling.
+
 ## Use the explorer
 
 - `Published only` applies the same content state to every collection. Off means latest saved content.

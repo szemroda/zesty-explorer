@@ -1,8 +1,24 @@
 import { Effect, Exit, Fiber } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { fixtureCollectionPage } from '../domain';
 import { parseCollectionReference, parseInstanceReference } from '../collection-reference';
-import { createZestyApi, type ZestyTransport, type ZestyTransportRequest } from './index';
+import {
+  createZestyApi as createWithBrowserBudget,
+  type ZestyTransport,
+  type ZestyTransportRequest,
+  type ZestyApiOptions,
+} from './index';
+import {
+  immediateRequestBudget,
+  memoryRequestSlots,
+  memoryCooldownStorage,
+} from '../test/request-budget';
+import { createRequestBudget } from './request-budget';
+
+function createZestyApi(transport: ZestyTransport, options: ZestyApiOptions = {}) {
+  return createWithBrowserBudget(transport, { budget: immediateRequestBudget(), ...options });
+}
+afterEach(() => vi.useRealTimers());
 
 const parsedReference = parseCollectionReference(
   'https://8-abc123.manager.zesty.io/content/6-model123',
@@ -44,6 +60,97 @@ function respondWith(body: unknown, status = 200) {
 }
 
 describe('ZestyApi', () => {
+  it('honors a case-insensitive short Retry-After once, with backoff outside the active timeout', async () => {
+    vi.useFakeTimers();
+    const starts: number[] = [];
+    const fake = fakeTransport(() => {
+      starts.push(Date.now());
+      return Effect.succeed({ status: 429, headers: { 'Retry-After': '1' }, body: {} });
+    });
+    const result = Effect.runPromise(
+      createZestyApi(fake.transport, { timeoutMs: 10 })
+        .loadCollectionCatalog(instance, 'token')
+        .pipe(Effect.either),
+    );
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(await result).toMatchObject({
+      _tag: 'Left',
+      left: { kind: 'rate-limit', diagnostic: { responseStatus: 429 } },
+    });
+    expect(starts).toHaveLength(2);
+    expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it.each([undefined, 'invalid', '60', 'Fri, 09 Oct 2099 12:00:00 GMT'])(
+    'does not replay a 429 with a long or missing hint (%s)',
+    async (hint) => {
+      const storage = memoryCooldownStorage();
+      const fake = fakeTransport(() =>
+        Effect.succeed({ status: 429, headers: hint ? { 'retry-after': hint } : {}, body: {} }),
+      );
+      const api = createZestyApi(fake.transport, {
+        budget: createRequestBudget({ takeSlot: memoryRequestSlots(), storage }),
+      });
+      const failure = await Effect.runPromise(
+        api.loadCollectionCatalog(instance, 'token').pipe(Effect.flip),
+      );
+      expect(failure).toMatchObject({ kind: 'rate-limit', diagnostic: { responseStatus: 429 } });
+      expect(failure.kind === 'rate-limit' && failure.retryAt).toBeGreaterThan(Date.now());
+      const reloadedApi = createZestyApi(fake.transport, {
+        budget: createRequestBudget({ takeSlot: memoryRequestSlots(), storage }),
+      });
+      expect(
+        await Effect.runPromise(
+          reloadedApi.loadCollectionCatalog(instance, 'other-token').pipe(Effect.flip),
+        ),
+      ).toMatchObject({ kind: 'rate-limit' });
+      expect(fake.requests).toHaveLength(1);
+    },
+  );
+
+  it('preserves the known 429 diagnostic and memory pause when saving its deadline fails', async () => {
+    const budget = createRequestBudget({
+      takeSlot: memoryRequestSlots(),
+      storage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('storage denied');
+        },
+      },
+    });
+    const fake = respondWith({}, 429);
+    const api = createZestyApi(fake.transport, { budget });
+    const failure = await Effect.runPromise(
+      api.loadCollectionCatalog(instance, 'token').pipe(Effect.flip),
+    );
+    expect(failure).toMatchObject({ kind: 'rate-limit', diagnostic: { responseStatus: 429 } });
+    expect(failure.message).toContain('Keep this tab open');
+    expect(
+      await Effect.runPromise(api.loadCollectionCatalog(instance, 'token').pipe(Effect.flip)),
+    ).toMatchObject({ kind: 'rate-limit' });
+    expect(fake.requests).toHaveLength(1);
+  });
+
+  it('queues lazy transports outside the request timeout and skips cancelled queued HTTP', async () => {
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({ takeSlot, storage: memoryCooldownStorage() });
+    const fake = respondWith({ data: [] });
+    const api = createZestyApi(fake.transport, { budget, timeoutMs: 10 });
+    const controller = new AbortController();
+    const cancelled = Effect.runPromiseExit(api.loadCollectionCatalog(instance, 'token'), {
+      signal: controller.signal,
+    });
+    const waiting = Effect.runPromise(api.loadCollectionCatalog(instance, 'token'));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.requests).toHaveLength(0);
+    controller.abort();
+    expect(Exit.isInterrupted(await cancelled)).toBe(true);
+    release();
+    expect((await waiting).collections).toEqual([]);
+    expect(fake.requests).toHaveLength(1);
+  });
+
   it('loads the complete collection catalog with an authenticated GET', async () => {
     const fake = respondWith({
       data: [

@@ -283,7 +283,13 @@ type ExplorerErrorKind =
   | { readonly kind: 'decoding'; readonly message: string }
   | { readonly kind: 'network'; readonly message: string }
   | { readonly kind: 'timeout'; readonly message: string }
-  | { readonly kind: 'rate-limit'; readonly message: string; readonly retryAfterMs?: number }
+  | {
+      readonly kind: 'rate-limit';
+      readonly message: string;
+      readonly retryAt: number;
+      readonly retryAfterMs?: number;
+    }
+  | { readonly kind: 'request-budget'; readonly message: string }
   | { readonly kind: 'server'; readonly message: string; readonly status: number }
   | { readonly kind: 'data-limit'; readonly message: string; readonly scope: 'collection' | 'view' }
   | { readonly kind: 'cancelled'; readonly message: string };
