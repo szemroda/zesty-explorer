@@ -10,7 +10,8 @@ import type {
 } from '../../domain';
 import { collectionNode } from '../../test/fixtures';
 import { buildLoadedViewGraph, rootLoadedView } from '../load-view';
-import { tableFilterControls } from './FilterControls';
+import { ColumnMenuHeader } from './ColumnMenu';
+import { tableFilterControls, type TableSearch } from './FilterControls';
 
 const node = { ...collectionNode('node-articles', '6-articles'), name: 'Articles' };
 const schema: CollectionSchema = {
@@ -50,13 +51,16 @@ const snapshot: CollectionSnapshot = {
 const loadedView = rootLoadedView(node, 'latest', { schema, snapshot });
 const allItemIds = items.map((item) => item.id);
 
-interface StateFunnelProps {
+interface ControlsProps {
   readonly filters: readonly ViewFilter[];
   readonly onChange: (filters: readonly ViewFilter[]) => void;
   readonly itemIds?: readonly ItemZuid[];
+  readonly search?: TableSearch;
 }
 
-function controls({ filters, onChange, itemIds = allItemIds }: StateFunnelProps) {
+const noSearch: TableSearch = { text: '', onChange: () => undefined };
+
+function controls({ filters, onChange, itemIds = allItemIds, search = noSearch }: ControlsProps) {
   return tableFilterControls({
     node,
     label: 'View filter',
@@ -68,31 +72,45 @@ function controls({ filters, onChange, itemIds = allItemIds }: StateFunnelProps)
     itemIds,
     filters,
     onChange,
+    search,
   });
 }
 
-function openFunnel(
+function openColumnMenu(
   filters: readonly ViewFilter[],
   column = 'state',
   label = 'State',
   itemIds = allItemIds,
 ) {
   const onChange = vi.fn();
-  const Funnel = () => controls({ filters, onChange, itemIds }).columnControl(column);
-  render(<Funnel />);
-  fireEvent.click(screen.getByRole('button', { name: `Filter by ${label}` }));
+  const Header = () => (
+    <ColumnMenuHeader
+      nodeId={node.id}
+      header={{
+        columnId: column,
+        label,
+        canSort: true,
+        sorted: false,
+        sort: vi.fn(),
+        hide: vi.fn(),
+      }}
+      filter={controls({ filters, onChange, itemIds }).columnFilter(column)}
+    />
+  );
+  render(<Header />);
+  // A filtered header's name goes on with its filter, e.g. `State filtered: is Draft`.
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${label}`) }));
   return onChange;
 }
 
-describe('column filter button', () => {
+describe('column menu filter', () => {
   it('adds a filter on its column from the option list and Enter', async () => {
-    const onChange = openFunnel([]);
+    const onChange = openColumnMenu([]);
 
     const review = await screen.findByRole('checkbox', { name: 'In review (2)' });
     expect(screen.getByRole('checkbox', { name: 'Draft (1)' })).toBeInTheDocument();
     // The column already names the field, so there is nothing to pick.
     expect(screen.queryByRole('combobox', { name: 'View filter field' })).not.toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'View filter' })).toHaveTextContent('Filter by State');
     fireEvent.click(review);
     fireEvent.keyDown(review, { key: 'Enter' });
 
@@ -107,7 +125,7 @@ describe('column filter button', () => {
   });
 
   it('counts only the rows of its own table', async () => {
-    openFunnel([], 'state', 'State', allItemIds.slice(0, 2));
+    openColumnMenu([], 'state', 'State', allItemIds.slice(0, 2));
 
     expect(await screen.findByRole('checkbox', { name: 'In review (2)' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Draft (0)' })).toBeInTheDocument();
@@ -122,11 +140,11 @@ describe('column filter button', () => {
       operator: 'one-of',
       value: ['draft'],
     };
-    const onChange = openFunnel([existing]);
+    const onChange = openColumnMenu([existing]);
 
     expect(await screen.findByRole('checkbox', { name: 'Draft (1)' })).toBeChecked();
     fireEvent.click(screen.getByRole('checkbox', { name: 'In review (2)' }));
-    fireEvent.click(screen.getByRole('button', { name: /Update/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update filter' }));
 
     expect(onChange).toHaveBeenCalledWith([{ ...existing, value: ['draft', 'review'] }]);
   });
@@ -175,6 +193,7 @@ describe('field picker', () => {
         itemIds: allItemIds,
         filters: [],
         onChange: vi.fn(),
+        search: noSearch,
       }).toolbarButton;
     render(<Toolbar />);
     fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
@@ -209,7 +228,7 @@ describe('filter editor values', () => {
   });
 
   it('reports a missing upper bound on the upper input and focuses it', async () => {
-    openFunnel([], 'score', 'Score');
+    openColumnMenu([], 'score', 'Score');
     fireEvent.click(screen.getByRole('combobox', { name: 'View filter condition' }));
     const between = await screen.findByRole('option', { name: 'between' });
     fireEvent.pointerDown(between, { pointerType: 'mouse' });
@@ -218,7 +237,7 @@ describe('filter editor values', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'View filter lower value' }), {
       target: { value: '1' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filter' }));
 
     const upper = screen.getByRole('textbox', { name: 'View filter upper value' });
     expect(screen.getByRole('alert')).toHaveTextContent('Enter an upper value.');
@@ -227,5 +246,54 @@ describe('filter editor values', () => {
     expect(screen.getByRole('textbox', { name: 'View filter lower value' })).not.toHaveAttribute(
       'aria-invalid',
     );
+  });
+});
+
+describe('search as a filter', () => {
+  const state: ViewFilter = {
+    id: 's1',
+    nodePath: [],
+    fieldPath: ['state'],
+    operator: 'one-of',
+    value: ['draft'],
+  };
+
+  it('saves "Any field" from the toolbar as the search, keeping the filters', async () => {
+    const onSearch = vi.fn();
+    const Toolbar = () =>
+      controls({ filters: [state], onChange: vi.fn(), search: { text: '', onChange: onSearch } })
+        .toolbarButton;
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
+    // Enter on the empty picker takes its first field, "Any field".
+    fireEvent.keyDown(await screen.findByRole('combobox', { name: 'View filter field' }), {
+      key: 'Enter',
+    });
+    const value = await screen.findByRole('textbox', { name: 'View filter value' });
+    fireEvent.change(value, { target: { value: 'bottom' } });
+    fireEvent.keyDown(value, { key: 'Enter' });
+
+    expect(onSearch).toHaveBeenCalledWith('bottom', [state]);
+  });
+
+  it('lists the search as the first chip, and removing it clears only the search', () => {
+    const onSearch = vi.fn();
+    const Chips = () =>
+      controls({
+        filters: [state],
+        onChange: vi.fn(),
+        search: { text: 'bottom', onChange: onSearch },
+      }).chipRow;
+    render(<Chips />);
+
+    const chips = screen.getAllByRole('button', { name: /^Edit filter/ });
+    expect(chips.map((chip) => chip.getAttribute('aria-label'))).toEqual([
+      'Edit filter Any field contains “bottom”',
+      'Edit filter State is Draft',
+    ]);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove filter Any field contains “bottom”' }),
+    );
+    expect(onSearch).toHaveBeenCalledWith('', [state]);
   });
 });

@@ -1,13 +1,6 @@
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Eye,
-  ExternalLink,
-  SlidersHorizontal,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye, ExternalLink, SlidersHorizontal } from 'lucide-react';
 import { Fragment, memo, type ReactNode, use, useCallback, useState } from 'react';
-import type { CollectionReference, ContentItem } from '../../domain';
+import type { CollectionNodeId, CollectionReference, ContentItem } from '../../domain';
 import type { ContentTableInstance } from '../content-table-model';
 import { ScrollDockContext } from '../scroll-dock';
 import {
@@ -15,6 +8,7 @@ import {
   managerItemUrl,
   type ContentItemColumn,
 } from '../content-item-presentation';
+import { ColumnMenuHeader, type ColumnFilterEditor } from './ColumnMenu';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import {
@@ -35,9 +29,12 @@ interface ContentTableGridProps {
   readonly canExpand: boolean;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly renderExpandedRow: (item: ContentItem) => ReactNode;
-  /** Extra header control for a column, e.g. its filter button; nothing when it returns null. */
-  readonly renderColumnControl?: (columnId: string) => ReactNode;
-  readonly emptyContent?: ReactNode;
+  /** The table's collection node, whose column headers count as on screen while mounted. */
+  readonly nodeId: CollectionNodeId;
+  /** The filter a column's menu edits; undefined for columns that cannot be filtered. */
+  readonly columnFilter: (columnId: string) => ColumnFilterEditor | undefined;
+  /** Shown under the headers while no rows match. */
+  readonly emptyContent: ReactNode;
 }
 
 type ContentTableRowModel = ReturnType<ContentTableInstance['getRowModel']>['rows'][number];
@@ -136,7 +133,8 @@ export function ContentTableGrid({
   canExpand,
   onOpenDetails,
   renderExpandedRow,
-  renderColumnControl,
+  nodeId,
+  columnFilter,
   emptyContent,
 }: ContentTableGridProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
@@ -167,8 +165,6 @@ export function ContentTableGrid({
   );
   const visibleColumnCount = table.getVisibleLeafColumns().length;
 
-  if (table.getRowModel().rows.length === 0 && emptyContent) return emptyContent;
-
   return (
     <div className="relative isolate w-full min-w-0">
       <div ref={scrollerRef} className="@container w-full min-w-0 overflow-x-auto">
@@ -189,61 +185,54 @@ export function ContentTableGrid({
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
-                {group.headers.map((header) => {
-                  const control = header.isPlaceholder
-                    ? null
-                    : renderColumnControl?.(header.column.id);
-                  return (
-                    <TableHead
-                      key={header.id}
-                      className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
-                        header.column.id === 'actions'
-                          ? 'sticky left-0 z-4 sticky-edge'
-                          : 'relative'
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                          <Button
-                            variant="ghost"
-                            className="h-auto min-w-0 shrink gap-1.5 p-0 font-[inherit] text-inherit hover:bg-transparent hover:text-content-hover"
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            <span className="truncate">
-                              <table.FlexRender header={header} />
-                            </span>
-                            {header.column.getIsSorted() === 'asc' ? <ChevronUp size={13} /> : null}
-                            {header.column.getIsSorted() === 'desc' ? (
-                              <ChevronDown size={13} />
-                            ) : null}
-                          </Button>
-                        ) : header.id === 'actions' ? (
-                          <span className="sr-only">
-                            <table.FlexRender header={header} />
-                          </span>
-                        ) : (
-                          <span className="truncate">
-                            <table.FlexRender header={header} />
-                          </span>
-                        )}
-                        {control ? <span className="ml-auto flex shrink-0">{control}</span> : null}
-                      </div>
-                      {header.column.getCanResize() ? (
-                        <span
-                          data-slot="column-resize-handle"
-                          aria-hidden="true"
-                          className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                        />
-                      ) : null}
-                    </TableHead>
-                  );
-                })}
+                {group.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
+                      header.column.id === 'actions' ? 'sticky left-0 z-4 sticky-edge' : 'relative'
+                    }`}
+                  >
+                    {header.isPlaceholder ? null : header.column.id === 'actions' ? (
+                      <span className="sr-only">
+                        <table.FlexRender header={header} />
+                      </span>
+                    ) : (
+                      <ColumnMenuHeader
+                        nodeId={nodeId}
+                        header={{
+                          columnId: header.column.id,
+                          label: <table.FlexRender header={header} />,
+                          canSort: header.column.getCanSort(),
+                          sorted: header.column.getIsSorted(),
+                          sort: (direction) => header.column.toggleSorting(direction === 'desc'),
+                          hide: () => header.column.toggleVisibility(false),
+                        }}
+                        filter={columnFilter(header.column.id)}
+                      />
+                    )}
+                    {header.column.getCanResize() ? (
+                      <span
+                        data-slot="column-resize-handle"
+                        aria-hidden="true"
+                        className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                      />
+                    ) : null}
+                  </TableHead>
+                ))}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody className="[&_tr:last-child_td]:border-b-0">
+            {/* Headers stay while nothing matches, so a filtered header still shows its filter. */}
+            {table.getRowModel().rows.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={visibleColumnCount} className="p-0">
+                  <div className="sticky left-0 w-[100cqw]">{emptyContent}</div>
+                </TableCell>
+              </TableRow>
+            ) : null}
             {table.getRowModel().rows.map((row) => (
               <ContentTableBodyRow
                 key={row.original.id}

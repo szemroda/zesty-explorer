@@ -259,6 +259,15 @@ async function openRoot(page: Page) {
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
 
+// Searches a table from its Filter button, e.g. `Add view filter`: Enter in the empty field
+// picker takes its first field, "Any field".
+async function search(page: Page, addLabel: string, editor: string, text: string) {
+  await page.getByRole('button', { name: addLabel }).click();
+  await page.getByLabel(`${editor} field`).press('Enter');
+  await page.getByLabel(`${editor} value`).fill(text);
+  await page.getByLabel(`${editor} value`).press('Enter');
+}
+
 async function chooseSelectOption(page: Page, label: string, option: string) {
   await page.getByLabel(label).click();
   await page.getByRole('option', { name: option, exact: true }).click();
@@ -315,14 +324,14 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await openRoot(page);
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
-  await page.getByRole('columnheader', { name: 'Score' }).hover();
-  await page.getByRole('button', { name: 'Filter by Score' }).click();
+  await page.getByRole('button', { name: /^Score/ }).click();
   await chooseSelectOption(page, 'View filter condition', '>');
   await page.getByLabel('View filter value').fill('100');
   await page.getByLabel('View filter value').press('Enter');
   await expect(page.getByText('4 items')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Remove filter Score > 100' }).click();
+  await page.getByRole('button', { name: /^Score/ }).click();
+  await page.getByRole('button', { name: 'Clear filter' }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Published' }).click();
@@ -423,9 +432,11 @@ test('creates native and custom roles, expands related rows, and preserves detai
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
-  await children.getByLabel('Filter Children').fill('no matching item');
+  await search(page, 'Add Children filter', 'Children table filter', 'no matching item');
   await expect(children.getByText('0 related items', { exact: true }).last()).toBeVisible();
-  await children.getByLabel('Filter Children').fill('');
+  await children
+    .getByRole('button', { name: 'Remove filter Any field contains “no matching item”' })
+    .click();
 
   const detailsTrigger = page.getByRole('button', { name: 'Open details for First story' });
   await detailsTrigger.focus();
@@ -515,9 +526,9 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
     seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
     return String.fromCharCode(33 + (seed % 90));
   }).join('');
-  await page.getByLabel('Filter this table').fill(longText);
+  await search(page, 'Add view filter', 'View filter', longText);
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
-  await page.getByLabel('Filter this table').fill('');
+  await page.getByRole('button', { name: /^Remove filter Any field/ }).click();
   await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
   await page.getByRole('menuitem', { name: 'Change root collection' }).click();
   await page.getByLabel('Root collection reference').fill(childUrl);

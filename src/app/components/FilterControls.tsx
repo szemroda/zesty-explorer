@@ -8,13 +8,26 @@ import type {
   ViewFilter,
 } from '../../domain';
 import { relatedItemsAlong, type ExplorerGraph } from '../../explorer-core';
-import { filterFields, findFilterField, type FilterFields } from '../filter-fields';
+import {
+  describeFilter,
+  editsField,
+  filterFields,
+  findFilterField,
+  isSearchFilter,
+  searchFilter,
+  withFilter,
+  withSearchField,
+  type FilterField,
+  type FilterFields,
+} from '../filter-fields';
+import type { ListedFilter } from '../hooks/shown-headers';
 import { loadedSnapshot, type LoadedView } from '../load-view';
+import type { FilterScope } from './ColumnFilterForm';
+import type { ColumnFilterEditor } from './ColumnMenu';
 import {
   AddFilterButton,
-  ColumnFilterButton,
-  FilterChip,
-  FilterChipRow,
+  UnshownFilterChips,
+  type FilterContext,
   type FilterListContext,
 } from './FilterEditor';
 
@@ -27,10 +40,29 @@ function cachedFilterFields(node: CollectionNode, schemas: Schemas): FilterField
   const byNode = fieldsBySchemas.get(schemas) ?? new WeakMap<CollectionNode, FilterFields>();
   const cached = byNode.get(node);
   if (cached) return cached;
-  const fields = filterFields(node, schemas);
+  const fields = withSearchField(filterFields(node, schemas), node);
   byNode.set(node, fields);
   fieldsBySchemas.set(schemas, byNode);
   return fields;
+}
+
+/**
+ * Where a nested table sits in the view. Its column filters can go into the view filters, with
+ * this `nodePath`, to keep only the root items that have a matching related item.
+ */
+export interface ViewScope {
+  readonly root: CollectionNode;
+  /** Node ids from the root's child down to this table's node. */
+  readonly nodePath: readonly CollectionNodeId[];
+  readonly filters: readonly ViewFilter[];
+  readonly onChange: (filters: readonly ViewFilter[]) => void;
+}
+
+/** The table's free-text search, which the filter controls edit as the field "Any field". */
+export interface TableSearch {
+  readonly text: string;
+  /** Sets the search and the filters together, so one update doesn't undo the other. */
+  readonly onChange: (text: string, filters: readonly ViewFilter[]) => void;
 }
 
 export interface TableFilterOptions {
@@ -50,35 +82,72 @@ export interface TableFilterOptions {
   readonly itemIds: readonly ItemZuid[];
   readonly filters: readonly ViewFilter[];
   readonly onChange: (filters: readonly ViewFilter[]) => void;
+  readonly search: TableSearch;
+  /** Set for nested tables only; the root table's filters already are view filters. */
+  readonly viewScope?: ViewScope;
 }
 
 export interface TableFilterControls {
   /** Opens an empty filter editor from the table toolbar. */
   readonly toolbarButton: ReactNode;
-  /** The active filters as chips; null while there are none. */
+  /** The search and the filters no column header on screen shows, as chips; null while none. */
   readonly chipRow: ReactNode;
-  /** The funnel for a column header; null when the column is not one of the node's fields. */
-  readonly columnControl: (columnId: string) => ReactNode;
+  /** The filter a column's menu edits; undefined when the column is not one of the node's fields. */
+  readonly columnFilter: (columnId: string) => ColumnFilterEditor | undefined;
 }
 
-/** The toolbar button, chip row, and column funnels of one table, all editing `filters`. */
-export function tableFilterControls({
-  node,
-  label,
-  addLabel,
-  subject,
-  heading,
-  loadedView,
-  contentState,
-  graph,
-  itemIds,
-  filters,
-  onChange,
-}: TableFilterOptions): TableFilterControls {
-  const context: FilterListContext = {
+/** One list a column can write its filter into. */
+interface FilterList {
+  readonly scope: FilterScope;
+  readonly filters: readonly ViewFilter[];
+  readonly onChange: (filters: readonly ViewFilter[]) => void;
+  /** Where the list's column filters point: `[]` for the table's own, the node path for the view's. */
+  readonly nodePath: readonly CollectionNodeId[];
+}
+
+function withoutFilter(filters: readonly ViewFilter[], id: string): readonly ViewFilter[] {
+  return filters.filter((filter) => filter.id !== id);
+}
+
+function samePath(left: readonly CollectionNodeId[], right: readonly CollectionNodeId[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+// The table's own filters and, in nested tables, the view filters on this table's node.
+function filterLists({ filters, onChange, viewScope }: TableFilterOptions): readonly FilterList[] {
+  const table: FilterList = { scope: 'table', filters, onChange, nodePath: [] };
+  if (!viewScope) return [table];
+  const { filters: viewFilters, onChange: onViewChange, nodePath } = viewScope;
+  return [table, { scope: 'view', filters: viewFilters, onChange: onViewChange, nodePath }];
+}
+
+interface ColumnFilter {
+  readonly filter: ViewFilter;
+  readonly list: FilterList;
+}
+
+// The filter a column header shows: the first its editor can open, table filters first.
+function columnFilter(lists: readonly FilterList[], field: FilterField): ColumnFilter | undefined {
+  for (const list of lists) {
+    const filter = list.filters.find(
+      (candidate) =>
+        samePath(candidate.nodePath, list.nodePath) &&
+        editsField({ ...candidate, nodePath: [] }, field),
+    );
+    if (filter) return { filter, list };
+  }
+  return undefined;
+}
+
+/** The toolbar button, chip row, and column menu filters of one table, all editing `filters`. */
+export function tableFilterControls(options: TableFilterOptions): TableFilterControls {
+  const { node, label, subject, loadedView, contentState, graph, itemIds, filters } = options;
+  const { search, viewScope } = options;
+  const fields = cachedFilterFields(node, loadedView.schemas);
+  const context: FilterContext = {
     label,
     subject,
-    fields: cachedFilterFields(node, loadedView.schemas),
+    fields,
     itemsFor: (field) => {
       const snapshot = loadedSnapshot(field.node, loadedView, contentState);
       if (!snapshot) return undefined;
@@ -87,22 +156,74 @@ export function tableFilterControls({
         return item ? [item] : [];
       });
     },
-    filters,
-    onChange,
   };
+  const lists = filterLists(options);
+  const scopeChoice = viewScope ? { root: viewScope.root.name, node: node.name } : undefined;
+
+  // The toolbar editor and the chips see the search as the first filter; writes split it back out.
+  const currentSearch = search.text.trim() ? searchFilter(search.text) : undefined;
+  const listContext: FilterListContext = {
+    ...context,
+    filters: currentSearch ? [currentSearch, ...filters] : filters,
+    onChange: (next) => {
+      // A search added while one exists comes last and replaces it.
+      const nextSearch = next.filter(isSearchFilter).at(-1);
+      search.onChange(
+        typeof nextSearch?.value === 'string' ? nextSearch.value : '',
+        next.filter((filter) => !isSearchFilter(filter)),
+      );
+    },
+  };
+
+  // The search never has a column; a filter has one when that column's header shows it.
+  const listed: readonly ListedFilter[] = [
+    ...(currentSearch ? [{ filter: currentSearch, columnId: undefined }] : []),
+    ...filters.map((filter): ListedFilter => {
+      const field = findFilterField(fields, filter);
+      const shownBy = field && columnFilter(lists, field)?.filter.id === filter.id;
+      return { filter, columnId: shownBy ? field.field.name : undefined };
+    }),
+  ];
+
   return {
-    toolbarButton: <AddFilterButton {...context} addLabel={addLabel} />,
+    toolbarButton: <AddFilterButton {...listContext} addLabel={options.addLabel} />,
     chipRow:
-      filters.length > 0 ? (
-        <FilterChipRow heading={heading} onClearAll={() => onChange([])}>
-          {filters.map((filter) => (
-            <FilterChip key={filter.id} {...context} filter={filter} />
-          ))}
-        </FilterChipRow>
+      listed.length > 0 ? (
+        <UnshownFilterChips
+          nodeId={node.id}
+          heading={options.heading}
+          entries={listed}
+          context={listContext}
+        />
       ) : null,
-    columnControl: (columnId) => {
-      const field = findFilterField(context.fields, { nodePath: [], fieldPath: [columnId] });
-      return field ? <ColumnFilterButton {...context} field={field} /> : null;
+    columnFilter: (columnId) => {
+      const field = findFilterField(fields, { nodePath: [], fieldPath: [columnId] });
+      if (!field) return undefined;
+      const found = columnFilter(lists, field);
+      const removeFound = () => {
+        if (found) found.list.onChange(withoutFilter(found.list.filters, found.filter.id));
+      };
+      return {
+        label,
+        field,
+        current: found && {
+          filter: found.filter,
+          scope: found.list.scope,
+          // `describeFilter` reads `Label condition value`; the header already shows the label.
+          summary: describeFilter({ ...found.filter, nodePath: [] }, fields)
+            .text.slice(field.field.label.length)
+            .trim(),
+        },
+        scopeChoice,
+        itemsFor: context.itemsFor,
+        apply: (filter, scope) => {
+          const target = lists.find((list) => list.scope === scope);
+          if (!target) return;
+          if (found && found.list !== target) removeFound();
+          target.onChange(withFilter(target.filters, { ...filter, nodePath: target.nodePath }));
+        },
+        clear: removeFound,
+      };
     },
   };
 }

@@ -62,6 +62,63 @@ export function filterFields(
   return { groups, byKey };
 }
 
+// The table's free-text search, offered in the filter editor as the field "Any field". It edits
+// the table's search text, never a stored filter, so the name can't clash with a content field.
+const searchFieldName = '$search';
+
+const searchField: CollectionField = {
+  id: '12-search',
+  name: searchFieldName,
+  label: 'Any field',
+  kind: 'text',
+};
+
+/** Whether `field` is "Any field", the table's free-text search. */
+export function isSearchField(field: CollectionField): boolean {
+  return field.name === searchFieldName;
+}
+
+/** Whether `filter` stands for the table's free-text search rather than a view filter. */
+export function isSearchFilter(filter: Pick<ViewFilter, 'fieldPath'>): boolean {
+  return filter.fieldPath.length === 1 && filter.fieldPath[0] === searchFieldName;
+}
+
+/** The table's search text as a filter, so the editor and chips treat it like any other. */
+export function searchFilter(text: string): ViewFilter {
+  return {
+    id: searchFieldName,
+    nodePath: [],
+    fieldPath: [searchFieldName],
+    operator: 'contains',
+    value: text,
+  };
+}
+
+/** `fields` with "Any field" first, in its own `Search` group. */
+export function withSearchField(fields: FilterFields, node: CollectionNode): FilterFields {
+  const field: FilterField = {
+    key: fieldKey([], searchFieldName),
+    nodePath: [],
+    node,
+    scope: undefined,
+    field: searchField,
+  };
+  return {
+    groups: [{ label: 'Search', items: [field] }, ...fields.groups],
+    byKey: new Map([[field.key, field], ...fields.byKey]),
+  };
+}
+
+/** `filters` with `next` in place of the filter that has its id, or added at the end. */
+export function withFilter(
+  filters: readonly ViewFilter[],
+  next: ViewFilter,
+): readonly ViewFilter[] {
+  return filters.some((filter) => filter.id === next.id)
+    ? filters.map((filter) => (filter.id === next.id ? next : filter))
+    : [...filters, next];
+}
+
 type FilterTarget = Pick<ViewFilter, 'nodePath' | 'fieldPath'>;
 
 // The key of the field a filter tests. Pickers only write whole fields, so a filter on a path
@@ -102,8 +159,9 @@ const empty: readonly Condition[] = [
   { id: 'is-not-empty', label: 'is not empty', input: 'none' },
 ];
 
+const contains: Condition = { id: 'contains', label: 'contains', input: 'text' };
 const textConditions: readonly Condition[] = [
-  { id: 'contains', label: 'contains', input: 'text' },
+  contains,
   { id: 'equals', label: 'is', input: 'text' },
   { id: 'not-equal', label: 'is not', input: 'text' },
   { id: 'starts-with', label: 'starts with', input: 'text' },
@@ -128,12 +186,16 @@ const dateConditions: readonly Condition[] = [
   ...empty,
 ];
 
+// The search matches text anywhere, so `contains` is its only condition.
+const searchConditions: readonly Condition[] = [contains];
+
 const isOneOf: Condition = { id: 'one-of', label: 'is', input: 'options' };
 const booleanConditions: readonly Condition[] = [isOneOf, isEmpty];
 const optionConditions: readonly Condition[] = [isOneOf, ...empty];
 
 /** Plain-language conditions that suit the field's kind, the most useful first. */
 export function conditionsFor(field: CollectionField): readonly Condition[] {
+  if (isSearchField(field)) return searchConditions;
   if (field.options?.length) return optionConditions;
   if (field.kind === 'boolean') return booleanConditions;
   if (field.kind === 'number') return numberConditions;

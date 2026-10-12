@@ -4,7 +4,6 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { Search } from 'lucide-react';
 import { useState } from 'react';
 import type {
   CollectionNode,
@@ -32,7 +31,6 @@ import {
   useContentTable,
 } from '../content-table-model';
 import { loadedSnapshot, type LoadedView } from '../load-view';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { describeExplorerError } from '../error-message';
 import {
   columnIdForSort,
@@ -48,7 +46,6 @@ import { tableFilterControls } from './FilterControls';
 import { PublicationStatusCell } from './PublicationStatusCell';
 import { TableSkeleton } from './TableSkeleton';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 
 export interface SharedNodeTableState {
   readonly freeText: string;
@@ -70,6 +67,11 @@ interface NestedTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
+  /** The view's root, and the node path from it to this table, for filters that keep root items. */
+  readonly root: CollectionNode;
+  readonly nodePath: readonly CollectionNodeId[];
+  readonly viewFilters: readonly ViewFilter[];
+  readonly onViewFiltersChange: (filters: readonly ViewFilter[]) => void;
 }
 
 type ContentItemColumns = ReturnType<typeof contentItemColumns>;
@@ -229,6 +231,10 @@ export function NestedTable(props: NestedTableProps) {
     onPresentationChange,
     onOpenDetails,
     onRetry,
+    root,
+    nodePath,
+    viewFilters,
+    onViewFiltersChange,
   } = props;
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [deriveSortedIds] = useState(createSortedIdsMemo);
@@ -240,7 +246,6 @@ export function NestedTable(props: NestedTableProps) {
   const childSnapshot = loadedSnapshot(node, loadedView, contentState);
   const columns = schema ? cachedContentItemColumns(schema, childSnapshot) : emptyColumns;
   const sharedState = stateFor(node, nodeStates, columns);
-  const deferredText = useDebouncedValue(sharedState.freeText);
   const relationshipIsStale = Boolean(
     !node.relationship ||
     !parentSchema ||
@@ -258,7 +263,7 @@ export function NestedTable(props: NestedTableProps) {
     nodeId: node.id,
     parentItemId,
     filters: sharedState.filters,
-    freeText: deferredText.value,
+    freeText: sharedState.freeText,
     sort: sharedState.sort,
   });
 
@@ -360,6 +365,14 @@ export function NestedTable(props: NestedTableProps) {
       updateSharedState({ ...sharedState, filters });
       setPagination((current) => ({ ...current, pageIndex: 0 }));
     },
+    search: {
+      text: sharedState.freeText,
+      onChange: (freeText, filters) => {
+        updateSharedState({ ...sharedState, freeText, filters });
+        setPagination((current) => ({ ...current, pageIndex: 0 }));
+      },
+    },
+    viewScope: { root, nodePath, filters: viewFilters, onChange: onViewFiltersChange },
   });
 
   function updateSharedState(next: SharedNodeTableState) {
@@ -392,25 +405,6 @@ export function NestedTable(props: NestedTableProps) {
           </span>
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
-          <label className="flex h-9 w-42.5 min-w-36 items-center gap-2 rounded-lg border border-input bg-surface-control pl-3 text-muted-foreground transition-[border-color,box-shadow] focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/10">
-            <Search
-              className="text-foreground/70"
-              size={14}
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-            <Input
-              className="h-8.5 min-h-0 min-w-0 border-0 bg-transparent px-0 pr-2.5 shadow-none focus-visible:border-0 focus-visible:ring-0"
-              type="search"
-              aria-label={`Filter ${node.name}`}
-              placeholder="Search"
-              value={sharedState.freeText}
-              onChange={(event) => {
-                updateSharedState({ ...sharedState, freeText: event.target.value });
-                setPagination((current) => ({ ...current, pageIndex: 0 }));
-              }}
-            />
-          </label>
           {filterControls.toolbarButton}
           <ContentColumnsMenu
             table={table}
@@ -420,14 +414,6 @@ export function NestedTable(props: NestedTableProps) {
         </div>
       </div>
       {filterControls.chipRow}
-      {deferredText.showProgress ? (
-        <div
-          className="absolute top-14 right-3.5 z-4 rounded-b-md bg-divider-subtle px-2 py-1 text-[10px] text-muted-foreground"
-          role="status"
-        >
-          Updating results…
-        </div>
-      ) : null}
       {state.status === 'partial' ? (
         <p
           className="m-0 border-b border-warning-border bg-warning px-3.5 py-2 text-xs text-warning-foreground"
@@ -451,7 +437,8 @@ export function NestedTable(props: NestedTableProps) {
         reference={node.reference}
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
-        renderColumnControl={filterControls.columnControl}
+        nodeId={node.id}
+        columnFilter={filterControls.columnFilter}
         emptyContent={
           <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
         }
@@ -464,6 +451,7 @@ export function NestedTable(props: NestedTableProps) {
                 node={child}
                 parentNode={node}
                 parentItemId={item.id}
+                nodePath={[...nodePath, child.id]}
               />
             ))}
           </div>

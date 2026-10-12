@@ -183,6 +183,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Searches the root table the way a user does: Filter, "Any field" (the picker's first field), text.
+async function searchFor(text: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
+  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'View filter field' }), {
+    key: 'Enter',
+  });
+  const value = await screen.findByRole('textbox', { name: 'View filter value' });
+  fireEvent.change(value, { target: { value: text } });
+  fireEvent.keyDown(value, { key: 'Enter' });
+}
+
 describe('root collection browser', () => {
   it('loads the catalog and waits for root confirmation before loading content', async () => {
     const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
@@ -439,7 +450,9 @@ describe('root collection browser', () => {
     render(<App api={api()} tokenStore={storedTokenStore()} />);
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Filter this table')).toHaveValue('First');
+    expect(
+      screen.getByRole('button', { name: 'Edit filter Any field contains “First”' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Published' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -467,9 +480,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.change(screen.getByLabelText('Filter this table'), {
-      target: { value: 'First' },
-    });
+    await searchFor('First');
 
     await waitFor(() => {
       const decoded = ViewCodec.decode(window.location.hash);
@@ -753,7 +764,7 @@ describe('root collection browser', () => {
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
   });
 
-  it('keeps the root search typed and focused while related data loads for it', async () => {
+  it('keeps the root toolbar and search while related data loads for it', async () => {
     let releaseChild = () => {};
     const childLoaded = new Promise<void>((resolve) => {
       releaseChild = resolve;
@@ -771,9 +782,8 @@ describe('root collection browser', () => {
           : Effect.succeed(snapshot),
     };
     render(<App api={testApi} tokenStore={storedTokenStore()} />);
-    const search = await screen.findByLabelText('Filter this table');
-    search.focus();
-    fireEvent.change(search, { target: { value: 'First' } });
+    await screen.findByRole('heading', { name: 'Stories' });
+    await searchFor('First');
 
     expect(
       await screen.findByText(
@@ -782,13 +792,11 @@ describe('root collection browser', () => {
     ).toHaveAttribute('role', 'status');
     expect(screen.getByRole('status', { name: 'Loading related results' })).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Filter this table')).toBe(search);
-    expect(search).toHaveValue('First');
-    expect(search).toHaveFocus();
+    const chip = screen.getByRole('button', { name: 'Edit filter Any field contains “First”' });
 
     releaseChild();
     expect(await screen.findByRole('table')).toBeInTheDocument();
-    expect(search).toHaveFocus();
+    expect(chip).toBeInTheDocument();
   });
 
   it('resumes descendant loading after a nested authentication failure', async () => {

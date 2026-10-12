@@ -1,15 +1,16 @@
-import { Check, ChevronsUpDown, CornerDownLeft, Funnel, ListFilter, X } from 'lucide-react';
+import { Check, ChevronsUpDown, CornerDownLeft, ListFilter, Search, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { ContentItem, ViewFilter } from '../../domain';
+import type { CollectionNodeId, ContentItem, ViewFilter } from '../../domain';
 import { isDateOnly } from '../../explorer-core';
 import {
   conditionsFor,
   describeFilter,
   draftFromFilter,
-  editsField,
   emptyDraft,
   filterFromDraft,
   filterOptions,
+  isSearchField,
+  withFilter,
   optionCounts,
   type Condition,
   type DraftInput,
@@ -18,6 +19,7 @@ import {
   type FilterFieldGroup,
   type FilterFields,
 } from '../filter-fields';
+import { useUnshownFilters, type ListedFilter } from '../hooks/shown-headers';
 import { useFieldProblem } from '../hooks/useFieldProblem';
 import { Button } from './ui/button';
 import { Checkbox, CheckboxGroup } from './ui/checkbox';
@@ -40,13 +42,6 @@ export interface FilterContext {
 export interface FilterListContext extends FilterContext {
   readonly filters: readonly ViewFilter[];
   readonly onChange: (filters: readonly ViewFilter[]) => void;
-}
-
-// `filters` with `next` in place of the filter that has its id, or added at the end.
-function withFilter(filters: readonly ViewFilter[], next: ViewFilter): readonly ViewFilter[] {
-  return filters.some((filter) => filter.id === next.id)
-    ? filters.map((filter) => (filter.id === next.id ? next : filter))
-    : [...filters, next];
 }
 
 interface FilterPopoverProps extends FilterListContext {
@@ -75,34 +70,6 @@ function FilterPopover({ trigger, align, filters, onChange, ...editor }: FilterP
         />
       </PopoverContent>
     </Popover>
-  );
-}
-
-/** Funnel in a column header: edits the column's filter, or adds one. */
-export function ColumnFilterButton({
-  field,
-  ...context
-}: FilterListContext & { field: FilterField }) {
-  const existing = context.filters.find((filter) => editsField(filter, field));
-  return (
-    <FilterPopover
-      {...context}
-      align="start"
-      filter={existing}
-      field={field}
-      trigger={
-        <PopoverTrigger
-          className={`inline-flex size-5.5 shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-[opacity,color,background-color] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/45 data-popup-open:opacity-100 ${
-            existing
-              ? 'bg-primary/14 text-primary hover:bg-primary/22'
-              : 'text-muted-foreground opacity-0 group-hover/head:opacity-100 hover:bg-surface-menu-hover hover:text-foreground'
-          }`}
-          aria-label={`Filter by ${field.field.label}`}
-        >
-          <Funnel size={12} strokeWidth={2.5} fill={existing ? 'currentColor' : 'none'} />
-        </PopoverTrigger>
-      }
-    />
   );
 }
 
@@ -206,6 +173,26 @@ export function FilterChipRow({ heading, onClearAll, children }: FilterChipRowPr
   );
 }
 
+interface UnshownFilterChipsProps {
+  readonly nodeId: CollectionNodeId;
+  readonly heading: string | undefined;
+  readonly entries: readonly ListedFilter[];
+  readonly context: FilterListContext;
+}
+
+/** The chip row, minus the filters a column header on screen already shows. */
+export function UnshownFilterChips({ nodeId, heading, entries, context }: UnshownFilterChipsProps) {
+  const rest = useUnshownFilters(nodeId, entries);
+  if (rest.length === 0) return null;
+  return (
+    <FilterChipRow heading={heading} onClearAll={() => context.onChange([])}>
+      {rest.map(({ filter }) => (
+        <FilterChip key={filter.id} {...context} filter={filter} />
+      ))}
+    </FilterChipRow>
+  );
+}
+
 function fieldText(field: FilterField): string {
   return field.scope ? `${field.scope} › ${field.field.label}` : field.field.label;
 }
@@ -282,7 +269,7 @@ function FilterEditor({
 
   return (
     <div className="grid w-[min(480px,calc(100vw-2rem))] gap-3 p-3" role="group" aria-label={label}>
-      {/* A column funnel or a chip already names the field, so only the toolbar editor picks one. */}
+      {/* A chip already names the field, so only the toolbar editor picks one. */}
       {fixedField ? (
         <p className="m-0 min-w-0 truncate text-sm">
           <span className="text-muted-foreground">Filter by </span>
@@ -291,6 +278,11 @@ function FilterEditor({
       ) : (
         <FieldPicker label={label} groups={fields.groups} field={field} onChoose={chooseField} />
       )}
+      {field && isSearchField(field.field) ? (
+        <p className="-mt-1 m-0 text-[11px] leading-snug text-muted-foreground">
+          Keeps {subject} with this text in any field, or in any field of their related items.
+        </p>
+      ) : null}
       {field?.scope ? (
         <p className="-mt-1 m-0 text-[11px] leading-snug text-muted-foreground">
           Keeps only {subject} with at least one matching item in{' '}
@@ -362,13 +354,18 @@ interface FieldPickerProps {
 }
 
 // Searchable field list for a new filter, grouped by collection; it opens as soon as it mounts.
+// Enter on the empty input picks the first field, which nothing highlights until the user types.
 function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
+  const highlighted = useRef<FilterField | undefined>(undefined);
   return (
     <Combobox.Root
       items={groups}
       value={field ?? null}
       onValueChange={(next) => {
         if (next) onChoose(next);
+      }}
+      onItemHighlighted={(next) => {
+        highlighted.current = next;
       }}
       itemToStringLabel={fieldText}
       isItemEqualToValue={(left, right) => left.key === right.key}
@@ -389,6 +386,13 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
           autoFocus
           aria-label={`${label} field`}
           placeholder="Search fields…"
+          onKeyDown={(event) => {
+            const first = groups[0]?.items[0];
+            if (event.key !== 'Enter' || event.currentTarget.value !== '') return;
+            if (highlighted.current || !first) return;
+            event.preventDefault();
+            onChoose(first);
+          }}
         />
         <Combobox.Trigger
           className="absolute right-1 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-menu-hover hover:text-foreground"
@@ -422,9 +426,17 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
                           <Check size={13} />
                         </Combobox.ItemIndicator>
                         <span className="min-w-0 flex-1 truncate">{candidate.field.label}</span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {candidate.field.options?.length ? 'options' : candidate.field.kind}
-                        </span>
+                        {isSearchField(candidate.field) ? (
+                          <Search
+                            size={12}
+                            className="shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {candidate.field.options?.length ? 'options' : candidate.field.kind}
+                          </span>
+                        )}
                       </Combobox.Item>
                     )}
                   </Combobox.Collection>
@@ -452,7 +464,8 @@ interface ValueControlProps {
   readonly onKeyDown: (event: KeyboardEvent) => void;
 }
 
-function ValueControl({
+/** The value input(s) a condition needs: text, number, date, a range, or option checkboxes. */
+export function ValueControl({
   label,
   field,
   condition,
