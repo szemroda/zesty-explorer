@@ -40,7 +40,16 @@ export function describeExplorerError(error: ExplorerError, browserOrigin: strin
     return { message: error.message, recovery: 'Retry after the connection stabilizes.' };
   }
   if (error.kind === 'rate-limit') {
-    return { message: error.message, recovery: 'Wait briefly before retrying this node.' };
+    return {
+      message: error.message,
+      recovery: `Retry after ${new Date(error.retryAt).toLocaleString()}. Requests to this service are paused in this tab.`,
+    };
+  }
+  if (error.kind === 'request-budget') {
+    return {
+      message: error.message,
+      recovery: 'Allow session storage and reload the app in Chrome or Edge.',
+    };
   }
   if (error.kind === 'server') {
     return { message: error.message, recovery: 'Retry after Zesty recovers.' };

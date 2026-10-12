@@ -405,12 +405,27 @@ function ResponsePane({
               ) : null}
             </>
           ) : (
-            <strong className="text-red-300">No readable response</strong>
+            <strong className="text-red-300">
+              {result.kind === 'failure' &&
+              (result.failure.kind === 'rate-limit' || result.failure.kind === 'request-budget')
+                ? 'Request paused'
+                : 'No readable response'}
+            </strong>
           )}
           <code className="text-muted-foreground ml-auto truncate" title={result.url}>
             {result.url}
           </code>
         </div>
+      ) : null}
+      {response?.rateLimit ? (
+        <p
+          className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200"
+          role="status"
+        >
+          {response.rateLimit.kind === 'cooldown'
+            ? `WebEngine requests are paused in this tab. Retry after ${new Date(response.rateLimit.retryAt).toLocaleString()}.`
+            : response.rateLimit.message}
+        </p>
       ) : null}
       {response?.truncated ? (
         <p
@@ -476,6 +491,12 @@ function FailureMessage({
   readonly url: string;
   readonly failure: EndpointFailure;
 }) {
+  if (failure.kind === 'rate-limit') {
+    return <Message>{failure.message}</Message>;
+  }
+  if (failure.kind === 'request-budget') {
+    return <Message>{failure.message}</Message>;
+  }
   return (
     <Message>
       <span className="max-w-2xl">

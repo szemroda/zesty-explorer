@@ -17,7 +17,8 @@ const failures: readonly ExplorerError[] = [
   { kind: 'decoding', message: 'decoding' },
   { kind: 'network', message: 'network' },
   { kind: 'timeout', message: 'timeout' },
-  { kind: 'rate-limit', message: 'rate limit' },
+  { kind: 'rate-limit', message: 'rate limit', retryAt: 1_000 },
+  { kind: 'request-budget', message: 'unavailable' },
   { kind: 'server', status: 503, message: 'server' },
   { kind: 'data-limit', scope: 'view', message: 'limit' },
 ];

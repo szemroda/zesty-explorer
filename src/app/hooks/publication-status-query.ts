@@ -1,13 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { Effect, Either } from 'effect';
+import { Effect } from 'effect';
 import type { ContentItem, ContentItemReference, Deployment, InstanceZuid } from '../../domain';
-import type { ItemVersionApi } from '../../zesty-api';
+import { withRequestPriority, type ItemVersionApi } from '../../zesty-api';
+import { runExplorerQuery } from './explorer-query';
 import { contentItemVersionNumber } from '../item-version-preview';
 import { publicationStatus, type PublicationStatus } from '../publication-status';
 
 export const publicationStatusQueryPrefix = ['publication-status'] as const;
-// Bounds how many table rows load their status at once, across every mounted cell.
-const itemSlots = Effect.unsafeMakeSemaphore(4);
 
 export interface PublicationStatusSource {
   readonly api: ItemVersionApi;
@@ -21,25 +20,20 @@ export async function loadPublicationStatus(
   item: ContentItem,
   signal: AbortSignal,
 ): Promise<PublicationStatus> {
-  const result = await Effect.runPromise(
-    itemSlots
-      .withPermits(1)(
-        Effect.all(
-          [
-            source.api.loadItemVersions(reference, source.sessionToken),
-            source.api.loadItemPublishings(reference, source.sessionToken),
-          ] as const,
-          { concurrency: 2 },
-        ),
-      )
-      .pipe(Effect.either),
-    { signal },
+  const result = await runExplorerQuery(
+    Effect.all(
+      [
+        source.api.loadItemVersions(reference, source.sessionToken),
+        source.api.loadItemPublishings(reference, source.sessionToken),
+      ] as const,
+      { concurrency: 2 },
+    ).pipe(withRequestPriority('background')),
+    signal,
   );
-  if (Either.isLeft(result)) throw new Error(result.left.message);
   const status = publicationStatus(
     contentItemVersionNumber(item),
-    result.right[0],
-    result.right[1],
+    result[0],
+    result[1],
     new Date(),
   );
   if (!status) throw new Error('No saved version is available.');
