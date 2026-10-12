@@ -366,6 +366,8 @@ export interface FilterDescription {
   /** Descendant node names, shown before the condition when the field is not the table's own. */
   readonly scope: string | undefined;
   readonly text: string;
+  /** `text` without the field's label, e.g. `between 10 and 20`, for where the label already shows. */
+  readonly condition: string;
   /**
    * The editor cannot open the filter: it names a node or field that is no longer in the view,
    * or a condition its field does not offer. It can still be removed.
@@ -398,6 +400,7 @@ export function describeFilter(filter: ViewFilter, fields: FilterFields): Filter
     field: found,
     scope: found?.scope,
     text: `${label} ${operator}${value}`,
+    condition: `${operator}${value}`,
     stale: condition === undefined,
   };
 }

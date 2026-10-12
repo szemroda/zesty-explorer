@@ -1,26 +1,19 @@
 import { Check, ChevronsUpDown, CornerDownLeft, ListFilter, Search, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { CollectionNodeId, ContentItem, ViewFilter } from '../../domain';
+import { useId, useRef, useState, type ReactNode } from 'react';
+import type { ContentItem, ViewFilter } from '../../domain';
 import { isDateOnly } from '../../explorer-core';
 import {
-  conditionsFor,
   describeFilter,
-  draftFromFilter,
-  emptyDraft,
-  filterFromDraft,
   filterOptions,
   isSearchField,
-  withFilter,
   optionCounts,
+  withFilter,
   type Condition,
-  type DraftInput,
-  type FilterDraft,
   type FilterField,
   type FilterFieldGroup,
   type FilterFields,
 } from '../filter-fields';
-import { useUnshownFilters, type ListedFilter } from '../hooks/shown-headers';
-import { useFieldProblem } from '../hooks/useFieldProblem';
+import { useFilterDraft, type DraftValueProps } from '../hooks/useFilterDraft';
 import { Button } from './ui/button';
 import { Checkbox, CheckboxGroup } from './ui/checkbox';
 import { Combobox } from './ui/combobox';
@@ -173,26 +166,6 @@ export function FilterChipRow({ heading, onClearAll, children }: FilterChipRowPr
   );
 }
 
-interface UnshownFilterChipsProps {
-  readonly nodeId: CollectionNodeId;
-  readonly heading: string | undefined;
-  readonly entries: readonly ListedFilter[];
-  readonly context: FilterListContext;
-}
-
-/** The chip row, minus the filters a column header on screen already shows. */
-export function UnshownFilterChips({ nodeId, heading, entries, context }: UnshownFilterChipsProps) {
-  const rest = useUnshownFilters(nodeId, entries);
-  if (rest.length === 0) return null;
-  return (
-    <FilterChipRow heading={heading} onClearAll={() => context.onChange([])}>
-      {rest.map(({ filter }) => (
-        <FilterChip key={filter.id} {...context} filter={filter} />
-      ))}
-    </FilterChipRow>
-  );
-}
-
 function fieldText(field: FilterField): string {
   return field.scope ? `${field.scope} › ${field.field.label}` : field.field.label;
 }
@@ -214,57 +187,21 @@ function FilterEditor({
   onSubmit,
 }: FilterEditorProps) {
   const [field, setField] = useState(fixedField);
-  const [draft, setDraft] = useState(() =>
-    filter ? draftFromFilter(filter) : emptyDraft(fixedField),
-  );
-  const valueControl = useRef<HTMLElement | null>(null);
-  const upperControl = useRef<HTMLElement | null>(null);
-  const problem = useFieldProblem<DraftInput>({ value: valueControl, upper: upperControl });
-  const message = problem.field ? problem.messageFor(problem.field) : undefined;
   // An editor that opens on a known field starts in its value control.
-  const focusValueOnFieldChange = useRef(fixedField !== undefined);
-  const conditions = field ? conditionsFor(field.field) : [];
-  const condition = conditions.find((candidate) => candidate.id === draft.condition);
-
-  useEffect(() => {
-    if (!focusValueOnFieldChange.current) return;
-    focusValueOnFieldChange.current = false;
-    valueControl.current?.focus();
-  }, [field, draft.condition]);
-
-  function update(patch: Partial<FilterDraft>) {
-    setDraft((current) => ({ ...current, ...patch }));
-    problem.clear();
-  }
+  const {
+    draft,
+    conditions,
+    condition,
+    message,
+    valueProps,
+    submit,
+    chooseCondition,
+    changeField,
+  } = useFilterDraft(field, filter, onSubmit, fixedField !== undefined);
 
   function chooseField(next: FilterField) {
-    focusValueOnFieldChange.current = true;
-    const keepsCondition =
-      field !== undefined &&
-      conditionsFor(next.field).some((candidate) => candidate.id === draft.condition);
+    changeField(next);
     setField(next);
-    setDraft((current) => ({
-      ...emptyDraft(next),
-      ...(keepsCondition ? { condition: current.condition } : {}),
-      value: current.value,
-    }));
-    problem.clear();
-  }
-
-  function submit() {
-    if (!field) return;
-    const result = filterFromDraft(draft, field, filter?.id ?? crypto.randomUUID());
-    if (!result.ok) {
-      problem.report(result.input, result.problem);
-      return;
-    }
-    onSubmit(result.filter);
-  }
-
-  function submitOnEnter(event: KeyboardEvent) {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    submit();
   }
 
   return (
@@ -295,9 +232,7 @@ function FilterEditor({
             items={conditions.map((candidate) => ({ label: candidate.label, value: candidate.id }))}
             value={draft.condition}
             onValueChange={(next) => {
-              if (next === null) return;
-              focusValueOnFieldChange.current = true;
-              update({ condition: next });
+              if (next !== null) chooseCondition(next);
             }}
           >
             <SelectTrigger className="w-32 shrink-0" aria-label={`${label} condition`}>
@@ -314,20 +249,11 @@ function FilterEditor({
           <div className="min-w-0 flex-1">
             {condition ? (
               <ValueControl
+                {...valueProps}
                 label={label}
                 field={field}
                 condition={condition}
-                draft={draft}
-                problemInput={problem.field}
                 itemsFor={itemsFor}
-                controlRef={(element) => {
-                  valueControl.current = element;
-                }}
-                upperRef={(element) => {
-                  upperControl.current = element;
-                }}
-                onChange={update}
-                onKeyDown={submitOnEnter}
               />
             ) : null}
           </div>
@@ -450,18 +376,11 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
   );
 }
 
-interface ValueControlProps {
+interface ValueControlProps extends DraftValueProps {
   readonly label: string;
   readonly field: FilterField;
   readonly condition: Condition;
-  readonly draft: FilterDraft;
-  /** The input whose value has a problem, if any. */
-  readonly problemInput: DraftInput | undefined;
   readonly itemsFor: FilterContext['itemsFor'];
-  readonly controlRef: (element: HTMLElement | null) => void;
-  readonly upperRef: (element: HTMLElement | null) => void;
-  readonly onChange: (patch: Partial<FilterDraft>) => void;
-  readonly onKeyDown: (event: KeyboardEvent) => void;
 }
 
 /** The value input(s) a condition needs: text, number, date, a range, or option checkboxes. */

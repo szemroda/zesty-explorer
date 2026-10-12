@@ -1,16 +1,8 @@
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import type { ViewFilter } from '../../domain';
-import {
-  conditionsFor,
-  draftFromFilter,
-  emptyDraft,
-  filterFromDraft,
-  type DraftInput,
-  type FilterDraft,
-  type FilterField,
-} from '../filter-fields';
-import { useFieldProblem } from '../hooks/useFieldProblem';
+import type { FilterField } from '../filter-fields';
+import { useFilterDraft } from '../hooks/useFilterDraft';
 import { ValueControl, type FilterContext } from './FilterEditor';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -39,8 +31,6 @@ interface ColumnFilterFormProps {
   readonly itemsFor: FilterContext['itemsFor'];
   /** Writes the filter, `nodePath` relative to the table, into the list of `scope`. */
   readonly onApply: (filter: ViewFilter, scope: FilterScope) => void;
-  /** Moves the existing filter, unchanged, to the list of `scope`. */
-  readonly onMove: (scope: FilterScope) => void;
   readonly onClear: () => void;
 }
 
@@ -53,49 +43,11 @@ export function ColumnFilterForm({
   scopeChoice,
   itemsFor,
   onApply,
-  onMove,
   onClear,
 }: ColumnFilterFormProps) {
-  const [draft, setDraft] = useState(() => (filter ? draftFromFilter(filter) : emptyDraft(field)));
   const [scope, setScope] = useState(currentScope);
-  const valueControl = useRef<HTMLElement | null>(null);
-  const upperControl = useRef<HTMLElement | null>(null);
-  const problem = useFieldProblem<DraftInput>({ value: valueControl, upper: upperControl });
-  const message = problem.field ? problem.messageFor(problem.field) : undefined;
-  const focusValueOnConditionChange = useRef(false);
-  const conditions = conditionsFor(field.field);
-  const condition = conditions.find((candidate) => candidate.id === draft.condition);
-
-  useEffect(() => {
-    if (!focusValueOnConditionChange.current) return;
-    focusValueOnConditionChange.current = false;
-    valueControl.current?.focus();
-  }, [draft.condition]);
-
-  function update(patch: Partial<FilterDraft>) {
-    setDraft((current) => ({ ...current, ...patch }));
-    problem.clear();
-  }
-
-  function chooseScope(next: FilterScope) {
-    setScope(next);
-    if (filter) onMove(next);
-  }
-
-  function submit() {
-    const result = filterFromDraft(draft, field, filter?.id ?? crypto.randomUUID());
-    if (!result.ok) {
-      problem.report(result.input, result.problem);
-      return;
-    }
-    onApply(result.filter, scope);
-  }
-
-  function submitOnEnter(event: KeyboardEvent) {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    submit();
-  }
+  const { draft, conditions, condition, message, valueProps, submit, chooseCondition } =
+    useFilterDraft(field, filter, (next) => onApply(next, scope), false);
 
   return (
     <div className="grid gap-2 px-2 pt-1.5 pb-2" role="group" aria-label={label}>
@@ -110,7 +62,7 @@ export function ColumnFilterForm({
               aria-label="Apply filter to"
               value={[scope]}
               onValueChange={([next]) => {
-                if (next) chooseScope(next);
+                if (next) setScope(next);
               }}
             >
               <ToggleGroupItem value="table">This table</ToggleGroupItem>
@@ -119,8 +71,8 @@ export function ColumnFilterForm({
           </div>
           <p className="m-0 text-[11px] leading-snug text-muted-foreground">
             {scope === 'view'
-              ? `Keeps only ${scopeChoice.root} items that have a matching ${scopeChoice.node}.`
-              : `Filters ${scopeChoice.node} rows only; every ${scopeChoice.root} item stays.`}
+              ? `Keeps only ${scopeChoice.root} with at least one matching item in ${scopeChoice.node}.`
+              : `Filters only these ${scopeChoice.node} rows; all ${scopeChoice.root} stay.`}
           </p>
         </div>
       ) : null}
@@ -128,9 +80,7 @@ export function ColumnFilterForm({
         items={conditions.map((candidate) => ({ label: candidate.label, value: candidate.id }))}
         value={draft.condition}
         onValueChange={(next) => {
-          if (next === null) return;
-          focusValueOnConditionChange.current = true;
-          update({ condition: next });
+          if (next !== null) chooseCondition(next);
         }}
       >
         <SelectTrigger className="w-full" size="sm" aria-label={`${label} condition`}>
@@ -146,20 +96,11 @@ export function ColumnFilterForm({
       </Select>
       {condition ? (
         <ValueControl
+          {...valueProps}
           label={label}
           field={field}
           condition={condition}
-          draft={draft}
-          problemInput={problem.field}
           itemsFor={itemsFor}
-          controlRef={(element) => {
-            valueControl.current = element;
-          }}
-          upperRef={(element) => {
-            upperControl.current = element;
-          }}
-          onChange={update}
-          onKeyDown={submitOnEnter}
         />
       ) : null}
       {message ? (

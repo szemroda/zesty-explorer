@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Eye, ExternalLink, SlidersHorizontal } from 'lucide-react';
 import { Fragment, memo, type ReactNode, use, useCallback, useState } from 'react';
-import type { CollectionNodeId, CollectionReference, ContentItem } from '../../domain';
+import type { CollectionReference, ContentItem } from '../../domain';
 import type { ContentTableInstance } from '../content-table-model';
 import { ScrollDockContext } from '../scroll-dock';
 import {
@@ -29,8 +29,6 @@ interface ContentTableGridProps {
   readonly canExpand: boolean;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly renderExpandedRow: (item: ContentItem) => ReactNode;
-  /** The table's collection node, whose column headers count as on screen while mounted. */
-  readonly nodeId: CollectionNodeId;
   /** The filter a column's menu edits; undefined for columns that cannot be filtered. */
   readonly columnFilter: (columnId: string) => ColumnFilterEditor | undefined;
   /** Shown under the headers while no rows match. */
@@ -133,7 +131,6 @@ export function ContentTableGrid({
   canExpand,
   onOpenDetails,
   renderExpandedRow,
-  nodeId,
   columnFilter,
   emptyContent,
 }: ContentTableGridProps) {
@@ -198,7 +195,6 @@ export function ContentTableGrid({
                       </span>
                     ) : (
                       <ColumnMenuHeader
-                        nodeId={nodeId}
                         header={{
                           columnId: header.column.id,
                           label: <table.FlexRender header={header} />,

@@ -11,7 +11,7 @@ import type {
 import { collectionNode } from '../../test/fixtures';
 import { buildLoadedViewGraph, rootLoadedView } from '../load-view';
 import { ColumnMenuHeader } from './ColumnMenu';
-import { tableFilterControls, type TableSearch } from './FilterControls';
+import { tableFilterControls, type TableSearch, type ViewScope } from './FilterControls';
 
 const node = { ...collectionNode('node-articles', '6-articles'), name: 'Articles' };
 const schema: CollectionSchema = {
@@ -56,11 +56,21 @@ interface ControlsProps {
   readonly onChange: (filters: readonly ViewFilter[]) => void;
   readonly itemIds?: readonly ItemZuid[];
   readonly search?: TableSearch;
+  readonly isColumnShown?: (columnId: string) => boolean;
+  readonly viewScope?: ViewScope;
 }
 
 const noSearch: TableSearch = { text: '', onChange: () => undefined };
 
-function controls({ filters, onChange, itemIds = allItemIds, search = noSearch }: ControlsProps) {
+function controls({
+  filters,
+  onChange,
+  itemIds = allItemIds,
+  search = noSearch,
+  // Most tests render chips without the table, so no header shows a filter.
+  isColumnShown = () => false,
+  viewScope,
+}: ControlsProps) {
   return tableFilterControls({
     node,
     label: 'View filter',
@@ -73,6 +83,8 @@ function controls({ filters, onChange, itemIds = allItemIds, search = noSearch }
     filters,
     onChange,
     search,
+    isColumnShown,
+    ...(viewScope ? { viewScope } : {}),
   });
 }
 
@@ -85,7 +97,6 @@ function openColumnMenu(
   const onChange = vi.fn();
   const Header = () => (
     <ColumnMenuHeader
-      nodeId={node.id}
       header={{
         columnId: column,
         label,
@@ -194,6 +205,7 @@ describe('field picker', () => {
         filters: [],
         onChange: vi.fn(),
         search: noSearch,
+        isColumnShown: () => true,
       }).toolbarButton;
     render(<Toolbar />);
     fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
@@ -295,5 +307,59 @@ describe('search as a filter', () => {
       screen.getByRole('button', { name: 'Remove filter Any field contains “bottom”' }),
     );
     expect(onSearch).toHaveBeenCalledWith('', [state]);
+  });
+});
+
+describe('chips and column headers', () => {
+  const draft: ViewFilter = {
+    id: 'd1',
+    nodePath: [],
+    fieldPath: ['state'],
+    operator: 'one-of',
+    value: ['draft'],
+  };
+
+  it('lists a filter as a chip only while no header on screen shows it', () => {
+    const Chips = ({ shown }: { readonly shown: boolean }) =>
+      controls({ filters: [draft], onChange: vi.fn(), isColumnShown: () => shown }).chipRow;
+    const { rerender } = render(<Chips shown />);
+    expect(screen.queryByRole('group', { name: 'Active filters' })).not.toBeInTheDocument();
+
+    rerender(<Chips shown={false} />);
+    expect(screen.getByRole('button', { name: 'Edit filter State is Draft' })).toBeInTheDocument();
+  });
+
+  it('moves a nested column filter into the view filters on "All <root>"', async () => {
+    const onChange = vi.fn();
+    const onViewChange = vi.fn();
+    const root = { ...collectionNode('node-pages', '6-pages'), name: 'Pages' };
+    // The view already filters this column; the moved filter replaces it rather than doubling it.
+    const viewFilter: ViewFilter = { ...draft, id: 'v1', nodePath: [node.id], value: ['review'] };
+    const Header = () => (
+      <ColumnMenuHeader
+        header={{
+          columnId: 'state',
+          label: 'State',
+          canSort: true,
+          sorted: false,
+          sort: vi.fn(),
+          hide: vi.fn(),
+        }}
+        filter={controls({
+          filters: [draft],
+          onChange,
+          viewScope: { root, nodePath: [node.id], filters: [viewFilter], onChange: onViewChange },
+        }).columnFilter('state')}
+      />
+    );
+    render(<Header />);
+    fireEvent.click(screen.getByRole('button', { name: /^State/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'All Pages' }));
+    // The choice waits for Update, like the condition and value.
+    expect(onViewChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Update filter' }));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+    expect(onViewChange).toHaveBeenCalledWith([{ ...draft, id: 'v1', nodePath: [node.id] }]);
   });
 });

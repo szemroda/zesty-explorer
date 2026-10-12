@@ -1,9 +1,8 @@
 import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
-import type { CollectionNodeId, ViewFilter } from '../../domain';
+import type { ViewFilter } from '../../domain';
 import type { FilterField } from '../filter-fields';
 import type { FilterContext } from './FilterEditor';
-import { useShownHeader } from '../hooks/shown-headers';
 import { ColumnFilterForm, type FilterScope, type ScopeChoice } from './ColumnFilterForm';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
@@ -34,23 +33,24 @@ export interface ColumnFilterEditor {
     | undefined;
   readonly scopeChoice: ScopeChoice | undefined;
   readonly itemsFor: FilterContext['itemsFor'];
-  /** Writes `filter` (its `nodePath` relative to the table) into the list of `scope`. */
+  /**
+   * Writes `filter` (its `nodePath` relative to the table) into the list of `scope`, taking it out
+   * of the other list when the user moved it.
+   */
   readonly apply: (filter: ViewFilter, scope: FilterScope) => void;
   readonly clear: () => void;
 }
 
 interface ColumnMenuHeaderProps {
   readonly header: ColumnHeader;
-  readonly nodeId: CollectionNodeId;
   /** Undefined for columns that cannot be filtered; their menu sorts and hides only. */
   readonly filter: ColumnFilterEditor | undefined;
 }
 
 /** The whole header is a button that opens the column menu: sort, filter, hide. */
-export function ColumnMenuHeader({ header, nodeId, filter }: ColumnMenuHeaderProps) {
+export function ColumnMenuHeader({ header, filter }: ColumnMenuHeaderProps) {
   const [open, setOpen] = useState(false);
   const headingId = useId();
-  useShownHeader(nodeId, header.columnId);
   const current = filter?.current;
 
   return (
@@ -132,9 +132,6 @@ export function ColumnMenuHeader({ header, nodeId, filter }: ColumnMenuHeaderPro
               onApply={(next, scope) => {
                 filter.apply(next, scope);
                 setOpen(false);
-              }}
-              onMove={(scope) => {
-                if (current) filter.apply(current.filter, scope);
               }}
               onClear={() => {
                 filter.clear();

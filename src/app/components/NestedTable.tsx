@@ -372,6 +372,7 @@ export function NestedTable(props: NestedTableProps) {
         setPagination((current) => ({ ...current, pageIndex: 0 }));
       },
     },
+    isColumnShown: (columnId) => columnVisibility[columnId] !== false,
     viewScope: { root, nodePath, filters: viewFilters, onChange: onViewFiltersChange },
   });
 
@@ -437,7 +438,6 @@ export function NestedTable(props: NestedTableProps) {
         reference={node.reference}
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
-        nodeId={node.id}
         columnFilter={filterControls.columnFilter}
         emptyContent={
           <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>

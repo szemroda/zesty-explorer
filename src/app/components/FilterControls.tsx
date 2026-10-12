@@ -20,13 +20,13 @@ import {
   type FilterField,
   type FilterFields,
 } from '../filter-fields';
-import type { ListedFilter } from '../hooks/shown-headers';
 import { loadedSnapshot, type LoadedView } from '../load-view';
 import type { FilterScope } from './ColumnFilterForm';
 import type { ColumnFilterEditor } from './ColumnMenu';
 import {
   AddFilterButton,
-  UnshownFilterChips,
+  FilterChip,
+  FilterChipRow,
   type FilterContext,
   type FilterListContext,
 } from './FilterEditor';
@@ -83,6 +83,8 @@ export interface TableFilterOptions {
   readonly filters: readonly ViewFilter[];
   readonly onChange: (filters: readonly ViewFilter[]) => void;
   readonly search: TableSearch;
+  /** Whether the column's header is on screen; a filter that header shows needs no chip. */
+  readonly isColumnShown: (columnId: string) => boolean;
   /** Set for nested tables only; the root table's filters already are view filters. */
   readonly viewScope?: ViewScope;
 }
@@ -126,14 +128,19 @@ interface ColumnFilter {
   readonly list: FilterList;
 }
 
-// The filter a column header shows: the first its editor can open, table filters first.
+// The first filter of `list` that the column editor of `field` can open.
+function listFilter(list: FilterList, field: FilterField): ViewFilter | undefined {
+  return list.filters.find(
+    (candidate) =>
+      samePath(candidate.nodePath, list.nodePath) &&
+      editsField({ ...candidate, nodePath: [] }, field),
+  );
+}
+
+// The filter a column header shows: table filters first.
 function columnFilter(lists: readonly FilterList[], field: FilterField): ColumnFilter | undefined {
   for (const list of lists) {
-    const filter = list.filters.find(
-      (candidate) =>
-        samePath(candidate.nodePath, list.nodePath) &&
-        editsField({ ...candidate, nodePath: [] }, field),
-    );
+    const filter = listFilter(list, field);
     if (filter) return { filter, list };
   }
   return undefined;
@@ -175,26 +182,29 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
     },
   };
 
-  // The search never has a column; a filter has one when that column's header shows it.
-  const listed: readonly ListedFilter[] = [
-    ...(currentSearch ? [{ filter: currentSearch, columnId: undefined }] : []),
-    ...filters.map((filter): ListedFilter => {
-      const field = findFilterField(fields, filter);
-      const shownBy = field && columnFilter(lists, field)?.filter.id === filter.id;
-      return { filter, columnId: shownBy ? field.field.name : undefined };
-    }),
-  ];
+  // A filter needs a chip unless the header of its column is on screen and shows it. View filters
+  // on related fields stay chips at the root, as they explain why root rows are missing.
+  const chips = listContext.filters.filter((filter) => {
+    const field = findFilterField(fields, filter);
+    if (!field || !options.isColumnShown(field.field.name)) return true;
+    return columnFilter(lists, field)?.filter.id !== filter.id;
+  });
+  const chipIds = new Set(chips.map((filter) => filter.id));
 
   return {
     toolbarButton: <AddFilterButton {...listContext} addLabel={options.addLabel} />,
     chipRow:
-      listed.length > 0 ? (
-        <UnshownFilterChips
-          nodeId={node.id}
+      chips.length > 0 ? (
+        <FilterChipRow
           heading={options.heading}
-          entries={listed}
-          context={listContext}
-        />
+          onClearAll={() =>
+            listContext.onChange(listContext.filters.filter((filter) => !chipIds.has(filter.id)))
+          }
+        >
+          {chips.map((filter) => (
+            <FilterChip key={filter.id} {...listContext} filter={filter} />
+          ))}
+        </FilterChipRow>
       ) : null,
     columnFilter: (columnId) => {
       const field = findFilterField(fields, { nodePath: [], fieldPath: [columnId] });
@@ -209,10 +219,8 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
         current: found && {
           filter: found.filter,
           scope: found.list.scope,
-          // `describeFilter` reads `Label condition value`; the header already shows the label.
-          summary: describeFilter({ ...found.filter, nodePath: [] }, fields)
-            .text.slice(field.field.label.length)
-            .trim(),
+          // The header already shows the label.
+          summary: describeFilter({ ...found.filter, nodePath: [] }, fields).condition,
         },
         scopeChoice,
         itemsFor: context.itemsFor,
@@ -220,7 +228,9 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
           const target = lists.find((list) => list.scope === scope);
           if (!target) return;
           if (found && found.list !== target) removeFound();
-          target.onChange(withFilter(target.filters, { ...filter, nodePath: target.nodePath }));
+          // A filter moved into a list that already filters this column replaces that filter.
+          const id = listFilter(target, field)?.id ?? filter.id;
+          target.onChange(withFilter(target.filters, { ...filter, id, nodePath: target.nodePath }));
         },
         clear: removeFound,
       };

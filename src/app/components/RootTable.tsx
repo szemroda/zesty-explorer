@@ -171,6 +171,8 @@ export function RootTable({
     itemIds: snapshot.items.map((item) => item.id),
     filters: viewFilters,
     onChange: applyViewFilters,
+    // The grid is hidden while related results load, and with it every header.
+    isColumnShown: (columnId) => !resultsPending && columnVisibility[columnId] !== false,
     search: {
       text: freeText,
       onChange: (text, filters) => {
@@ -293,7 +295,6 @@ export function RootTable({
                 reference={reference}
                 canExpand={canExpand}
                 onOpenDetails={onOpenDetails}
-                nodeId={treeRoot.id}
                 columnFilter={filterControls.columnFilter}
                 emptyContent={
                   <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
