@@ -78,6 +78,7 @@ function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
       onOpenDetails={vi.fn()}
       onRetry={vi.fn()}
       onPresentationChange={vi.fn()}
+      onViewFiltersChange={vi.fn()}
       {...props}
     />
   );
@@ -106,6 +107,16 @@ function dragBelowMinimumWidth(handle: HTMLElement) {
   fireEvent.mouseDown(handle, { clientX: 300 });
   fireEvent.mouseMove(document, { clientX: -1000 });
   fireEvent.mouseUp(document);
+}
+
+// Sorts from the column's header menu.
+async function sortColumn(
+  table: HTMLElement,
+  column: string,
+  direction: 'ascending' | 'descending',
+) {
+  fireEvent.click(within(table).getByRole('button', { name: new RegExp(`^${column}`) }));
+  fireEvent.click(await screen.findByRole('button', { name: `Sort ${direction}` }));
 }
 
 describe('recursive collection tables', () => {
@@ -233,18 +244,24 @@ describe('recursive collection tables', () => {
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
 
-    const filter = within(nestedTable).getByLabelText('Filter Children');
-    fireEvent.change(filter, { target: { value: 'no matching child' } });
+    // The first Title header is the Children table's; the Grandchildren table nests below it.
+    fireEvent.click(within(nestedTable).getAllByRole('button', { name: /^Title/ })[0]!);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Children table filter value' }), {
+      target: { value: 'no matching child' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filter' }));
     expect(await screen.findByText('No related items match.')).toBeInTheDocument();
-    fireEvent.change(filter, { target: { value: '' } });
+    fireEvent.click(within(nestedTable).getByRole('button', { name: /^Title/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
 
     expect(
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
   });
 
-  it('explains an empty root result and clears only the table search and filters', () => {
+  it('explains an empty root result and clears its search and view filters', () => {
     const onPresentationChange = vi.fn();
+    const onViewFiltersChange = vi.fn();
     const noMatch: ViewFilter = {
       id: 'no-match',
       nodePath: [root.id],
@@ -256,30 +273,23 @@ describe('recursive collection tables', () => {
       rootTable({
         treeRoot: {
           ...root,
-          presentation: { ...root.presentation, filters: [noMatch], freeText: 'Parent' },
+          presentation: { ...root.presentation, freeText: 'Parent' },
         },
         viewFilters: [noMatch],
         onPresentationChange,
+        onViewFiltersChange,
       }),
     );
 
     const collection = screen.getByRole('region', { name: 'Parents collection' });
     expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
-    expect(
-      within(collection).getByText(/View filters and the global search can also narrow/),
-    ).toBeVisible();
     fireEvent.click(within(collection).getByRole('button', { name: 'Clear search and filters' }));
 
-    expect(within(collection).getByLabelText('Filter this table')).toHaveValue('');
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       root.id,
-      expect.objectContaining({ filters: [], freeText: '' }),
+      expect.objectContaining({ freeText: '' }),
     );
-    // The view filter still applies, so the table stays empty but no longer offers a table reset.
-    expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
-    expect(
-      within(collection).queryByRole('button', { name: 'Clear search and filters' }),
-    ).not.toBeInTheDocument();
+    expect(onViewFiltersChange).toHaveBeenLastCalledWith([]);
   });
 
   it('sorts root and nested collections from their column headers', async () => {
@@ -287,12 +297,12 @@ describe('recursive collection tables', () => {
     render(rootTable({ onPresentationChange }));
 
     const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
-    fireEvent.click(within(rootTableRegion).getByRole('button', { name: 'Title' }));
+    await sortColumn(rootTableRegion, 'Title', 'ascending');
     expect(within(rootTableRegion).getAllByRole('row')[1]).toHaveTextContent('Parent 0');
 
     expandFirstParent();
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
-    fireEvent.click(within(nestedTable).getByRole('button', { name: 'Title' }));
+    await sortColumn(nestedTable, 'Title', 'ascending');
 
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       child.id,
@@ -302,7 +312,7 @@ describe('recursive collection tables', () => {
     );
   });
 
-  it('sorts a nullable numeric field named id instead of the technical ZUID', () => {
+  it('sorts a nullable numeric field named id instead of the technical ZUID', async () => {
     const values = [null, 123_456, '', 999, 123.123] as const;
     const items = generated.parents.items.map((entry, index) => ({
       ...entry,
@@ -336,16 +346,15 @@ describe('recursive collection tables', () => {
     );
 
     const rootTableRegion = screen.getByRole('region', { name: 'Parents collection' });
-    const idHeader = within(rootTableRegion).getByRole('button', { name: 'Id' });
     const rowItemIndexes = () =>
       within(rootTableRegion)
         .getAllByRole('row')
         .slice(1)
         .map((row) => items.findIndex((item) => row.textContent?.includes(item.id)));
 
-    fireEvent.click(idHeader);
+    await sortColumn(rootTableRegion, 'Id', 'descending');
     expect(rowItemIndexes()).toEqual([1, 3, 4, 0, 2]);
-    fireEvent.click(idHeader);
+    await sortColumn(rootTableRegion, 'Id', 'ascending');
     expect(rowItemIndexes()).toEqual([4, 3, 1, 0, 2]);
   });
 
@@ -524,7 +533,7 @@ describe('recursive collection tables', () => {
     expandFirstParent();
 
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
-    fireEvent.click(within(nestedTable).getByRole('button', { name: 'workflowStatus' }));
+    await sortColumn(nestedTable, 'workflowStatus', 'descending');
     expect(onPresentationChange).toHaveBeenLastCalledWith(
       metadataChild.id,
       expect.objectContaining({

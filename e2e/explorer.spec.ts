@@ -259,6 +259,15 @@ async function openRoot(page: Page) {
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
 
+// Searches a table from its Filter button, e.g. `Add view filter`: Enter in the empty field
+// picker takes its first field, "Any field".
+async function search(page: Page, addLabel: string, editor: string, text: string) {
+  await page.getByRole('button', { name: addLabel }).click();
+  await page.getByLabel(`${editor} field`).press('Enter');
+  await page.getByLabel(`${editor} value`).fill(text);
+  await page.getByLabel(`${editor} value`).press('Enter');
+}
+
 async function chooseSelectOption(page: Page, label: string, option: string) {
   await page.getByLabel(label).click();
   await page.getByRole('option', { name: option, exact: true }).click();
@@ -315,19 +324,14 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await openRoot(page);
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
-  await page.getByLabel('Configure table filters').click();
-  await chooseSelectOption(page, 'Table filter relationship path', '6-rootmodel');
-  await chooseSelectOption(page, 'Table filter field', 'Score');
-  await chooseSelectOption(page, 'Table filter operator', 'greater than');
-  await page.getByLabel('Table filter value').fill('100');
-  await page.getByLabel('Table filter').getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: /^Score/ }).click();
+  await chooseSelectOption(page, 'View filter condition', '>');
+  await page.getByLabel('View filter value').fill('100');
+  await page.getByLabel('View filter value').press('Enter');
   await expect(page.getByText('4 items')).toBeVisible();
 
-  await page
-    .getByLabel('Table filter')
-    .getByRole('button', { name: /Remove filter score/ })
-    .click();
-  await page.getByLabel('Configure table filters').click();
+  await page.getByRole('button', { name: /^Score/ }).click();
+  await page.getByRole('button', { name: 'Clear filter' }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Published' }).click();
@@ -428,9 +432,11 @@ test('creates native and custom roles, expands related rows, and preserves detai
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
-  await children.getByLabel('Filter Children').fill('no matching item');
+  await search(page, 'Add Children filter', 'Children table filter', 'no matching item');
   await expect(children.getByText('0 related items', { exact: true }).last()).toBeVisible();
-  await children.getByLabel('Filter Children').fill('');
+  await children
+    .getByRole('button', { name: 'Remove filter Any field contains “no matching item”' })
+    .click();
 
   const detailsTrigger = page.getByRole('button', { name: 'Open details for First story' });
   await detailsTrigger.focus();
@@ -478,11 +484,11 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
-  await page.getByRole('button', { name: /View filters/ }).click();
-  await chooseSelectOption(page, 'View filter relationship path', '6-rootmodel → Children');
-  await chooseSelectOption(page, 'View filter field', 'Active');
-  await chooseSelectOption(page, 'View filter operator', 'true');
-  await page.getByLabel('View filter').getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add view filter' }).click();
+  await page.getByLabel('View filter field').fill('Active');
+  await page.getByRole('option', { name: /Active/ }).click();
+  await page.getByRole('checkbox', { name: /^true/ }).click();
+  await page.getByRole('button', { name: /Add filter/ }).click();
   await expect(page.getByText('1 items')).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy link' }).click();
@@ -499,7 +505,9 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await restored.getByRole('button', { name: 'Load collections' }).click();
   await restored.getByRole('button', { name: 'Open root collection' }).click();
   await expect(restored.getByText('1 items')).toBeVisible();
-  await expect(restored.getByText(/active · true/)).toBeVisible();
+  await expect(
+    restored.getByRole('button', { name: 'Edit filter Children: Active is true' }),
+  ).toBeVisible();
   await restored.close();
 });
 
@@ -518,9 +526,9 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
     seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
     return String.fromCharCode(33 + (seed % 90));
   }).join('');
-  await page.getByLabel('Search the complete view').fill(longText);
+  await search(page, 'Add view filter', 'View filter', longText);
   await expect(page.getByText(/may be too long for some tools/i)).toBeVisible();
-  await page.getByLabel('Search the complete view').fill('');
+  await page.getByRole('button', { name: /^Remove filter Any field/ }).click();
   await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
   await page.getByRole('menuitem', { name: 'Change root collection' }).click();
   await page.getByLabel('Root collection reference').fill(childUrl);
@@ -561,4 +569,38 @@ test('keeps partial roots and failed descendants usable with persistent recovery
   await expect(
     page.getByRole('region', { name: 'Children related items', exact: true }),
   ).toBeVisible();
+});
+
+test('pins nested tables and docks the root scrollbar while it is off screen', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await expect(children).toBeVisible();
+  // The root table is the first table on the page, inside its horizontal scroller.
+  const scroller = page.getByRole('table').first().locator('..');
+  expect(await scroller.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+    true,
+  );
+
+  const pinnedLeft = (await children.boundingBox())?.x;
+  await scroller.evaluate((element) => {
+    element.scrollLeft = 200;
+  });
+  await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(200);
+  expect((await children.boundingBox())?.x).toBe(pinnedLeft);
+
+  // A hundred rows put the root table's own scrollbar far below the window.
+  const scrollbarTop = await scroller.evaluate((element) => element.getBoundingClientRect().bottom);
+  expect(scrollbarTop).toBeGreaterThan(page.viewportSize()?.height ?? 0);
+  const dock = page.locator('[data-scroll-dock-bar="6-rootmodel"]');
+  await expect(dock).toBeVisible();
+  await dock.evaluate((element) => {
+    element.scrollLeft = 40;
+  });
+  await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(40);
 });

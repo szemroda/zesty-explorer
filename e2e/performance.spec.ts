@@ -10,37 +10,43 @@ function percentile(samples: readonly number[], percentage: number): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percentage) - 1)] ?? 0;
 }
 
-async function filterUntilPaint(
-  filter: Locator,
+// Opens the root search in the filter editor: its chip once set, otherwise Filter → "Any field".
+async function openSearch(page: Page): Promise<Locator> {
+  const chip = page.getByRole('button', { name: /^Edit filter Any field/ });
+  if ((await chip.count()) > 0) await chip.click();
+  else {
+    await page.getByRole('button', { name: 'Add view filter' }).click();
+    await page.getByLabel('View filter field').press('Enter');
+  }
+  return page.getByLabel('View filter value');
+}
+
+// Submits a root search and times it until the collection count settles on `expectedCount`.
+async function searchUntilPaint(
+  page: Page,
   search: string,
   expectedCount: string,
 ): Promise<number> {
-  return filter.evaluate(
-    async (element, expected) => {
-      const input = element as HTMLInputElement;
-      const started = performance.now();
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
-        input,
-        expected.search,
+  const value = await openSearch(page);
+  await value.fill(search);
+  return value.evaluate(async (element, expected) => {
+    const started = performance.now();
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    while (performance.now() - started < 2_000) {
+      const settled = [...document.querySelectorAll('[aria-label$=" collection"]')].some(
+        (collection) =>
+          [...collection.querySelectorAll('span')].some(
+            (candidate) => candidate.textContent === expected,
+          ),
       );
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      while (performance.now() - started < 2_000) {
-        const settled = [...document.querySelectorAll('[aria-label$=" collection"]')].some(
-          (collection) =>
-            [...collection.querySelectorAll('span')].some(
-              (candidate) => candidate.textContent === expected.count,
-            ),
-        );
-        if (settled) {
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-          return performance.now() - started;
-        }
+      if (settled) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        return performance.now() - started;
       }
-      throw new Error(`Filter did not settle on ${expected.count}.`);
-    },
-    { search, count: expectedCount },
-  );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    throw new Error(`Search did not settle on ${expected}.`);
+  }, expectedCount);
 }
 
 async function nextPaintAfterClick(locator: Locator): Promise<number> {
@@ -167,17 +173,18 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
-  const filter = page.getByLabel('Filter this table');
   const searches = ['8765', '765', '65', '5', '4321'];
   const expectedCounts = ['1 items', '11 items', '111 items', '1111 items', '1 items'];
-  await filter.fill('Performance item 9999');
-  await expect(page.getByText('1 items')).toBeVisible();
-  await filter.fill('');
-  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
+  const clearSearch = async () => {
+    await page.getByRole('button', { name: /^Remove filter Any field/ }).click();
+    await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
+  };
+  await searchUntilPaint(page, 'Performance item 9999', '1 items');
+  await clearSearch();
   const filterSamples: number[] = [];
   for (let index = 0; index < searches.length; index += 1) {
     filterSamples.push(
-      await filterUntilPaint(filter, `Performance item ${searches[index]}`, expectedCounts[index]),
+      await searchUntilPaint(page, `Performance item ${searches[index]}`, expectedCounts[index]),
     );
   }
   const filterTiming = {
@@ -185,10 +192,12 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
     p95: percentile(filterSamples, 0.95),
     samples: filterSamples,
   };
+  // Typing in the search editor while the filtered table stays on screen.
+  const searchValue = await openSearch(page);
   const typingSamples: number[] = [];
   for (let index = 0; index < 5; index += 1) {
     typingSamples.push(
-      await filter.evaluate(async (element) => {
+      await searchValue.evaluate(async (element) => {
         const started = performance.now();
         element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -196,15 +205,18 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
       }),
     );
   }
-  await filter.fill('');
-  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await clearSearch();
   await page.waitForTimeout(350);
 
-  const scoreSort = page.getByRole('button', { name: 'Score' });
-  await nextPaintAfterClick(scoreSort);
+  // Each sample opens the Score menu, then times the sort from the click to the next paint.
   const sortSamples: number[] = [];
-  for (let index = 0; index < 20; index += 1)
-    sortSamples.push(await nextPaintAfterClick(scoreSort));
+  for (let index = 0; index < 21; index += 1) {
+    await page.getByRole('button', { name: /^Score/ }).click();
+    const direction = index % 2 === 0 ? 'Sort ascending' : 'Sort descending';
+    const sample = await nextPaintAfterClick(page.getByRole('button', { name: direction }));
+    if (index > 0) sortSamples.push(sample);
+  }
   const sortTiming = {
     p50: percentile(sortSamples, 0.5),
     p95: percentile(sortSamples, 0.95),

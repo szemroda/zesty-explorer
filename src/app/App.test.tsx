@@ -157,7 +157,6 @@ function openSharedView(root: PersistedView['root'], view: Partial<PersistedView
         root,
         contentState: 'latest',
         viewFilters: [],
-        globalFreeText: '',
         ...view,
       },
     }).fragment,
@@ -183,6 +182,17 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
   vi.restoreAllMocks();
 });
+
+// Searches the root table the way a user does: Filter, "Any field" (the picker's first field), text.
+async function searchFor(text: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
+  fireEvent.keyDown(await screen.findByRole('combobox', { name: 'View filter field' }), {
+    key: 'Enter',
+  });
+  const value = await screen.findByRole('textbox', { name: 'View filter value' });
+  fireEvent.change(value, { target: { value: text } });
+  fireEvent.keyDown(value, { key: 'Enter' });
+}
 
 describe('root collection browser', () => {
   it('loads the catalog and waits for root confirmation before loading content', async () => {
@@ -434,13 +444,15 @@ describe('root collection browser', () => {
         },
         children: [],
       },
-      { contentState: 'published', globalFreeText: 'story' },
+      { contentState: 'published' },
     );
 
     render(<App api={api()} tokenStore={storedTokenStore()} />);
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Search the complete view')).toHaveValue('story');
+    expect(
+      screen.getByRole('button', { name: 'Edit filter Any field contains “First”' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Published' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -468,9 +480,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.change(screen.getByLabelText('Filter this table'), {
-      target: { value: 'First' },
-    });
+    await searchFor('First');
 
     await waitFor(() => {
       const decoded = ViewCodec.decode(window.location.hash);
@@ -752,6 +762,41 @@ describe('root collection browser', () => {
     await waitFor(() => expect(screen.getByLabelText('Zesty session token')).toHaveFocus());
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'second-token');
     await waitFor(() => expect(usedTokens).toEqual(['first-token', 'second-token']));
+  });
+
+  it('keeps the root toolbar and search while related data loads for it', async () => {
+    let releaseChild = () => {};
+    const childLoaded = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    openSharedView(rootWithChild);
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionSchema: (reference) =>
+        Effect.succeed({ ...schema, modelZuid: reference.modelZuid }),
+      loadCollectionSnapshot: (reference) =>
+        reference.modelZuid === '6-child123'
+          ? Effect.promise(() => childLoaded).pipe(
+              Effect.as({ ...snapshot, modelZuid: '6-child123' }),
+            )
+          : Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={storedTokenStore()} />);
+    await screen.findByRole('heading', { name: 'Stories' });
+    await searchFor('First');
+
+    expect(
+      await screen.findByText(
+        'Related data is loading. Descendant-dependent results will appear when it is ready.',
+      ),
+    ).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('status', { name: 'Loading related results' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const chip = screen.getByRole('button', { name: 'Edit filter Any field contains “First”' });
+
+    releaseChild();
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(chip).toBeInTheDocument();
   });
 
   it('resumes descendant loading after a nested authentication failure', async () => {

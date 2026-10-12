@@ -139,13 +139,19 @@ export interface CollectionPage {
 
 export type FieldKind = 'text' | 'number' | 'date' | 'boolean' | 'relationship' | 'structured';
 
+export interface FieldOption {
+  readonly value: Scalar;
+  readonly label: string;
+}
+
 export interface CollectionField {
   readonly id: FieldZuid;
   readonly name: string;
   readonly label: string;
   readonly kind: FieldKind;
   readonly relatedModelZuid?: ModelZuid;
-  readonly options?: readonly Scalar[];
+  /** The values the field allows, each with its display label. */
+  readonly options?: readonly FieldOption[];
 }
 
 export interface CollectionSchema {
@@ -220,7 +226,6 @@ export interface PersistedView {
   readonly root: CollectionNode;
   readonly contentState: ContentState;
   readonly viewFilters: readonly ViewFilter[];
-  readonly globalFreeText: string;
 }
 
 export type WorkspaceTab = 'explorer' | 'code';
