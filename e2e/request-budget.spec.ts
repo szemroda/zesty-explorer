@@ -64,7 +64,7 @@ test('paces each tab while sharing four active slots and releases them after req
   );
   for (const starts of startsByTab) {
     expect(starts.length).toBeGreaterThanOrEqual(5);
-    expect(starts.slice(1).every((start, index) => start - starts[index] >= 240)).toBe(true);
+    expect(starts.slice(1).every((start, index) => start - starts[index] >= 90)).toBe(true);
   }
   expect(peak).toBe(4);
   await expect.poll(() => active).toBe(0);

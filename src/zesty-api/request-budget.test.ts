@@ -36,7 +36,8 @@ describe('per-tab request admission', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await Promise.all(work);
     expect(starts).toHaveLength(8);
-    expect(starts.slice(1).every((start, index) => start - starts[index]! >= 250)).toBe(true);
+    expect(starts.slice(0, 4).map((start) => start - starts[0]!)).toEqual([0, 150, 300, 450]);
+    expect(starts.slice(1).every((start, index) => start - starts[index]! >= 100)).toBe(true);
     expect(peak).toBe(4);
     expect(active).toBe(0);
   });
@@ -76,7 +77,7 @@ describe('per-tab request admission', () => {
     expect(starts.map((times) => times.length)).toEqual([4, 4]);
     expect(starts[0]![0]).toBe(starts[1]![0]);
     for (const times of starts)
-      expect(times.slice(1).every((start, index) => start - times[index]! >= 250)).toBe(true);
+      expect(times.slice(1).every((start, index) => start - times[index]! >= 100)).toBe(true);
     expect(peak).toBe(4);
   });
 

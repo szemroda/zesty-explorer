@@ -50,7 +50,7 @@ export function withRequestPriority(priority: RequestPriority) {
 
 /** One budget per tab. Only active HTTP slots are shared with other tabs. */
 export function createRequestBudget({
-  intervalMs = 250,
+  intervalMs = 100,
   dispatchWindowMs = 50,
   authenticatedCooldownMs = 60_000,
   takeSlot = takeBrowserRequestSlot,
