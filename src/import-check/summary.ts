@@ -1,6 +1,6 @@
 // The checker's summary: groups of findings that reconcile the file's line count with the items
 // expected (lines − won't import − lines that aren't entries = items).
-import { describeFileProblem, type ImportCheck, type ReasonGroup } from './analysis';
+import { describeFileProblem, isDropped, type ImportCheck, type ReasonGroup } from './analysis';
 
 export type FindingTone = 'rejected' | 'at-risk' | 'quiet';
 
@@ -141,18 +141,16 @@ export function summarize(check: ImportCheck): FindingGroup[] {
     {
       id: 'ignored',
       title: 'Columns that aren’t imported',
-      findings: check.columns
-        .filter((column) => column.status === 'unmapped' || column.status === 'shadowed')
-        .map((column) => ({
-          id: `column-${column.index}`,
-          label: column.header,
-          fix:
-            column.status === 'shadowed'
-              ? `A later column is also called “${column.header}”, so Zesty drops this one.`
-              : `No field is chosen for “${column.header}”, so Zesty drops its ${column.filled} values without a warning.`,
-          tone: 'quiet',
-          column: column.index,
-        })),
+      findings: check.columns.filter(isDropped).map((column) => ({
+        id: `column-${column.index}`,
+        label: column.header,
+        fix:
+          column.status === 'shadowed'
+            ? `A later column is also called “${column.header}”, so Zesty drops this one.`
+            : `No field is chosen for “${column.header}”, so Zesty drops its ${column.filled} values without a warning.`,
+        tone: 'quiet',
+        column: column.index,
+      })),
     },
   ];
   return groups.filter((group) => group.findings.length > 0);

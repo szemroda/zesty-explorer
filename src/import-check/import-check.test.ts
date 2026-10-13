@@ -15,6 +15,7 @@ import {
   takesAnyLine,
   suggestMapping,
   zestyPathPart,
+  type ColumnCheck,
   type ImportCheck,
   type ImportMapping,
 } from './index';
@@ -83,6 +84,14 @@ function check(
   });
 }
 
+// What Zesty does with a column, e.g. “title → title, path part” or “body shadowed”.
+function describeColumn(column: ColumnCheck): string {
+  if (column.status === 'shadowed') return `${column.header} shadowed`;
+  const targets = [column.field?.name, column.pathPart ? 'path part' : undefined].filter(Boolean);
+  if (targets.length === 0) return `${column.header} dropped`;
+  return `${column.header} → ${targets.join(', ')}`;
+}
+
 describe('checkImport', () => {
   it('predicts the outcome of each row of a pageset', () => {
     const result = check();
@@ -123,14 +132,14 @@ describe('checkImport', () => {
   it('maps columns by name and drops unknown and shadowed ones', () => {
     const { columns } = check();
 
-    expect(columns.map((column) => [column.header, column.status])).toEqual([
-      ['title', 'mapped'],
-      ['path', 'path-part'],
-      ['rating', 'mapped'],
-      ['country', 'mapped'],
-      ['body', 'shadowed'],
-      ['internal_id', 'unmapped'],
-      ['body', 'mapped'],
+    expect(columns.map(describeColumn)).toEqual([
+      'title → title',
+      'path → path part',
+      'rating → rating',
+      'country → country',
+      'body shadowed',
+      'internal_id dropped',
+      'body → body',
     ]);
     expect(columns[4]?.filled).toBe(1);
     expect(columns[5]?.filled).toBe(9);
@@ -146,10 +155,10 @@ describe('checkImport', () => {
     mapping = mapColumn(mapping, 'Score', '12-rating');
     const result = check(csv, schema, true, { ...mapping, pathPart: 'Link' });
 
-    expect(result.columns.map((column) => [column.header, column.status])).toEqual([
-      ['Town', 'mapped'],
-      ['Link', 'path-part'],
-      ['Score', 'mapped'],
+    expect(result.columns.map(describeColumn)).toEqual([
+      'Town → title',
+      'Link → path part',
+      'Score → rating',
     ]);
     expect(result.rows.map((row) => row.primary?.code)).toEqual([undefined, 'path-duplicate']);
     expect(result.rows[1]?.issues.map((issue) => issue.code)).toEqual([
@@ -201,7 +210,7 @@ describe('checkImport', () => {
     const mapping = { ...suggestMapping(['title'], schema, 'pageset'), pathPart: 'title' };
     const result = check(csv, schema, true, mapping);
 
-    expect(result.columns[0]).toMatchObject({ status: 'mapped', pathPart: true });
+    expect(result.columns.map(describeColumn)).toEqual(['title → title, path part']);
     expect(result.rows.map((row) => row.outcome)).toEqual(['created', 'rejected']);
   });
 

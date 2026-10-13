@@ -64,7 +64,7 @@ export function markdownReport(
     );
   }
   const mapped = check.columns.flatMap((column) =>
-    column.status === 'mapped' ? [`${column.header} → ${column.field.label}`] : [],
+    column.status === 'kept' && column.field ? [`${column.header} → ${column.field.label}`] : [],
   );
   const pathPart =
     check.mapping.pathPart === undefined ? '' : ` Path part from ${check.mapping.pathPart}.`;

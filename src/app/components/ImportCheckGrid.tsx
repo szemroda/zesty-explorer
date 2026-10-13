@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { FieldZuid } from '../../domain';
 import {
   describeFileProblem,
+  isDropped,
   lineRange,
   type ColumnCheck,
   type FileLine,
@@ -26,8 +27,7 @@ const outcomeWord: Readonly<Record<RowOutcome, string>> = {
   rejected: 'won’t import',
 };
 
-const isDropped = (column: ColumnCheck) =>
-  column.status === 'unmapped' || column.status === 'shadowed';
+type KeptColumn = Extract<ColumnCheck, { readonly status: 'kept' }>;
 
 /** The file as a table: one row per record, blank line or unreadable line, marked by outcome. */
 export function ImportCheckGrid({
@@ -104,20 +104,19 @@ export function ImportCheckGrid({
 }
 
 function columnTooltip(column: ColumnCheck, check: ImportCheck): string {
-  const records = check.rows.length;
-  if (column.status === 'unmapped') {
-    return 'No field is chosen for this column, so Zesty drops it without a warning.';
-  }
   if (column.status === 'shadowed') {
     return 'A later column has the same name. Zesty keys cells by header, so this column is lost.';
   }
-  const filled = `${column.filled} of ${records} rows filled`;
-  if (column.status === 'path-part') {
+  const { field, pathPart } = column;
+  if (!field && !pathPart) {
+    return 'No field is chosen for this column, so Zesty drops it without a warning.';
+  }
+  const filled = `${column.filled} of ${check.rows.length} rows filled`;
+  if (!field) {
     return `Becomes each page’s URL: lowercased, “&” becomes “and”, every other character becomes “-”. ${filled}.`;
   }
-  const { field } = column;
   const type = (field.datatype ?? field.kind).replaceAll('_', ' ');
-  const path = column.pathPart ? ' Also becomes each page’s URL.' : '';
+  const path = pathPart ? ' Also becomes each page’s URL.' : '';
   return `→ ${field.label} (${type}${field.required ? ', required' : ''}).${path} ${filled}.`;
 }
 
@@ -161,7 +160,7 @@ function ColumnHeader({
           >
             {column.header}
           </span>
-          {column.status === 'path-part' || (column.status === 'mapped' && column.pathPart) ? (
+          {column.status === 'kept' && column.pathPart ? (
             <span className="bg-primary/15 text-primary shrink-0 rounded px-1 text-[10px]">
               URL
             </span>
@@ -185,7 +184,7 @@ function FieldSelect({
   check,
   onMap,
 }: {
-  readonly column: ColumnCheck;
+  readonly column: KeptColumn;
   readonly check: ImportCheck;
   readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
@@ -199,12 +198,12 @@ function FieldSelect({
         { value: null, label: 'None' },
         ...fields.map((field) => ({ value: field.id, label: field.label })),
       ]}
-      value={column.status === 'mapped' ? column.field.id : null}
+      value={column.field?.id ?? null}
       onValueChange={(next) => onMap(column.header, next ?? undefined)}
     >
       <SelectTrigger
         size="sm"
-        className={cn('h-7 w-full', column.status === 'unmapped' && 'text-muted-foreground')}
+        className={cn('h-7 w-full', isDropped(column) && 'text-muted-foreground')}
         aria-label={`Field for column ${column.header}`}
       >
         <SelectValue />

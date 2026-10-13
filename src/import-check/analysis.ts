@@ -64,15 +64,18 @@ export interface ImportMapping {
 
 /** How Zesty treats a column: `shadowed` means a later column has the same header. */
 export type ColumnUse =
+  | { readonly status: 'shadowed' }
   | {
-      readonly status: 'mapped';
-      readonly field: CollectionField;
-      /** The column is also the path part. */
+      readonly status: 'kept';
+      /** The field the column fills, if any. */
+      readonly field: CollectionField | undefined;
+      /** The column is the path part. */
       readonly pathPart: boolean;
-    }
-  | { readonly status: 'path-part' }
-  | { readonly status: 'unmapped' }
-  | { readonly status: 'shadowed' };
+    };
+
+/** Zesty drops a column's values when a later column shadows it or it fills nothing. */
+export const isDropped = (column: ColumnUse) =>
+  column.status === 'shadowed' || (!column.field && !column.pathPart);
 
 export type ColumnCheck = ColumnUse & {
   readonly index: number;
@@ -202,10 +205,7 @@ function columnUses(
     if (lastIndex.get(name) !== index) return { status: 'shadowed' };
     const fieldId = mapping.fields.get(name);
     const field = schema.fields.find((candidate) => candidate.id === fieldId);
-    const pathPart = mapping.pathPart === name;
-    if (field) return { status: 'mapped', field, pathPart };
-    if (pathPart) return { status: 'path-part' };
-    return { status: 'unmapped' };
+    return { status: 'kept', field, pathPart: mapping.pathPart === name };
   });
 }
 
@@ -399,8 +399,7 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
   // Zesty cannot fill a required field that no column maps to, so every row lacks it.
   const unmappedRequired = schema.fields.filter(
     (field) =>
-      field.required &&
-      !uses.some((column) => column.status === 'mapped' && column.field === field),
+      field.required && !uses.some((column) => column.status === 'kept' && column.field === field),
   );
   const missingRequired: RowIssue[] = unmappedRequired.map((field) => ({
     code: 'required-missing',
@@ -429,7 +428,7 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
     );
     const issues: RowIssue[] = [...missingRequired];
     uses.forEach((column, columnIndex) => {
-      if (column.status !== 'mapped') return;
+      if (column.status !== 'kept' || !column.field) return;
       const header = parsed.header[columnIndex]!;
       issues.push(...fieldIssues(column.field, header, values[header] ?? '', relatedItems));
     });

@@ -8,7 +8,6 @@ import {
   EyeOff,
   FileCheck2,
   MoreHorizontal,
-  RefreshCw,
   RotateCcw,
   Trash2,
 } from 'lucide-react';
@@ -64,6 +63,7 @@ import { createChildNode, createRootNode } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
 import { refreshImportCheck } from './hooks/useImportCheck';
+import { useRefresh } from './hooks/useRefresh';
 import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
@@ -80,6 +80,7 @@ import {
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
+import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
@@ -213,8 +214,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [workspaceAuthenticationFailureRevision, setWorkspaceAuthenticationFailureRevision] =
     useState<string>();
   const [pendingCollection, setPendingCollection] = useState<CollectionCatalogEntry>();
-  const [isRefreshingCode, setIsRefreshingCode] = useState(false);
-  const [isRefreshingImport, setIsRefreshingImport] = useState(false);
+  const codeRefresh = useRefresh(() => refreshCodeFiles(queryClient));
+  const importRefresh = useRefresh(() =>
+    refreshImportCheck(queryClient).catch(() => {
+      toast.error('Refresh failed', { description: 'Zesty data could not be read again.' });
+    }),
+  );
   const [reference, setReference] = useState<CollectionReference | undefined>(
     initialView?.root.reference,
   );
@@ -704,26 +709,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     );
   }
 
-  async function refreshImport() {
-    setIsRefreshingImport(true);
-    try {
-      await refreshImportCheck(queryClient);
-    } catch {
-      toast.error('Refresh failed', { description: 'Zesty data could not be read again.' });
-    } finally {
-      setIsRefreshingImport(false);
-    }
-  }
-
-  async function refreshCode() {
-    setIsRefreshingCode(true);
-    try {
-      await refreshCodeFiles(queryClient);
-    } finally {
-      setIsRefreshingCode(false);
-    }
-  }
-
   function changeTab(tab: WorkspaceTab) {
     setActiveTab(tab);
     if (tab === 'code') setCodeOpened(true);
@@ -795,6 +780,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+
+  const sharedActions = (
+    <>
+      <Button variant="outline" size="sm" onClick={copyLink}>
+        <Copy size={14} aria-hidden="true" /> Copy link
+      </Button>
+      {viewOptions}
+    </>
   );
 
   // Tabs belong to a selected instance; the token and instance form comes before them.
@@ -917,43 +911,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">{codeStateLabels.latest}</ToggleGroupItem>
                 <ToggleGroupItem value="published">{codeStateLabels.published}</ToggleGroupItem>
               </ToggleGroup>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refreshCode()}
-                disabled={isRefreshingCode}
-              >
-                <RefreshCw
-                  className={isRefreshingCode ? 'animate-spin' : undefined}
-                  size={14}
-                  aria-hidden="true"
-                />
-                Refresh
-              </Button>
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy size={14} aria-hidden="true" /> Copy link
-              </Button>
-              {viewOptions}
+              <RefreshButton {...codeRefresh} />
+              {sharedActions}
             </>
           ) : visibleTab === 'import' ? (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refreshImport()}
-                disabled={isRefreshingImport}
-              >
-                <RefreshCw
-                  className={isRefreshingImport ? 'animate-spin' : undefined}
-                  size={14}
-                  aria-hidden="true"
-                />
-                Refresh
-              </Button>
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy size={14} aria-hidden="true" /> Copy link
-              </Button>
-              {viewOptions}
+              <RefreshButton {...importRefresh} />
+              {sharedActions}
             </>
           ) : reference ? (
             <>
@@ -967,37 +931,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">Latest</ToggleGroupItem>
                 <ToggleGroupItem value="published">Published</ToggleGroupItem>
               </ToggleGroup>
-              <Button
-                variant="outline"
-                size="sm"
-                className="relative"
-                onClick={() => void refreshAll()}
-                disabled={isRefreshing}
-                aria-describedby={refreshFailed ? 'refresh-status' : undefined}
-                {...(refreshFailed ? { 'data-refresh-failed': '' } : {})}
-              >
-                <RefreshCw
-                  className={isRefreshing ? 'animate-spin' : undefined}
-                  size={14}
-                  aria-hidden="true"
-                />
-                Refresh
-                {refreshFailed ? (
-                  <span
-                    className="bg-destructive absolute -top-1 -right-1 size-2 rounded-full"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </Button>
-              {refreshFailed ? (
-                <span id="refresh-status" className="sr-only" role="status">
-                  The last refresh failed. Activate Refresh to retry.
-                </span>
-              ) : null}
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy size={14} aria-hidden="true" /> Copy link
-              </Button>
-              {viewOptions}
+              <RefreshButton
+                refreshing={isRefreshing}
+                failed={refreshFailed}
+                onRefresh={() => void refreshAll()}
+              />
+              {sharedActions}
             </>
           ) : (
             <Badge variant="outline">No collection open</Badge>
