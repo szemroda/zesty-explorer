@@ -1,6 +1,6 @@
 {
   "name": "zestyx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zesty Explorer: a local, read-only browser for Zesty content and code",
   "license": "MIT",
   "repository": {
