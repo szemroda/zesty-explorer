@@ -6,7 +6,7 @@ import {
   syntheticToken,
 } from './import-check-fixtures';
 
-async function checkStoresCsv(page: Page): Promise<readonly string[]> {
+async function checkStoresCsv(page: Page, csv = storesCsv()): Promise<readonly string[]> {
   const requests = await installImportFixture(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill(syntheticToken);
@@ -19,7 +19,7 @@ async function checkStoresCsv(page: Page): Promise<readonly string[]> {
   await page.getByLabel('CSV file to check').setInputFiles({
     name: 'stores.csv',
     mimeType: 'text/csv',
-    buffer: Buffer.from(storesCsv(), 'utf8'),
+    buffer: Buffer.from(csv, 'utf8'),
   });
   return requests;
 }
@@ -54,8 +54,39 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
   await expect(page.getByText('1 match for “line 11”')).toBeVisible();
   await expect(lines(page).getByRole('button', { name: /^Row 9, lines 10–11:/ })).toBeVisible();
 
-  expect(requests.length).toBeGreaterThan(0);
+  const before = requests.length;
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect.poll(() => requests.length).toBeGreaterThan(before);
+  await expect(summary(page)).toContainText('260 items expected');
+
   expect(requests.filter((request) => !request.startsWith('GET '))).toEqual([]);
+});
+
+test('says so when no line needs attention', async ({ page }) => {
+  await checkStoresCsv(page, 'name,slug\r\nNew Store,new-store\r\nOther Store,other-store\r\n');
+  await expect(summary(page)).toContainText('2 items expected');
+  await expect(summary(page)).toContainText('A prediction, not a guarantee.');
+
+  await page.getByRole('button', { name: 'Needs attention' }).click();
+  await expect(lines(page)).toContainText('Nothing needs attention');
+  await lines(page).getByRole('button', { name: 'Show all 2 lines' }).click();
+  await expect(lines(page).getByRole('button', { name: /^Row 2,/ })).toBeVisible();
+});
+
+test('checks the file with the columns mapped like in Zesty', async ({ page }) => {
+  await checkStoresCsv(page, storesCsv().replace('name,slug,', 'Store,Link,'));
+  await expect(summary(page)).toContainText('0 items expected');
+  await expect(summary(page)).toContainText('Required field has no column');
+
+  await page.getByRole('combobox', { name: 'Field for column Store', exact: true }).click();
+  await page.getByRole('option', { name: 'Store name' }).click();
+  await page.getByRole('combobox', { name: 'Path part column' }).click();
+  await page.getByRole('option', { name: 'Link' }).click();
+
+  await expect(summary(page)).toContainText('260 items expected');
+  await expect(
+    page.getByRole('combobox', { name: 'Field for column Store', exact: true }),
+  ).toContainText('Store name');
 });
 
 test('keeps the check while another tab is open', async ({ page }) => {

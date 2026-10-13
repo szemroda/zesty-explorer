@@ -1,9 +1,14 @@
 // Loads what an import check needs: the schema, the existing items and the related collections.
 // Every request is a read; nothing is written to Zesty.
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalogEntry, CollectionReference } from '../../domain';
-import { checkImport, type ImportCheck, type ParsedCsv } from '../../import-check';
+import {
+  checkImport,
+  type ImportCheck,
+  type ImportMapping,
+  type ParsedCsv,
+} from '../../import-check';
 import type { CollectionApi } from '../../zesty-api';
 import { explorerFailure, runExplorerQuery } from './explorer-query';
 
@@ -28,16 +33,27 @@ export interface ImportCheckQuery {
 
 const queryRoot = 'import-check';
 
+/** Reads the open check's Zesty data again; the results stay on screen until it arrives. */
+export async function refreshImportCheck(queryClient: QueryClient): Promise<void> {
+  await queryClient.refetchQueries(
+    { queryKey: [queryRoot], type: 'active' },
+    { throwOnError: true },
+  );
+}
+
 export function useImportCheck({
   api,
   credentials,
   collection,
   source,
+  mapping,
 }: {
   readonly api: CollectionApi;
   readonly credentials: { readonly revision: string; readonly sessionToken: string };
   readonly collection: CollectionCatalogEntry | undefined;
   readonly source: CsvSource | undefined;
+  /** The user's column mapping; the check suggests one when absent. */
+  readonly mapping: ImportMapping | undefined;
 }): ImportCheckQuery {
   const queryClient = useQueryClient();
   const reference = collection?.reference;
@@ -132,6 +148,7 @@ export function useImportCheck({
         check: checkImport({
           fileName: source.fileName,
           parsed: source.parsed,
+          ...(mapping ? { mapping } : {}),
           schema: schema.data,
           modelType: collection.type,
           existingItems: existing.data.items,
@@ -154,6 +171,7 @@ export function useImportCheck({
     collection,
     existing.data,
     existing.error,
+    mapping,
     related.data,
     related.error,
     schema.data,

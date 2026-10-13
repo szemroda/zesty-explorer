@@ -63,6 +63,12 @@ export function markdownReport(
       `${funnel.dataLines} lines − ${funnel.rejected} won’t import − ${notEntries} lines that aren’t entries = ${funnel.created} items`,
     );
   }
+  const mapped = check.columns.flatMap((column) =>
+    column.status === 'mapped' ? [`${column.header} → ${column.field.label}`] : [],
+  );
+  const pathPart =
+    check.mapping.pathPart === undefined ? '' : ` Path part from ${check.mapping.pathPart}.`;
+  lines.push('', `Columns: ${mapped.join(', ') || 'none mapped'}.${pathPart}`);
   for (const group of groups) {
     const deducted = group.deducted === undefined ? '' : ` (−${group.deducted})`;
     lines.push('', `## ${group.title}${deducted}`);
@@ -76,6 +82,9 @@ export function markdownReport(
       lines.push(`- ${finding.label}${count}${where}. ${finding.fix}`);
     }
   }
-  lines.push('', '_Predicted by Zesty Explorer. Nothing was written to Zesty._');
+  lines.push(
+    '',
+    '_Predicted by Zesty Explorer, not guaranteed: Zesty may apply rules this check doesn’t know. Nothing was written to Zesty._',
+  );
   return lines.join('\n');
 }

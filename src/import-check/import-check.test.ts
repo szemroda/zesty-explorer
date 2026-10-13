@@ -3,6 +3,7 @@ import type { CollectionSchema, ContentItem, ModelZuid } from '../domain';
 import {
   checkImport,
   fileLines,
+  mapColumn,
   importableRowsCsv,
   markdownReport,
   matchesLineQuery,
@@ -12,8 +13,10 @@ import {
   problemRowsCsv,
   summarize,
   takesAnyLine,
+  suggestMapping,
   zestyPathPart,
   type ImportCheck,
+  type ImportMapping,
 } from './index';
 
 const countries = '6-countries' as ModelZuid;
@@ -62,10 +65,16 @@ const cities = [
   'line two"',
 ].join('\n');
 
-function check(csv = cities, collection = schema, zestyDataComplete = true): ImportCheck {
+function check(
+  csv = cities,
+  collection = schema,
+  zestyDataComplete = true,
+  mapping?: ImportMapping,
+): ImportCheck {
   return checkImport({
     fileName: 'cities.csv',
     parsed: parseCsv(csv),
+    ...(mapping ? { mapping } : {}),
     schema: collection,
     modelType: 'pageset',
     existingItems,
@@ -125,6 +134,49 @@ describe('checkImport', () => {
     ]);
     expect(columns[4]?.filled).toBe(1);
     expect(columns[5]?.filled).toBe(9);
+  });
+
+  it('checks the columns the user maps, whatever their headers', () => {
+    const csv = 'Town,Link,Score\nBerlin,berlin,4.5\nBerlin again,Berlin,x\n';
+    const parsed = parseCsv(csv);
+    const suggested = suggestMapping(parsed.header, schema, 'pageset');
+
+    expect(check(csv).funnel).toMatchObject({ rejected: 2, created: 0 });
+    let mapping = mapColumn(suggested, 'Town', '12-title');
+    mapping = mapColumn(mapping, 'Score', '12-rating');
+    const result = check(csv, schema, true, { ...mapping, pathPart: 'Link' });
+
+    expect(result.columns.map((column) => [column.header, column.status])).toEqual([
+      ['Town', 'mapped'],
+      ['Link', 'path-part'],
+      ['Score', 'mapped'],
+    ]);
+    expect(result.rows.map((row) => row.primary?.code)).toEqual([undefined, 'path-duplicate']);
+    expect(result.rows[1]?.issues.map((issue) => issue.code)).toEqual([
+      'number-invalid',
+      'path-duplicate',
+    ]);
+  });
+
+  it('maps a field from one column at a time, and a column to one field', () => {
+    const header = ['title', 'name', 'path'];
+    const suggested = suggestMapping(header, schema, 'pageset');
+    const moved = mapColumn(suggested, 'name', '12-title');
+
+    expect([...suggested.fields]).toEqual([['title', '12-title']]);
+    expect(suggested.pathPart).toBe('path');
+    expect([...moved.fields]).toEqual([['name', '12-title']]);
+    expect([...mapColumn(moved, 'name', '12-body').fields]).toEqual([['name', '12-body']]);
+    expect([...mapColumn(moved, 'name', undefined).fields]).toEqual([]);
+  });
+
+  it('turns a column that also fills a field into the path part', () => {
+    const csv = 'title\nBerlin\nberlin\n';
+    const mapping = { ...suggestMapping(['title'], schema, 'pageset'), pathPart: 'title' };
+    const result = check(csv, schema, true, mapping);
+
+    expect(result.columns[0]).toMatchObject({ status: 'mapped', pathPart: true });
+    expect(result.rows.map((row) => row.outcome)).toEqual(['created', 'rejected']);
   });
 
   it('reconciles the line count with the items expected', () => {
@@ -376,5 +428,8 @@ describe('exports', () => {
     expect(report).toContain('**3 items expected** from 12 lines.');
     expect(report).toContain('12 lines − 6 won’t import − 3 lines that aren’t entries = 3 items');
     expect(report).toContain('## Won’t import (−6)');
+    expect(report).toContain(
+      'Columns: title → Title, rating → Rating, country → Country, body → Body. Path part from path.',
+    );
   });
 });

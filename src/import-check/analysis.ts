@@ -1,6 +1,12 @@
 // Predicts what Zesty's Import CSV would do with a file, without writing anything.
 // "Likely" and "possible" findings predict Instances API rejections, whose rules are not public.
-import type { CollectionField, CollectionSchema, ContentItem, ItemZuid } from '../domain';
+import type {
+  CollectionField,
+  CollectionSchema,
+  ContentItem,
+  FieldZuid,
+  ItemZuid,
+} from '../domain';
 import type { CsvRecord, FileProblem, ParsedCsv } from './csv';
 
 export type Certainty = 'likely' | 'possible';
@@ -44,14 +50,30 @@ export interface RowCheck {
   readonly outcome: RowOutcome;
 }
 
+/**
+ * The choices made in Zesty's import screen. Zesty keys them by header, so columns that share a
+ * header share a choice.
+ */
+export interface ImportMapping {
+  /** The field each column fills; a header that is left out is not imported. */
+  readonly fields: ReadonlyMap<string, FieldZuid>;
+  /** The column Zesty turns into each page's path part. */
+  readonly pathPart: string | undefined;
+}
+
 /** How Zesty treats a column: `shadowed` means a later column has the same header. */
-export type ColumnMapping =
-  | { readonly status: 'mapped'; readonly field: CollectionField }
+export type ColumnUse =
+  | {
+      readonly status: 'mapped';
+      readonly field: CollectionField;
+      /** The column is also the path part. */
+      readonly pathPart: boolean;
+    }
   | { readonly status: 'path-part' }
   | { readonly status: 'unmapped' }
   | { readonly status: 'shadowed' };
 
-export type ColumnCheck = ColumnMapping & {
+export type ColumnCheck = ColumnUse & {
   readonly index: number;
   readonly header: string;
   readonly filled: number;
@@ -80,6 +102,8 @@ export interface CountFunnel {
 export interface ImportCheck {
   readonly fileName: string;
   readonly parsed: ParsedCsv;
+  readonly schema: CollectionSchema;
+  readonly mapping: ImportMapping;
   readonly fileRejected: boolean;
   readonly fileProblems: readonly FileProblem[];
   readonly columns: readonly ColumnCheck[];
@@ -96,6 +120,8 @@ export interface ImportCheck {
 export interface ImportCheckInput {
   readonly fileName: string;
   readonly parsed: ParsedCsv;
+  /** The user's mapping; a suggested one when absent. */
+  readonly mapping?: ImportMapping;
   readonly schema: CollectionSchema;
   readonly modelType: string;
   readonly existingItems: readonly ContentItem[];
@@ -117,22 +143,59 @@ export function zestyPathPart(value: string): string {
 
 const normalizeHeader = (value: string) => value.trim().toLowerCase();
 
-/** Matches each header to a field by reference name or label, like a careful user would. */
-function mapColumns(header: readonly string[], schema: CollectionSchema): ColumnMapping[] {
+/**
+ * Suggests a mapping like a careful user would choose it: each column to the field with that
+ * reference name or label, and a column named like a slug to the path part. Zesty itself
+ * starts every column at “none”.
+ */
+export function suggestMapping(
+  header: readonly string[],
+  schema: CollectionSchema,
+  modelType: string,
+): ImportMapping {
   const byName = new Map<string, CollectionField>();
   for (const field of schema.fields) {
     byName.set(field.name.toLowerCase(), field);
     byName.set(field.label.toLowerCase(), field);
   }
+  const fields = new Map<string, FieldZuid>();
+  let pathPart: string | undefined;
+  for (const name of header) {
+    const normalized = normalizeHeader(name);
+    const field = byName.get(normalized);
+    if (field && ![...fields.values()].includes(field.id)) fields.set(name, field.id);
+    if (modelType === 'pageset' && pathPartHeaders.has(normalized)) pathPart ??= name;
+  }
+  return { fields, pathPart };
+}
+
+/** Maps a column to a field, or to none; the field is taken from any column that had it. */
+export function mapColumn(
+  mapping: ImportMapping,
+  header: string,
+  field: FieldZuid | undefined,
+): ImportMapping {
+  const fields = new Map([...mapping.fields].filter(([, mapped]) => mapped !== field));
+  if (field) fields.set(header, field);
+  else fields.delete(header);
+  return { ...mapping, fields };
+}
+
+function columnUses(
+  header: readonly string[],
+  schema: CollectionSchema,
+  mapping: ImportMapping,
+): ColumnUse[] {
   const lastIndex = new Map<string, number>();
   header.forEach((name, index) => lastIndex.set(name, index));
   return header.map((name, index) => {
     // Zesty keys each row by header name, so an earlier column with the same name is lost.
     if (lastIndex.get(name) !== index) return { status: 'shadowed' };
-    const normalized = normalizeHeader(name);
-    const field = byName.get(normalized);
-    if (field) return { status: 'mapped', field };
-    if (pathPartHeaders.has(normalized)) return { status: 'path-part' };
+    const fieldId = mapping.fields.get(name);
+    const field = schema.fields.find((candidate) => candidate.id === fieldId);
+    const pathPart = mapping.pathPart === name;
+    if (field) return { status: 'mapped', field, pathPart };
+    if (pathPart) return { status: 'path-part' };
     return { status: 'unmapped' };
   });
 }
@@ -261,7 +324,7 @@ export const issueCopy: Readonly<
 > = {
   'required-missing': {
     title: 'Required field has no column',
-    fix: 'Add a column for the field, named like its reference name or label.',
+    fix: 'Choose a column for the field in its header, or add one to the file.',
   },
   'required-empty': {
     title: 'Required field is empty',
@@ -321,14 +384,14 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
   const { parsed, schema, existingItems, relatedItems } = input;
   const fileRejected = parsed.fileProblems.length > 0;
   const isPageset = input.modelType === 'pageset';
-  const mapping = mapColumns(parsed.header, schema);
-  const pathIndex = mapping.findIndex((column) => column.status === 'path-part');
-  const pathPartColumn = pathIndex >= 0 ? parsed.header[pathIndex] : undefined;
+  const mapping = input.mapping ?? suggestMapping(parsed.header, schema, input.modelType);
+  const uses = columnUses(parsed.header, schema, mapping);
+  const pathPartColumn = mapping.pathPart;
   // Zesty cannot fill a required field that no column maps to, so every row lacks it.
   const unmappedRequired = schema.fields.filter(
     (field) =>
       field.required &&
-      !mapping.some((column) => column.status === 'mapped' && column.field === field),
+      !uses.some((column) => column.status === 'mapped' && column.field === field),
   );
   const missingRequired: RowIssue[] = unmappedRequired.map((field) => ({
     code: 'required-missing',
@@ -357,7 +420,7 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
       parsed.header.map((name, column) => [name, record.cells[column] ?? '']),
     );
     const issues: RowIssue[] = [...missingRequired];
-    mapping.forEach((column, columnIndex) => {
+    uses.forEach((column, columnIndex) => {
       if (column.status !== 'mapped') return;
       const header = parsed.header[columnIndex]!;
       issues.push(...fieldIssues(column.field, header, values[header] ?? '', relatedItems));
@@ -431,7 +494,7 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
     );
 
   const columns: ColumnCheck[] = parsed.header.map((header, index) => ({
-    ...mapping[index]!,
+    ...uses[index]!,
     index,
     header,
     filled: parsed.records.filter((record) => (record.cells[index] ?? '').trim() !== '').length,
@@ -444,6 +507,8 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
   return {
     fileName: input.fileName,
     parsed,
+    schema,
+    mapping,
     fileRejected,
     fileProblems,
     columns,

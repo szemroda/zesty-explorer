@@ -149,7 +149,7 @@ export function summarize(check: ImportCheck): FindingGroup[] {
           fix:
             column.status === 'shadowed'
               ? `A later column is also called “${column.header}”, so Zesty drops this one.`
-              : `No field is called “${column.header}”, so Zesty drops its ${column.filled} values without a warning.`,
+              : `No field is chosen for “${column.header}”, so Zesty drops its ${column.filled} values without a warning.`,
           tone: 'quiet',
           column: column.index,
         })),

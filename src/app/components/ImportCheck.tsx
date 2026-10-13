@@ -1,6 +1,8 @@
 import {
   ArrowUpRight,
+  CircleCheck,
   FileSpreadsheet,
+  Info,
   LoaderCircle,
   MoreHorizontal,
   Search,
@@ -17,6 +19,7 @@ import {
   issueCopy,
   importableRowsCsv,
   markdownReport,
+  mapColumn,
   matchesLineQuery,
   needsAttention,
   parseCsv,
@@ -30,6 +33,7 @@ import {
   type FindingGroup,
   type FindingTone,
   type ImportCheck as Check,
+  type ImportMapping,
 } from '../../import-check';
 import type { CollectionApi } from '../../zesty-api';
 import { copyText } from '../copy-text';
@@ -46,6 +50,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 const dot: Readonly<Record<FindingTone, string>> = {
   rejected: 'bg-destructive',
@@ -77,12 +82,15 @@ export function ImportCheck({
   const [modelZuid, setModelZuid] = useState(initialModelZuid);
   const collection = collections.find((entry) => entry.reference.modelZuid === modelZuid);
   const [source, setSource] = useState<CsvSource>();
+  // The user's column mapping; a new file or collection starts from a suggested one.
+  const [mapping, setMapping] = useState<ImportMapping>();
   const [changing, setChanging] = useState(false);
   const { state, reload, authenticationFailed } = useImportCheck({
     api,
     credentials,
     collection,
     source,
+    mapping,
   });
 
   useEffect(() => {
@@ -94,12 +102,18 @@ export function ImportCheck({
     const text = await file.text();
     reload();
     setSource({ fileName: file.name, parsed: parseCsv(text) });
+    setMapping(undefined);
     setChanging(false);
   }
 
   if (state.status === 'ready' && !changing && collection) {
     return (
-      <Workspace check={state.check} collection={collection} onChange={() => setChanging(true)} />
+      <Workspace
+        check={state.check}
+        collection={collection}
+        onChange={() => setChanging(true)}
+        onMappingChange={setMapping}
+      />
     );
   }
   return (
@@ -117,16 +131,20 @@ export function ImportCheck({
           label="Collection to import into"
           collections={collections}
           value={collection?.reference.modelZuid}
-          onChange={(entry: CollectionCatalogEntry | undefined) =>
-            setModelZuid(entry?.reference.modelZuid)
-          }
+          onChange={(entry: CollectionCatalogEntry | undefined) => {
+            setModelZuid(entry?.reference.modelZuid);
+            setMapping(undefined);
+          }}
         />
         <CsvFileButton source={source} onFile={(file) => void chooseFile(file)} />
         <SetupStatus state={state} onShowResults={() => setChanging(false)} />
-        <p className="text-muted-foreground flex items-center gap-2 text-xs">
-          <ShieldCheck size={14} className="shrink-0 text-emerald-500" aria-hidden="true" />
-          The file stays in your browser. Nothing is written to Zesty.
-        </p>
+        <div className="grid gap-1.5">
+          <p className="text-muted-foreground flex items-center gap-2 text-xs">
+            <ShieldCheck size={14} className="shrink-0 text-emerald-500" aria-hidden="true" />
+            The file stays in your browser. Nothing is written to Zesty.
+          </p>
+          <PredictionNote />
+        </div>
       </section>
     </div>
   );
@@ -197,10 +215,12 @@ function Workspace({
   check,
   collection,
   onChange,
+  onMappingChange,
 }: {
   readonly check: Check;
   readonly collection: CollectionCatalogEntry;
   readonly onChange: () => void;
+  readonly onMappingChange: (mapping: ImportMapping) => void;
 }) {
   const groups = useMemo(() => summarize(check), [check]);
   const lines = useMemo(() => fileLines(check), [check]);
@@ -277,6 +297,9 @@ function Workspace({
             Change
           </button>
         </p>
+        {collection.type === 'pageset' ? (
+          <PathPartSelect check={check} onMappingChange={onMappingChange} />
+        ) : null}
         <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
           <label className="relative flex flex-1 items-center sm:w-80 sm:flex-none">
             <Search
@@ -350,8 +373,19 @@ function Workspace({
             lines={visible}
             selectedLine={selectedLine}
             onSelect={(line) => setSelectedLine((current) => (current === line ? undefined : line))}
+            onMap={(header, field) => onMappingChange(mapColumn(check.mapping, header, field))}
             {...(query.kind === 'text' ? { highlight: query.text } : {})}
             {...(finding?.column !== undefined ? { focusColumn: finding.column } : {})}
+            {...(query.kind === 'none' && !finding && !showAll
+              ? {
+                  empty: (
+                    <NothingNeedsAttention
+                      totalLines={check.funnel.dataLines}
+                      onShowAll={() => setShowAll(true)}
+                    />
+                  ),
+                }
+              : {})}
           />
         </section>
         {selected ? (
@@ -364,6 +398,42 @@ function Workspace({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** The column Zesty turns into each page's URL, chosen like “Path Part” in Zesty's import screen. */
+function PathPartSelect({
+  check,
+  onMappingChange,
+}: {
+  readonly check: Check;
+  readonly onMappingChange: (mapping: ImportMapping) => void;
+}) {
+  const headers = [...new Set(check.parsed.header)];
+  return (
+    <label className="text-muted-foreground flex items-center gap-2 text-xs">
+      Path part
+      <Select
+        items={[
+          { value: null, label: 'None' },
+          ...headers.map((header) => ({ value: header, label: header })),
+        ]}
+        value={check.mapping.pathPart ?? null}
+        onValueChange={(next) => onMappingChange({ ...check.mapping, pathPart: next ?? undefined })}
+      >
+        <SelectTrigger size="sm" className="h-7 min-w-28 font-mono" aria-label="Path part column">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start" alignItemWithTrigger={false}>
+          <SelectItem value={null}>None</SelectItem>
+          {headers.map((header) => (
+            <SelectItem key={header} value={header} className="font-mono">
+              {header}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
   );
 }
 
@@ -387,6 +457,36 @@ function Headline({ check }: { readonly check: Check }) {
       <p className="text-muted-foreground mt-1 text-xs">
         from {funnel.dataLines} lines in the file · nothing is written to Zesty
       </p>
+      <PredictionNote className="mt-3" />
+    </div>
+  );
+}
+
+/** The check re-implements only the Zesty rules it knows, so it can miss problems. */
+function PredictionNote({ className }: { readonly className?: string }) {
+  return (
+    <p className={cn('text-muted-foreground flex items-start gap-2 text-xs', className)}>
+      <Info size={14} className="mt-px shrink-0" aria-hidden="true" />A prediction, not a guarantee.
+      Zesty may apply rules this check doesn’t know, so some problems can go unnoticed.
+    </p>
+  );
+}
+
+function NothingNeedsAttention({
+  totalLines,
+  onShowAll,
+}: {
+  readonly totalLines: number;
+  readonly onShowAll: () => void;
+}) {
+  return (
+    <div className="grid justify-items-center gap-2 p-10 text-center text-sm" role="status">
+      <CircleCheck size={22} className="text-emerald-500" aria-hidden="true" />
+      <p className="font-medium">Nothing needs attention</p>
+      <p className="text-muted-foreground">Every line is an entry Zesty should import.</p>
+      <Button variant="outline" size="sm" className="mt-2" onClick={onShowAll}>
+        {totalLines === 1 ? 'Show the line' : `Show all ${totalLines} lines`}
+      </Button>
     </div>
   );
 }

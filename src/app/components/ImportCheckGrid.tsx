@@ -1,5 +1,6 @@
 import { CornerDownLeft, FileWarning } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { FieldZuid } from '../../domain';
 import {
   describeFileProblem,
   lineRange,
@@ -10,6 +11,7 @@ import {
   type RowOutcome,
 } from '../../import-check';
 import { cn } from '../lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { TooltipTrigger } from './ui/tooltip';
 
 const outcomeStripe: Readonly<Record<RowOutcome, string>> = {
@@ -35,15 +37,21 @@ export function ImportCheckGrid({
   onSelect,
   highlight,
   focusColumn,
+  onMap,
+  empty,
 }: {
   readonly check: ImportCheck;
   readonly lines: readonly FileLine[];
   readonly selectedLine: number | undefined;
   readonly onSelect: (line: number) => void;
+  /** Maps a column header to a field, or to none. */
+  readonly onMap: (header: string, field: FieldZuid | undefined) => void;
   /** Text to mark in cells. */
   readonly highlight?: string;
   /** A header index to emphasise and scroll to. */
   readonly focusColumn?: number;
+  /** Shown instead of “Nothing matches.” when no line is shown. */
+  readonly empty?: ReactNode;
 }) {
   return (
     <div
@@ -67,6 +75,7 @@ export function ImportCheckGrid({
                 column={column}
                 check={check}
                 focused={column.index === focusColumn}
+                onMap={onMap}
               />
             ))}
           </tr>
@@ -85,9 +94,11 @@ export function ImportCheckGrid({
           ))}
         </tbody>
       </table>
-      {lines.length === 0 ? (
-        <p className="text-muted-foreground p-8 text-center text-sm">Nothing matches.</p>
-      ) : null}
+      {lines.length === 0
+        ? (empty ?? (
+            <p className="text-muted-foreground p-8 text-center text-sm">Nothing matches.</p>
+          ))
+        : null}
     </div>
   );
 }
@@ -95,7 +106,7 @@ export function ImportCheckGrid({
 function columnTooltip(column: ColumnCheck, check: ImportCheck): string {
   const records = check.rows.length;
   if (column.status === 'unmapped') {
-    return `No field is called “${column.header}”, so Zesty drops this column without a warning.`;
+    return 'No field is chosen for this column, so Zesty drops it without a warning.';
   }
   if (column.status === 'shadowed') {
     return 'A later column has the same name. Zesty keys cells by header, so this column is lost.';
@@ -106,17 +117,20 @@ function columnTooltip(column: ColumnCheck, check: ImportCheck): string {
   }
   const { field } = column;
   const type = (field.datatype ?? field.kind).replaceAll('_', ' ');
-  return `→ ${field.label} (${type}${field.required ? ', required' : ''}). ${filled}.`;
+  const path = column.pathPart ? ' Also becomes each page’s URL.' : '';
+  return `→ ${field.label} (${type}${field.required ? ', required' : ''}).${path} ${filled}.`;
 }
 
 function ColumnHeader({
   column,
   check,
   focused,
+  onMap,
 }: {
   readonly column: ColumnCheck;
   readonly check: ImportCheck;
   readonly focused: boolean;
+  readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
   const dropped = isDropped(column);
   return (
@@ -124,24 +138,93 @@ function ColumnHeader({
       scope="col"
       data-focused={focused || undefined}
       className={cn(
-        'border-border bg-surface-header sticky top-0 z-20 min-w-40 border-r border-b p-0 text-left font-normal',
+        'border-border bg-surface-header sticky top-0 z-20 min-w-40 border-r border-b p-0 text-left align-top font-normal',
         focused && 'bg-primary/15 shadow-[inset_0_-2px_0_var(--color-primary)]',
       )}
     >
-      <TooltipTrigger
-        text={columnTooltip(column, check)}
-        render={<div tabIndex={0} className="px-3 py-2 outline-none" />}
-      >
-        <span
-          className={cn(
-            'block truncate font-mono text-xs font-semibold',
-            dropped ? 'text-muted-foreground line-through' : 'text-foreground',
-          )}
+      <div className="px-3 pt-2">
+        {/* Only as wide as the name, so the tooltip appears over it, not over a wide column. */}
+        <TooltipTrigger
+          text={columnTooltip(column, check)}
+          render={
+            <div
+              tabIndex={0}
+              className="focus-visible:ring-ring/45 inline-flex max-w-full items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2"
+            />
+          }
         >
-          {column.header}
-        </span>
-      </TooltipTrigger>
+          <span
+            className={cn(
+              'block truncate font-mono text-xs font-semibold',
+              dropped ? 'text-muted-foreground line-through' : 'text-foreground',
+            )}
+          >
+            {column.header}
+          </span>
+          {column.status === 'path-part' || (column.status === 'mapped' && column.pathPart) ? (
+            <span className="bg-primary/15 text-primary shrink-0 rounded px-1 text-[10px]">
+              URL
+            </span>
+          ) : null}
+        </TooltipTrigger>
+      </div>
+      <div className="px-2 pt-1 pb-2">
+        {column.status === 'shadowed' ? (
+          <p className="text-muted-foreground px-1 py-1.5 text-xs italic">Duplicate header</p>
+        ) : (
+          <FieldSelect column={column} check={check} onMap={onMap} />
+        )}
+      </div>
     </th>
+  );
+}
+
+/** The field a column fills, chosen like in Zesty's import screen. */
+function FieldSelect({
+  column,
+  check,
+  onMap,
+}: {
+  readonly column: ColumnCheck;
+  readonly check: ImportCheck;
+  readonly onMap: (header: string, field: FieldZuid | undefined) => void;
+}) {
+  const { fields } = check.schema;
+  const mappedFrom = new Map(
+    [...check.mapping.fields].map(([header, field]) => [field, header] as const),
+  );
+  return (
+    <Select
+      items={[
+        { value: null, label: 'Not imported' },
+        ...fields.map((field) => ({ value: field.id, label: field.label })),
+      ]}
+      value={column.status === 'mapped' ? column.field.id : null}
+      onValueChange={(next) => onMap(column.header, next ?? undefined)}
+    >
+      <SelectTrigger
+        size="sm"
+        className={cn('h-7 w-full', column.status === 'unmapped' && 'text-muted-foreground')}
+        aria-label={`Field for column ${column.header}`}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="start" alignItemWithTrigger={false}>
+        <SelectItem value={null}>Not imported</SelectItem>
+        {fields.map((field) => {
+          const from = mappedFrom.get(field.id);
+          return (
+            <SelectItem key={field.id} value={field.id}>
+              {field.label}
+              {field.required ? <span className="text-muted-foreground"> *</span> : null}
+              {from !== undefined && from !== column.header ? (
+                <span className="text-muted-foreground font-mono text-xs"> · from {from}</span>
+              ) : null}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }
 

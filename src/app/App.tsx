@@ -63,6 +63,7 @@ import { ImportCheck } from './components/ImportCheck';
 import { createChildNode, createRootNode } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
+import { refreshImportCheck } from './hooks/useImportCheck';
 import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
@@ -197,6 +198,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     useState<string>();
   const [pendingCollection, setPendingCollection] = useState<CollectionCatalogEntry>();
   const [isRefreshingCode, setIsRefreshingCode] = useState(false);
+  const [isRefreshingImport, setIsRefreshingImport] = useState(false);
   const [reference, setReference] = useState<CollectionReference | undefined>(
     initialView?.root.reference,
   );
@@ -668,8 +670,21 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     void copyText(
       appUrl(encodedView.fragment),
       'Link copied',
-      'The session token and code source are not included.',
+      visibleTab === 'import'
+        ? 'The session token and the CSV file are not included.'
+        : 'The session token and code source are not included.',
     );
+  }
+
+  async function refreshImport() {
+    setIsRefreshingImport(true);
+    try {
+      await refreshImportCheck(queryClient);
+    } catch {
+      toast.error('Refresh failed', { description: 'The check still shows the earlier data.' });
+    } finally {
+      setIsRefreshingImport(false);
+    }
   }
 
   async function refreshCode() {
@@ -892,7 +907,27 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </Button>
               {viewOptions}
             </>
-          ) : visibleTab === 'import' ? null : reference ? (
+          ) : visibleTab === 'import' ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshImport()}
+                disabled={isRefreshingImport}
+              >
+                <RefreshCw
+                  className={isRefreshingImport ? 'animate-spin' : undefined}
+                  size={14}
+                  aria-hidden="true"
+                />
+                Refresh
+              </Button>
+              <Button variant="outline" size="sm" onClick={copyLink}>
+                <Copy size={14} aria-hidden="true" /> Copy link
+              </Button>
+              {viewOptions}
+            </>
+          ) : reference ? (
             <>
               <ToggleGroup
                 aria-label="Content state"

@@ -9,5 +9,5 @@ Zesty offers no dry run for its Import CSV. The Import check therefore re-implem
 ## Consequences
 
 - What follows from Manager's importer is stated as fact. Rejections by the Instances API, whose rules are not public, are predictions: `likely` ones count as won't import, `possible` ones count as imported but are flagged.
-- Columns are mapped by field name or label, as a careful user would map them in Zesty's own screen. The check cannot know which mapping the user will choose.
+- Zesty starts every column at “none” and lets the user pick a field and a path-part column. The check suggests a mapping by field name or label, and the user changes it to match the choices they make in Zesty. Like Zesty, it keys choices by header and fills each field from one column. The Parent ZUID choice is not modelled, so path parts are compared as if every imported page had no parent.
 - When Zesty's importer changes, the check can drift silently. Its behaviour is pinned by focused tests on small files, not by comparison with a live import.
