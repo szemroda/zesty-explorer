@@ -27,7 +27,8 @@ export type RowIssueCode =
 
 export interface RowIssue {
   readonly code: RowIssueCode;
-  readonly column: string;
+  /** The header of the column the issue is in; absent when no column maps to the field. */
+  readonly column?: string;
   readonly value: string;
   readonly message: string;
   readonly certainty: Certainty;
@@ -120,8 +121,7 @@ export interface ImportCheck {
 export interface ImportCheckInput {
   readonly fileName: string;
   readonly parsed: ParsedCsv;
-  /** The user's mapping; a suggested one when absent. */
-  readonly mapping?: ImportMapping;
+  readonly mapping: ImportMapping;
   readonly schema: CollectionSchema;
   readonly modelType: string;
   readonly existingItems: readonly ContentItem[];
@@ -163,11 +163,20 @@ export function suggestMapping(
   for (const name of header) {
     const normalized = normalizeHeader(name);
     const field = byName.get(normalized);
-    if (field && ![...fields.values()].includes(field.id)) fields.set(name, field.id);
+    if (field && ![...fields.values()].includes(field.id)) {
+      fields.set(name, field.id);
+      continue;
+    }
     if (modelType === 'pageset' && pathPartHeaders.has(normalized)) pathPart ??= name;
   }
   return { fields, pathPart };
 }
+
+/**
+ * Whether Zesty can use a header as the path part: its Path Part select stores “none” for no
+ * choice, and ignores an empty header.
+ */
+export const canBePathPart = (header: string) => header !== '' && header !== 'none';
 
 /** Maps a column to a field, or to none; the field is taken from any column that had it. */
 export function mapColumn(
@@ -384,7 +393,7 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
   const { parsed, schema, existingItems, relatedItems } = input;
   const fileRejected = parsed.fileProblems.length > 0;
   const isPageset = input.modelType === 'pageset';
-  const mapping = input.mapping ?? suggestMapping(parsed.header, schema, input.modelType);
+  const { mapping } = input;
   const uses = columnUses(parsed.header, schema, mapping);
   const pathPartColumn = mapping.pathPart;
   // Zesty cannot fill a required field that no column maps to, so every row lacks it.
@@ -395,7 +404,6 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
   );
   const missingRequired: RowIssue[] = unmappedRequired.map((field) => ({
     code: 'required-missing',
-    column: field.name,
     value: '',
     certainty: 'likely',
     message: `${field.label} is required, but no column maps to it.`,

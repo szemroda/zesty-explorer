@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalogEntry, CollectionReference } from '../../domain';
 import {
   checkImport,
+  suggestMapping,
   type ImportCheck,
   type ImportMapping,
   type ParsedCsv,
@@ -148,7 +149,7 @@ export function useImportCheck({
         check: checkImport({
           fileName: source.fileName,
           parsed: source.parsed,
-          ...(mapping ? { mapping } : {}),
+          mapping: mapping ?? suggestMapping(source.parsed.header, schema.data, collection.type),
           schema: schema.data,
           modelType: collection.type,
           existingItems: existing.data.items,

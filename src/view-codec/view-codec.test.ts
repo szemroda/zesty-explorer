@@ -80,13 +80,20 @@ describe('ViewCodec', () => {
   });
 
   it('restores the Import check tab and rejects an unknown tab', () => {
-    const importTab: SharedState = { ...shared(view), tab: 'import' };
+    const importTab: SharedState = {
+      ...shared(view),
+      tab: 'import',
+      importModelZuid: '6-stores00001',
+    };
 
     expect(ViewCodec.decode(ViewCodec.encode(importTab).fragment)).toEqual({
       ok: true,
       state: importTab,
     });
     expect(ViewCodec.decode(gzipFragment({ ...shared(view), tab: 'settings' })).ok).toBe(false);
+    expect(ViewCodec.decode(gzipFragment({ ...importTab, importModelZuid: '7-item' })).ok).toBe(
+      false,
+    );
   });
 
   it('restores a version-two view link in the Explorer tab', () => {

@@ -102,7 +102,7 @@ The app loads at most 10,000 items per collection and 50,000 items across a view
 
 ## Share, replace, and reset
 
-`Copy link` copies the current localhost URL. Its compressed fragment contains the active tab, the relationship tree, references, names, content state, filters, columns, widths, sorts, and the Code tab's selected file and code state. It never contains the session token, code source, the Import check's file, endpoint request forms or responses, pages, expanded rows, open details or code history, or loading state.
+`Copy link` copies the current localhost URL. Its compressed fragment contains the active tab, the relationship tree, references, names, content state, filters, columns, widths, sorts, the Code tab's selected file and code state, and the Import check's collection. It never contains the session token, code source, the Import check's file, endpoint request forms or responses, pages, expanded rows, open details or code history, or loading state.
 
 The recipient opens the link and supplies a token in their own tab if one is not already stored there. Links over 8,000 characters remain copyable but show a compatibility warning. A damaged link can be copied as raw data for diagnosis or reset explicitly; it is never silently discarded.
 

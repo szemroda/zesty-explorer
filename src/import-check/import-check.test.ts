@@ -74,7 +74,7 @@ function check(
   return checkImport({
     fileName: 'cities.csv',
     parsed: parseCsv(csv),
-    ...(mapping ? { mapping } : {}),
+    mapping: mapping ?? suggestMapping(parseCsv(csv).header, collection, 'pageset'),
     schema: collection,
     modelType: 'pageset',
     existingItems,
@@ -168,6 +168,32 @@ describe('checkImport', () => {
     expect([...moved.fields]).toEqual([['name', '12-title']]);
     expect([...mapColumn(moved, 'name', '12-body').fields]).toEqual([['name', '12-body']]);
     expect([...mapColumn(moved, 'name', undefined).fields]).toEqual([]);
+  });
+
+  it('suggests as path part only a slug-like column that no field takes', () => {
+    const withUrl = {
+      ...schema,
+      fields: [
+        ...schema.fields,
+        { id: '12-url', name: 'url', label: 'URL', kind: 'text' } as const,
+      ],
+    };
+
+    expect(suggestMapping(['title', 'url', 'slug'], withUrl, 'pageset').pathPart).toBe('slug');
+    expect(suggestMapping(['title', 'slug'], withUrl, 'dataset').pathPart).toBeUndefined();
+  });
+
+  it('puts a missing required field on no column, even one named like the field', () => {
+    const csv = 'title,body\nBerlin,Quiet\n';
+    const mapping = mapColumn(
+      suggestMapping(['title', 'body'], schema, 'pageset'),
+      'title',
+      '12-body',
+    );
+    const [row] = check(csv, schema, true, mapping).rows;
+
+    expect(row?.issues).toEqual([expect.objectContaining({ code: 'required-missing' })]);
+    expect(row?.issues[0]).not.toHaveProperty('column');
   });
 
   it('turns a column that also fills a field into the path part', () => {

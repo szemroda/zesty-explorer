@@ -196,7 +196,7 @@ function FieldSelect({
   return (
     <Select
       items={[
-        { value: null, label: 'Not imported' },
+        { value: null, label: 'None' },
         ...fields.map((field) => ({ value: field.id, label: field.label })),
       ]}
       value={column.status === 'mapped' ? column.field.id : null}
@@ -210,7 +210,7 @@ function FieldSelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="start" alignItemWithTrigger={false}>
-        <SelectItem value={null}>Not imported</SelectItem>
+        <SelectItem value={null}>None</SelectItem>
         {fields.map((field) => {
           const from = mappedFrom.get(field.id);
           return (

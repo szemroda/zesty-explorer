@@ -89,6 +89,20 @@ test('checks the file with the columns mapped like in Zesty', async ({ page }) =
   ).toContainText('Store name');
 });
 
+test('keeps the checked collection in the link', async ({ page }) => {
+  await checkStoresCsv(page);
+  const picker = page.getByRole('combobox', { name: 'Collection to import into' });
+  await page.getByRole('button', { name: 'Change' }).click();
+  await picker.fill('Articles');
+  await page.getByRole('option', { name: /^Articles/ }).click();
+  await expect(page).toHaveURL(/#view=/);
+
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Collection to import into' })).toHaveValue(
+    'Articles',
+  );
+});
+
 test('keeps the check while another tab is open', async ({ page }) => {
   await checkStoresCsv(page);
   await expect(summary(page)).toContainText('260 items expected');

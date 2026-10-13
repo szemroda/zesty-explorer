@@ -19,6 +19,7 @@ import {
   issueCopy,
   importableRowsCsv,
   markdownReport,
+  canBePathPart,
   mapColumn,
   matchesLineQuery,
   needsAttention,
@@ -67,12 +68,15 @@ export function ImportCheck({
   credentials,
   catalog,
   initialModelZuid,
+  onModelZuidChange,
   onAuthenticationFailure,
 }: {
   readonly api: CollectionApi;
   readonly credentials: { readonly revision: string; readonly sessionToken: string };
   readonly catalog: CollectionCatalog | undefined;
   readonly initialModelZuid: ModelZuid | undefined;
+  /** Reports the chosen collection, so a copied link can restore it. */
+  readonly onModelZuidChange: (modelZuid: ModelZuid | undefined) => void;
   readonly onAuthenticationFailure: () => void;
 }) {
   const collections = useMemo(
@@ -92,6 +96,8 @@ export function ImportCheck({
     source,
     mapping,
   });
+
+  useEffect(() => onModelZuidChange(modelZuid), [modelZuid, onModelZuidChange]);
 
   useEffect(() => {
     if (authenticationFailed) onAuthenticationFailure();
@@ -409,7 +415,7 @@ function PathPartSelect({
   readonly check: Check;
   readonly onMappingChange: (mapping: ImportMapping) => void;
 }) {
-  const headers = [...new Set(check.parsed.header)];
+  const headers = [...new Set(check.parsed.header)].filter(canBePathPart);
   return (
     <label className="text-muted-foreground flex items-center gap-2 text-xs">
       Path part
@@ -690,12 +696,12 @@ function DetailsBody({
       {row.issues.length === 0 && !check.fileRejected ? (
         <p className="text-emerald-400">Zesty should import this entry.</p>
       ) : (
-        row.issues.map((issue) => {
+        row.issues.map((issue, index) => {
           const related =
             issue.relatedRow === undefined ? undefined : check.rows[issue.relatedRow - 1];
           const possible = issue.certainty === 'possible';
           return (
-            <div key={`${issue.code}-${issue.column}`} className="grid gap-1.5">
+            <div key={index} className="grid gap-1.5">
               <p className="flex items-center gap-2 font-medium">
                 <span
                   className={cn(

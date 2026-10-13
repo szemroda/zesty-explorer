@@ -139,6 +139,14 @@ function initialSharedView(): {
 }
 
 /** This page's address with another URL fragment, e.g. a view link. */
+/** Identifies an instance's deployment, e.g. to key per-instance state. */
+function instanceKey(instance: {
+  readonly instanceZuid: string;
+  readonly deployment: string;
+}): string {
+  return `${instance.instanceZuid}:${instance.deployment}`;
+}
+
 function appUrl(fragment: string): string {
   const { origin, pathname, search } = window.location;
   return `${origin}${pathname}${search}${fragment}`;
@@ -193,6 +201,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   // The Code and Import check tabs load only once opened, then keep their state while hidden.
   const [codeOpened, setCodeOpened] = useState(initial.state?.tab === 'code');
   const [importOpened, setImportOpened] = useState(initial.state?.tab === 'import');
+  // The Import check's collection for a copied link, tagged with its instance so it can't leak
+  // into another instance's link.
+  const [importCollection, setImportCollection] = useState(() => {
+    const shared = initial.state;
+    return shared?.importModelZuid
+      ? { instance: instanceKey(shared.instance), modelZuid: shared.importModelZuid }
+      : undefined;
+  });
   // Set when the Code or Import check tab finds the instance's session token rejected.
   const [workspaceAuthenticationFailureRevision, setWorkspaceAuthenticationFailureRevision] =
     useState<string>();
@@ -248,6 +264,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   );
   const code = useCodeTab(instance, initial.state);
 
+  const onImportModelZuidChange = useCallback(
+    (modelZuid: ModelZuid | undefined) =>
+      setImportCollection(
+        instance && modelZuid ? { instance: instanceKey(instance), modelZuid } : undefined,
+      ),
+    [instance],
+  );
+
   // One link restores both tabs: the active tab, the Explorer view, and the Code selection and
   // file filter.
   const encodedView = useMemo(() => {
@@ -260,6 +284,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         : undefined;
     const selection = code.selection;
     const fileFilter = shareableFileFilter(code.fileFilter);
+    const importModelZuid =
+      importCollection?.instance === instanceKey(instance) ? importCollection.modelZuid : undefined;
     return ViewCodec.encode({
       version: 3,
       instance: { instanceZuid: instance.instanceZuid, deployment: instance.deployment },
@@ -267,12 +293,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ...(view ? { view } : {}),
       ...(selection.fileId || selection.state !== 'latest' ? { codeSelection: selection } : {}),
       ...(fileFilter ? { codeFileFilter: fileFilter } : {}),
+      ...(importModelZuid ? { importModelZuid } : {}),
     });
   }, [
     activeTab,
     code.fileFilter,
     code.selection,
     contentState,
+    importCollection,
     instance,
     treeRoot,
     viewDecodeError,
@@ -681,7 +709,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     try {
       await refreshImportCheck(queryClient);
     } catch {
-      toast.error('Refresh failed', { description: 'The check still shows the earlier data.' });
+      toast.error('Refresh failed', { description: 'Zesty data could not be read again.' });
     } finally {
       setIsRefreshingImport(false);
     }
@@ -1347,14 +1375,21 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       {showTabs && instance && importOpened ? (
         <div hidden={visibleTab !== 'import'}>
           <ImportCheck
-            key={`${instance.instanceZuid}:${instance.deployment}`}
+            key={instanceKey(instance)}
             api={api}
             credentials={{
               revision: credentialRevision,
               sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
             }}
             catalog={catalogQuery.catalog}
-            initialModelZuid={reference?.modelZuid ?? instance.suggestedModelZuid}
+            initialModelZuid={
+              (importCollection?.instance === instanceKey(instance)
+                ? importCollection.modelZuid
+                : undefined) ??
+              reference?.modelZuid ??
+              instance.suggestedModelZuid
+            }
+            onModelZuidChange={onImportModelZuidChange}
             onAuthenticationFailure={() =>
               setWorkspaceAuthenticationFailureRevision(credentialRevision)
             }

@@ -8,6 +8,7 @@ import {
 } from '../collection-reference';
 import {
   isCodeFileZuid,
+  isModelZuid,
   type CodeSelection,
   type CollectionNode,
   type PersistedView,
@@ -342,7 +343,9 @@ function validateSharedState(value: unknown): SharedState | undefined {
   if (
     (value.view !== undefined && !view) ||
     (value.codeSelection !== undefined && !codeSelection) ||
-    (value.codeFileFilter !== undefined && typeof value.codeFileFilter !== 'string')
+    (value.codeFileFilter !== undefined && typeof value.codeFileFilter !== 'string') ||
+    (value.importModelZuid !== undefined &&
+      (typeof value.importModelZuid !== 'string' || !isModelZuid(value.importModelZuid)))
   ) {
     return undefined;
   }
@@ -361,6 +364,9 @@ function validateSharedState(value: unknown): SharedState | undefined {
     ...(view ? { view } : {}),
     ...(codeSelection ? { codeSelection } : {}),
     ...(typeof value.codeFileFilter === 'string' ? { codeFileFilter: value.codeFileFilter } : {}),
+    ...(typeof value.importModelZuid === 'string' && isModelZuid(value.importModelZuid)
+      ? { importModelZuid: value.importModelZuid }
+      : {}),
   };
 }
 
