@@ -149,6 +149,9 @@ export interface CollectionField {
   readonly name: string;
   readonly label: string;
   readonly kind: FieldKind;
+  /** Zesty's own datatype, e.g. `images` or `one_to_many`, before it is reduced to a kind. */
+  readonly datatype?: string;
+  readonly required?: boolean;
   readonly relatedModelZuid?: ModelZuid;
   /** The values the field allows, each with its display label. */
   readonly options?: readonly FieldOption[];
@@ -228,7 +231,7 @@ export interface PersistedView {
   readonly viewFilters: readonly ViewFilter[];
 }
 
-export type WorkspaceTab = 'explorer' | 'code';
+export type WorkspaceTab = 'explorer' | 'code' | 'import';
 
 /** The file and code state open in the Code tab. */
 export interface CodeSelection {
@@ -238,7 +241,8 @@ export interface CodeSelection {
 
 /**
  * Everything a link restores for one instance: the active tab, the Explorer view if one is open,
- * and the Code tab's selection and file filter. It never contains a session token or code source.
+ * the Code tab's selection and file filter, and the Import check's collection. It never contains a
+ * session token, code source or CSV file.
  */
 export interface SharedState {
   readonly version: 3;
@@ -248,6 +252,8 @@ export interface SharedState {
   readonly codeSelection?: CodeSelection;
   /** Text that narrows the Code tab's file list by file name or URL. */
   readonly codeFileFilter?: string;
+  /** The collection the Import check tab checks a file against. */
+  readonly importModelZuid?: ModelZuid;
 }
 
 export type ExplorerRequestOperation =

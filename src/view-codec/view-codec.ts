@@ -8,6 +8,7 @@ import {
 } from '../collection-reference';
 import {
   isCodeFileZuid,
+  isModelZuid,
   type CodeSelection,
   type CollectionNode,
   type PersistedView,
@@ -332,7 +333,7 @@ function validateSharedState(value: unknown): SharedState | undefined {
     !isInstanceZuid(instance.instanceZuid) ||
     typeof instance.deployment !== 'string' ||
     !isDeployment(instance.deployment) ||
-    (value.tab !== 'explorer' && value.tab !== 'code')
+    (value.tab !== 'explorer' && value.tab !== 'code' && value.tab !== 'import')
   ) {
     return undefined;
   }
@@ -342,11 +343,13 @@ function validateSharedState(value: unknown): SharedState | undefined {
   if (
     (value.view !== undefined && !view) ||
     (value.codeSelection !== undefined && !codeSelection) ||
-    (value.codeFileFilter !== undefined && typeof value.codeFileFilter !== 'string')
+    (value.codeFileFilter !== undefined && typeof value.codeFileFilter !== 'string') ||
+    (value.importModelZuid !== undefined &&
+      (typeof value.importModelZuid !== 'string' || !isModelZuid(value.importModelZuid)))
   ) {
     return undefined;
   }
-  // Both tabs always show the same instance.
+  // Every tab always shows the same instance.
   if (
     view &&
     (view.root.reference.instanceZuid !== instance.instanceZuid ||
@@ -361,6 +364,9 @@ function validateSharedState(value: unknown): SharedState | undefined {
     ...(view ? { view } : {}),
     ...(codeSelection ? { codeSelection } : {}),
     ...(typeof value.codeFileFilter === 'string' ? { codeFileFilter: value.codeFileFilter } : {}),
+    ...(typeof value.importModelZuid === 'string' && isModelZuid(value.importModelZuid)
+      ? { importModelZuid: value.importModelZuid }
+      : {}),
   };
 }
 

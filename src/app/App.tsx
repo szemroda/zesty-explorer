@@ -6,8 +6,8 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileCheck2,
   MoreHorizontal,
-  RefreshCw,
   RotateCcw,
   Trash2,
 } from 'lucide-react';
@@ -58,9 +58,12 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { OpenCollectionDialog } from './components/OpenCollectionDialog';
+import { ImportCheck } from './components/ImportCheck';
 import { createChildNode, createRootNode } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
+import { refreshImportCheck } from './hooks/useImportCheck';
+import { useRefresh } from './hooks/useRefresh';
 import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
@@ -77,6 +80,7 @@ import {
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
+import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
@@ -136,6 +140,14 @@ function initialSharedView(): {
 }
 
 /** This page's address with another URL fragment, e.g. a view link. */
+/** Identifies an instance's deployment, e.g. to key per-instance state. */
+function instanceKey(instance: {
+  readonly instanceZuid: string;
+  readonly deployment: string;
+}): string {
+  return `${instance.instanceZuid}:${instance.deployment}`;
+}
+
 function appUrl(fragment: string): string {
   const { origin, pathname, search } = window.location;
   return `${origin}${pathname}${search}${fragment}`;
@@ -187,12 +199,27 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       : (initialInstance?.managerBaseUrl ?? ''),
   );
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
-  // The Code tab loads source only once it has been opened.
+  // The Code and Import check tabs load only once opened, then keep their state while hidden.
   const [codeOpened, setCodeOpened] = useState(initial.state?.tab === 'code');
-  const [codeAuthenticationFailureRevision, setCodeAuthenticationFailureRevision] =
+  const [importOpened, setImportOpened] = useState(initial.state?.tab === 'import');
+  // The Import check's collection for a copied link, tagged with its instance so it can't leak
+  // into another instance's link.
+  const [importCollection, setImportCollection] = useState(() => {
+    const shared = initial.state;
+    return shared?.importModelZuid
+      ? { instance: instanceKey(shared.instance), modelZuid: shared.importModelZuid }
+      : undefined;
+  });
+  // Set when the Code or Import check tab finds the instance's session token rejected.
+  const [workspaceAuthenticationFailureRevision, setWorkspaceAuthenticationFailureRevision] =
     useState<string>();
   const [pendingCollection, setPendingCollection] = useState<CollectionCatalogEntry>();
-  const [isRefreshingCode, setIsRefreshingCode] = useState(false);
+  const codeRefresh = useRefresh(() => refreshCodeFiles(queryClient));
+  const importRefresh = useRefresh(() =>
+    refreshImportCheck(queryClient).catch(() => {
+      toast.error('Refresh failed', { description: 'Zesty data could not be read again.' });
+    }),
+  );
   const [reference, setReference] = useState<CollectionReference | undefined>(
     initialView?.root.reference,
   );
@@ -242,6 +269,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   );
   const code = useCodeTab(instance, initial.state);
 
+  const onImportModelZuidChange = useCallback(
+    (modelZuid: ModelZuid | undefined) =>
+      setImportCollection(
+        instance && modelZuid ? { instance: instanceKey(instance), modelZuid } : undefined,
+      ),
+    [instance],
+  );
+
   // One link restores both tabs: the active tab, the Explorer view, and the Code selection and
   // file filter.
   const encodedView = useMemo(() => {
@@ -254,6 +289,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         : undefined;
     const selection = code.selection;
     const fileFilter = shareableFileFilter(code.fileFilter);
+    const importModelZuid =
+      importCollection?.instance === instanceKey(instance) ? importCollection.modelZuid : undefined;
     return ViewCodec.encode({
       version: 3,
       instance: { instanceZuid: instance.instanceZuid, deployment: instance.deployment },
@@ -261,12 +298,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ...(view ? { view } : {}),
       ...(selection.fileId || selection.state !== 'latest' ? { codeSelection: selection } : {}),
       ...(fileFilter ? { codeFileFilter: fileFilter } : {}),
+      ...(importModelZuid ? { importModelZuid } : {}),
     });
   }, [
     activeTab,
     code.fileFilter,
     code.selection,
     contentState,
+    importCollection,
     instance,
     treeRoot,
     viewDecodeError,
@@ -386,7 +425,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ? catalogInstance?.deployment
       : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
         ? reference?.deployment
-        : codeAuthenticationFailureRevision === credentialRevision
+        : workspaceAuthenticationFailureRevision === credentialRevision
           ? instance?.deployment
           : undefined;
     if (!failedDeployment) return;
@@ -404,7 +443,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     authenticationFailed,
     catalogAuthenticationFailed,
     catalogInstance?.deployment,
-    codeAuthenticationFailureRevision,
+    workspaceAuthenticationFailureRevision,
     credentialRevision,
     instance?.deployment,
     previewAuthenticationFailureRevision,
@@ -664,22 +703,16 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     void copyText(
       appUrl(encodedView.fragment),
       'Link copied',
-      'The session token and code source are not included.',
+      visibleTab === 'import'
+        ? 'The session token and the CSV file are not included.'
+        : 'The session token and code source are not included.',
     );
-  }
-
-  async function refreshCode() {
-    setIsRefreshingCode(true);
-    try {
-      await refreshCodeFiles(queryClient);
-    } finally {
-      setIsRefreshingCode(false);
-    }
   }
 
   function changeTab(tab: WorkspaceTab) {
     setActiveTab(tab);
     if (tab === 'code') setCodeOpened(true);
+    if (tab === 'import') setImportOpened(true);
   }
 
   function requestOpenCollection(modelZuid: ModelZuid) {
@@ -747,6 +780,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+
+  const sharedActions = (
+    <>
+      <Button variant="outline" size="sm" onClick={copyLink}>
+        <Copy size={14} aria-hidden="true" /> Copy link
+      </Button>
+      {viewOptions}
+    </>
   );
 
   // Tabs belong to a selected instance; the token and instance form comes before them.
@@ -837,7 +879,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               className="ml-4"
               value={activeTab}
               onValueChange={(value: unknown) => {
-                if (value === 'explorer' || value === 'code') changeTab(value);
+                if (value === 'explorer' || value === 'code' || value === 'import') {
+                  changeTab(value);
+                }
               }}
             >
               <TabsList aria-label="Workspace">
@@ -846,6 +890,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 </TabsTrigger>
                 <TabsTrigger value="code" className="gap-1.5">
                   <Code2 size={13} aria-hidden="true" /> Code
+                </TabsTrigger>
+                <TabsTrigger value="import" className="gap-1.5">
+                  <FileCheck2 size={13} aria-hidden="true" /> Import check
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -864,23 +911,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">{codeStateLabels.latest}</ToggleGroupItem>
                 <ToggleGroupItem value="published">{codeStateLabels.published}</ToggleGroupItem>
               </ToggleGroup>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refreshCode()}
-                disabled={isRefreshingCode}
-              >
-                <RefreshCw
-                  className={isRefreshingCode ? 'animate-spin' : undefined}
-                  size={14}
-                  aria-hidden="true"
-                />
-                Refresh
-              </Button>
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy size={14} aria-hidden="true" /> Copy link
-              </Button>
-              {viewOptions}
+              <RefreshButton {...codeRefresh} />
+              {sharedActions}
+            </>
+          ) : visibleTab === 'import' ? (
+            <>
+              <RefreshButton {...importRefresh} />
+              {sharedActions}
             </>
           ) : reference ? (
             <>
@@ -894,37 +931,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">Latest</ToggleGroupItem>
                 <ToggleGroupItem value="published">Published</ToggleGroupItem>
               </ToggleGroup>
-              <Button
-                variant="outline"
-                size="sm"
-                className="relative"
-                onClick={() => void refreshAll()}
-                disabled={isRefreshing}
-                aria-describedby={refreshFailed ? 'refresh-status' : undefined}
-                {...(refreshFailed ? { 'data-refresh-failed': '' } : {})}
-              >
-                <RefreshCw
-                  className={isRefreshing ? 'animate-spin' : undefined}
-                  size={14}
-                  aria-hidden="true"
-                />
-                Refresh
-                {refreshFailed ? (
-                  <span
-                    className="bg-destructive absolute -top-1 -right-1 size-2 rounded-full"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </Button>
-              {refreshFailed ? (
-                <span id="refresh-status" className="sr-only" role="status">
-                  The last refresh failed. Activate Refresh to retry.
-                </span>
-              ) : null}
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy size={14} aria-hidden="true" /> Copy link
-              </Button>
-              {viewOptions}
+              <RefreshButton
+                refreshing={isRefreshing}
+                failed={refreshFailed}
+                onRefresh={() => void refreshAll()}
+              />
+              {sharedActions}
             </>
           ) : (
             <Badge variant="outline">No collection open</Badge>
@@ -1292,7 +1304,34 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             fileFilter={code.fileFilter}
             onFileFilterChange={code.setFileFilter}
             onOpenCollection={requestOpenCollection}
-            onAuthenticationFailure={() => setCodeAuthenticationFailureRevision(credentialRevision)}
+            onAuthenticationFailure={() =>
+              setWorkspaceAuthenticationFailureRevision(credentialRevision)
+            }
+          />
+        </div>
+      ) : null}
+
+      {showTabs && instance && importOpened ? (
+        <div hidden={visibleTab !== 'import'}>
+          <ImportCheck
+            key={instanceKey(instance)}
+            api={api}
+            credentials={{
+              revision: credentialRevision,
+              sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
+            }}
+            catalog={catalogQuery.catalog}
+            initialModelZuid={
+              (importCollection?.instance === instanceKey(instance)
+                ? importCollection.modelZuid
+                : undefined) ??
+              reference?.modelZuid ??
+              instance.suggestedModelZuid
+            }
+            onModelZuidChange={onImportModelZuidChange}
+            onAuthenticationFailure={() =>
+              setWorkspaceAuthenticationFailureRevision(credentialRevision)
+            }
           />
         </div>
       ) : null}
