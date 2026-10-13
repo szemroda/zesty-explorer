@@ -76,7 +76,8 @@ jobs:
         with:
           name: npm-package
           path: artifacts
-      - run: npm publish artifacts/*.tgz --access public
+      # The ./ prefix keeps npm from reading the path as a GitHub owner/repo shorthand.
+      - run: npm publish ./artifacts/*.tgz --access public
 
   github-release:
     needs: [version, publish]

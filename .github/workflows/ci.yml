@@ -40,6 +40,9 @@ jobs:
       # Performance budgets are calibrated on a developer machine, so they run locally only.
       - run: pnpm exec playwright test --project=chromium-laptop --project=chromium-desktop
       - run: pnpm pack --pack-destination artifacts
+      # Release runs only: fail before the release tag is pushed if npm would reject the archive.
+      - if: inputs.version
+        run: npm publish ./artifacts/*.tgz --access public --dry-run
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-package
