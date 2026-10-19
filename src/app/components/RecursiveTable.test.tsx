@@ -244,19 +244,51 @@ describe('recursive collection tables', () => {
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
 
-    // The first Title header is the Children table's; the Grandchildren table nests below it.
-    fireEvent.click(within(nestedTable).getAllByRole('button', { name: /^Title/ })[0]!);
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Children table filter value' }), {
-      target: { value: 'no matching child' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filter' }));
+    fireEvent.click(within(nestedTable).getByRole('button', { name: 'Add Children filter' }));
+    // Enter on the empty picker takes its first field, "Any field".
+    fireEvent.keyDown(
+      await screen.findByRole('combobox', { name: 'Children table filter field' }),
+      {
+        key: 'Enter',
+      },
+    );
+    const value = await screen.findByRole('textbox', { name: 'Children table filter value' });
+    fireEvent.change(value, { target: { value: 'no matching child' } });
+    fireEvent.keyDown(value, { key: 'Enter' });
     expect(await screen.findByText('No related items match.')).toBeInTheDocument();
-    fireEvent.click(within(nestedTable).getByRole('button', { name: /^Title/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+    fireEvent.click(
+      within(nestedTable).getByRole('button', {
+        name: 'Remove filter Any field contains “no matching child”',
+      }),
+    );
 
     expect(
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
+  });
+
+  it('lists a view filter on a related field with the view filters, not in the nested table', async () => {
+    const childTitle: ViewFilter = {
+      id: 'child-title',
+      nodePath: [child.id],
+      fieldPath: ['title'],
+      operator: 'contains',
+      value: 'Child',
+    };
+    render(rootTable({ viewFilters: [childTitle] }));
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+
+    const viewChips = within(
+      screen.getByRole('region', { name: 'Parents collection' }),
+    ).getAllByRole('group', { name: 'Active filters' })[0]!;
+    expect(viewChips).toHaveTextContent('View filters');
+    expect(
+      within(viewChips).getByRole('button', {
+        name: 'Edit filter Children: Title contains “Child”',
+      }),
+    ).toBeInTheDocument();
+    expect(within(nestedTable).queryByRole('group', { name: 'Active filters' })).toBeNull();
   });
 
   it('explains an empty root result and clears its search and view filters', () => {

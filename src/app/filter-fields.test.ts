@@ -14,7 +14,6 @@ import {
   emptyDraft,
   filterFields,
   filterFromDraft,
-  filtersField,
   findFilterField,
   optionCounts,
   parseScalar,
@@ -121,7 +120,6 @@ describe('filter fields', () => {
       field: type,
       scope: 'Sections › Blocks',
       text: 'Type is hero, cta',
-      condition: 'is hero, cta',
       stale: false,
     });
     expect(draftFromFilter(result.filter).options).toEqual(['hero', 'cta']);
@@ -243,12 +241,10 @@ describe('filter fields', () => {
       value: 'a',
     } as const;
     expect(findFilterField(fields, inside)).toBeUndefined();
-    expect(filtersField(inside, state!)).toBe(false);
     expect(describeFilter(inside, fields)).toEqual({
       field: undefined,
       scope: undefined,
       text: 'state.caption contains “a”',
-      condition: 'contains “a”',
       stale: true,
     });
   });

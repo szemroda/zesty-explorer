@@ -26,6 +26,8 @@ export interface FilterContext {
   readonly label: string;
   /** The collection whose rows the filter keeps, e.g. `Articles`, used in the related-items hint. */
   readonly subject: string;
+  /** Says at the top of the editor what the filter affects, e.g. in a nested table. */
+  readonly hint?: string | undefined;
   readonly fields: FilterFields;
   /** The items a field's option counts cover; undefined while the field's node loads. */
   readonly itemsFor: (field: FilterField) => readonly ContentItem[] | undefined;
@@ -135,7 +137,7 @@ export function FilterChip({ filter, ...context }: FilterListContext & { filter:
 }
 
 interface FilterChipRowProps {
-  readonly heading: string | undefined;
+  readonly heading: string;
   readonly onClearAll: () => void;
   readonly children: ReactNode;
 }
@@ -148,11 +150,9 @@ export function FilterChipRow({ heading, onClearAll, children }: FilterChipRowPr
       aria-label="Active filters"
       role="group"
     >
-      {heading ? (
-        <span className="mr-1 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
-          {heading}
-        </span>
-      ) : null}
+      <span className="mr-1 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
+        {heading}
+      </span>
       {children}
       <Button
         variant="ghost"
@@ -180,6 +180,7 @@ interface FilterEditorProps extends FilterContext {
 function FilterEditor({
   label,
   subject,
+  hint,
   fields,
   itemsFor,
   filter,
@@ -206,6 +207,7 @@ function FilterEditor({
 
   return (
     <div className="grid w-[min(480px,calc(100vw-2rem))] gap-3 p-3" role="group" aria-label={label}>
+      {hint ? <p className="m-0 text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
       {/* A chip already names the field, so only the toolbar editor picks one. */}
       {fixedField ? (
         <p className="m-0 min-w-0 truncate text-sm">
@@ -384,7 +386,7 @@ interface ValueControlProps extends DraftValueProps {
 }
 
 /** The value input(s) a condition needs: text, number, date, a range, or option checkboxes. */
-export function ValueControl({
+function ValueControl({
   label,
   field,
   condition,

@@ -324,14 +324,15 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await openRoot(page);
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /^Score/ }).click();
+  await page.getByRole('button', { name: 'Add view filter' }).click();
+  await page.getByLabel('View filter field').fill('Score');
+  await page.getByRole('option', { name: /^Score/ }).click();
   await chooseSelectOption(page, 'View filter condition', '>');
   await page.getByLabel('View filter value').fill('100');
   await page.getByLabel('View filter value').press('Enter');
   await expect(page.getByText('4 items')).toBeVisible();
 
-  await page.getByRole('button', { name: /^Score/ }).click();
-  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await page.getByRole('button', { name: /^Remove filter Score/ }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Published' }).click();
