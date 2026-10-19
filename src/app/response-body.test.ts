@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formattedBody } from './response-body';
+import { bodyTokens, formattedBody } from './response-body';
 
 const lines = (...text: string[]) => text.join('\n');
 
@@ -107,5 +107,60 @@ describe('formattedBody', () => {
         '</rss>',
       ),
     );
+  });
+});
+
+describe('bodyTokens', () => {
+  const runs = (...args: Parameters<typeof bodyTokens>) =>
+    bodyTokens(...args).map((token) => [token.kind, token.text]);
+
+  it('colors JSON keys, values, and punctuation, even when the body is cut off', () => {
+    expect(runs('{"id": -1.5e3, "ok": [true, null], "name": "a \\"b\\""}', 'json')).toEqual([
+      ['json-punctuation', '{'],
+      ['json-key', '"id"'],
+      ['json-punctuation', ':'],
+      ['text', ' '],
+      ['number', '-1.5e3'],
+      ['json-punctuation', ','],
+      ['text', ' '],
+      ['json-key', '"ok"'],
+      ['json-punctuation', ':'],
+      ['text', ' '],
+      ['json-punctuation', '['],
+      ['builtin', 'true'],
+      ['json-punctuation', ','],
+      ['text', ' '],
+      ['builtin', 'null'],
+      ['json-punctuation', '],'],
+      ['text', ' '],
+      ['json-key', '"name"'],
+      ['json-punctuation', ':'],
+      ['text', ' '],
+      ['string', '"a \\"b\\""'],
+      ['json-punctuation', '}'],
+    ]);
+    expect(runs('[{"title": "Unfinis', 'json')).toEqual([
+      ['json-punctuation', '[{'],
+      ['json-key', '"title"'],
+      ['json-punctuation', ':'],
+      ['text', ' '],
+      ['string', '"Unfinis'],
+    ]);
+  });
+
+  it('colors markup tags, attribute values, and comments', () => {
+    expect(
+      runs(`<!DOCTYPE html><a href="/a?x>1" class='b'>1 < 2</a><!-- note -->`, 'markup'),
+    ).toEqual([
+      ['comment', '<!DOCTYPE html>'],
+      ['html-tag', '<a href='],
+      ['string', '"/a?x>1"'],
+      ['html-tag', ' class='],
+      ['string', "'b'"],
+      ['html-tag', '>'],
+      ['text', '1 < 2'],
+      ['html-tag', '</a>'],
+      ['comment', '<!-- note -->'],
+    ]);
   });
 });

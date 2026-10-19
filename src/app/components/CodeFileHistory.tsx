@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CodeFileZuid, InstanceReference } from '../../domain';
 import type { CodeFileApi, ItemVersionApi } from '../../zesty-api';
 import {
-  displayText,
+  formattedText,
   versionSource,
   type CodeVersionOption,
+  type VersionContext,
   type VersionSource,
 } from '../code-file-history';
-import { managerCodeFileUrl, neutralTone } from '../code-presentation';
+import { managerCodeFileUrl, type ToneLookup } from '../code-presentation';
 import { useCodeFileHistory, type CodeCredentials } from '../hooks/useCodeFiles';
 import {
   countChangedLines,
@@ -45,6 +46,9 @@ interface CodeFileHistoryProps {
   readonly instance: InstanceReference;
   readonly credentials: CodeCredentials;
   readonly file: { readonly id: CodeFileZuid; readonly fileName: string };
+  /** Colors saved sources the way the Code tab does. */
+  readonly context: VersionContext;
+  readonly toneFor: ToneLookup;
   /** The version open in the Code tab, previewed first. */
   readonly shownVersion: number | undefined;
   readonly publishedVersion: number | undefined;
@@ -68,6 +72,8 @@ export function CodeFileHistory({
   instance,
   credentials,
   file,
+  context,
+  toneFor,
   shownVersion,
   publishedVersion,
   initialPresentation,
@@ -108,21 +114,19 @@ export function CodeFileHistory({
     [chosenPair, historyLoaded, mode, options, selected?.number],
   );
   const selectedSource = useMemo(
-    () => (selected ? versionSource(file.fileName, selected.code) : undefined),
-    [file.fileName, selected],
+    () => (selected ? versionSource(file.fileName, selected.code, context) : undefined),
+    [context, file.fileName, selected],
   );
   const rows = useMemo(() => {
     if (!pair) return undefined;
     const text = (option: CodeVersionOption) =>
-      presentation === 'saved'
-        ? option.code
-        : displayText(versionSource(file.fileName, option.code).formatted);
+      presentation === 'saved' ? option.code : formattedText(file.fileName, option.code);
     return diffTextSideBySide(text(pair.before), text(pair.after));
   }, [file.fileName, pair, presentation]);
   const content =
     mode === 'view' ? (
       selectedSource ? (
-        <VersionSourceLines source={selectedSource} presentation={presentation} />
+        <VersionSourceLines source={selectedSource} presentation={presentation} toneFor={toneFor} />
       ) : null
     ) : pair && rows ? (
       <SideBySideComparison
@@ -303,9 +307,11 @@ export function CodeFileHistory({
 function VersionSourceLines({
   source,
   presentation,
+  toneFor,
 }: {
   readonly source: VersionSource;
   readonly presentation: SourcePresentation;
+  readonly toneFor: ToneLookup;
 }) {
   const saved = presentation === 'saved';
   const lines = saved ? source.saved : source.formatted;
@@ -323,7 +329,7 @@ function VersionSourceLines({
             )}
           >
             <IndentGuides count={line.indent} />
-            <LineTokens line={line} saved={saved} toneFor={() => neutralTone} onSelect={() => {}} />
+            <LineTokens line={line} saved={saved} toneFor={toneFor} onSelect={() => {}} />
           </span>
         </div>
       ))}
