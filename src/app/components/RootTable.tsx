@@ -121,6 +121,9 @@ export function RootTable({
     ),
   );
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
+  const [pinnedColumns, setPinnedColumns] = useState<readonly string[]>(
+    treeRoot.presentation.pinnedColumns ?? [],
+  );
 
   useEffect(() => {
     const active = sorting[0];
@@ -200,6 +203,7 @@ export function RootTable({
     columnSizing,
     columnVisibility,
     pagination,
+    pinnedColumns,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
       setSorting(next);
@@ -218,6 +222,10 @@ export function RootTable({
       });
     },
     onPaginationChange: setPagination,
+    onPinnedColumnsChange: (next) => {
+      setPinnedColumns(next);
+      persistPresentation({ pinnedColumns: next });
+    },
   });
 
   function persistPresentation(patch: Partial<NodePresentation>) {

@@ -1,4 +1,5 @@
 import {
+  columnPinningFeature,
   columnResizingFeature,
   columnSizingFeature,
   columnVisibilityFeature,
@@ -8,6 +9,7 @@ import {
   rowSortingFeature,
   tableFeatures,
   useTable,
+  type ColumnPinningState,
   type ColumnSizingState,
   type ColumnVisibilityState,
   type OnChangeFn,
@@ -20,6 +22,7 @@ import type { ContentItemColumn } from './content-item-presentation';
 import { columnWidthLimits, defaultContentColumnWidth } from './content-item-presentation';
 
 const contentTableFeatures = tableFeatures({
+  columnPinningFeature,
   columnSizingFeature,
   columnResizingFeature,
   columnVisibilityFeature,
@@ -50,6 +53,7 @@ export function createContentTableColumns({
       size: actionColumnWidth,
       enableHiding: false,
       enableResizing: false,
+      enablePinning: false,
     }),
     ...definitions.map((column) =>
       column.kind === 'status'
@@ -83,10 +87,13 @@ interface UseContentTableOptions {
   readonly columnSizing: ColumnSizingState;
   readonly columnVisibility: ColumnVisibilityState;
   readonly pagination: PaginationState;
+  /** Columns pinned after the row actions, which are always pinned first. */
+  readonly pinnedColumns: readonly string[];
   readonly onSortingChange: OnChangeFn<SortingState>;
   readonly onColumnSizingChange: OnChangeFn<ColumnSizingState>;
   readonly onColumnVisibilityChange: OnChangeFn<ColumnVisibilityState>;
   readonly onPaginationChange: OnChangeFn<PaginationState>;
+  readonly onPinnedColumnsChange: (pinnedColumns: readonly string[]) => void;
 }
 
 export function useContentTable({
@@ -96,16 +103,19 @@ export function useContentTable({
   columnSizing,
   columnVisibility,
   pagination,
+  pinnedColumns,
   onSortingChange,
   onColumnSizingChange,
   onColumnVisibilityChange,
   onPaginationChange,
+  onPinnedColumnsChange,
 }: UseContentTableOptions) {
+  const columnPinning: ColumnPinningState = { start: ['actions', ...pinnedColumns], end: [] };
   return useTable({
     features: contentTableFeatures,
     data,
     columns,
-    state: { sorting, columnSizing, columnVisibility, pagination },
+    state: { sorting, columnSizing, columnVisibility, pagination, columnPinning },
     onSortingChange,
     // TanStack clamps getSize(), but its resize handler can emit smaller raw widths.
     onColumnSizingChange: (updater) =>
@@ -120,6 +130,10 @@ export function useContentTable({
       }),
     onColumnVisibilityChange,
     onPaginationChange,
+    onColumnPinningChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnPinning) : updater;
+      onPinnedColumnsChange(next.start.filter((id) => id !== 'actions'));
+    },
     manualSorting: true,
     enableSortingRemoval: false,
     defaultColumn: {

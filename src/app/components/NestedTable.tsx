@@ -53,6 +53,7 @@ export interface SharedNodeTableState {
   readonly sort: SortState;
   readonly hiddenColumns: ReadonlySet<string>;
   readonly columnWidths: Readonly<Record<string, number>>;
+  readonly pinnedColumns: readonly string[];
 }
 
 interface NestedTableProps {
@@ -211,6 +212,7 @@ function stateFor(
         node.presentation.statusColumnHidden,
       ),
       columnWidths: node.presentation.columnWidths,
+      pinnedColumns: node.presentation.pinnedColumns ?? [],
     }
   );
 }
@@ -290,6 +292,7 @@ export function NestedTable(props: NestedTableProps) {
     columnSizing,
     columnVisibility,
     pagination,
+    pinnedColumns: sharedState.pinnedColumns,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
       const active = next[0];
@@ -314,6 +317,7 @@ export function NestedTable(props: NestedTableProps) {
       });
     },
     onPaginationChange: setPagination,
+    onPinnedColumnsChange: (pinnedColumns) => updateSharedState({ ...sharedState, pinnedColumns }),
   });
 
   if (!state) {
@@ -378,6 +382,7 @@ export function NestedTable(props: NestedTableProps) {
       ),
       statusColumnHidden: next.hiddenColumns.has('$status'),
       columnWidths: next.columnWidths,
+      pinnedColumns: next.pinnedColumns,
     });
   }
 

@@ -605,3 +605,42 @@ test('pins nested tables and docks the root scrollbar while it is off screen', a
   });
   await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(40);
 });
+
+test('keeps pinned columns in place while the table scrolls sideways', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  const table = page.getByRole('table').first();
+  const scroller = table.locator('..');
+  // Each data column's header is its menu button; the row actions header has none.
+  const left = async (name: string) =>
+    (await table.getByRole('button', { name, exact: true }).boundingBox())?.x;
+
+  await table.getByRole('button', { name: /^Category/ }).click();
+  await page.getByRole('button', { name: 'Pin column' }).click();
+  // Opening Category's menu scrolled the table to reach it.
+  await scroller.evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  const actionsLeft = (
+    await page.getByRole('group', { name: 'Item actions' }).first().boundingBox()
+  )?.x;
+  const categoryLeft = await left('Category pinned');
+  const titleLeft = await left('Title');
+  expect(categoryLeft).toBeLessThan(titleLeft ?? 0);
+
+  await scroller.evaluate((element) => {
+    element.scrollLeft = 300;
+  });
+  await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(300);
+  expect((await page.getByRole('group', { name: 'Item actions' }).first().boundingBox())?.x).toBe(
+    actionsLeft,
+  );
+  expect(await left('Category pinned')).toBe(categoryLeft);
+  expect(await left('Title')).toBe((titleLeft ?? 0) - 300);
+
+  await page.reload();
+  await expect(table.getByRole('button', { name: 'Category pinned', exact: true })).toBeVisible();
+});
