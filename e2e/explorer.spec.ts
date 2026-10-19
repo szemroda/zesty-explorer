@@ -659,3 +659,67 @@ test('sticks table headers below the page header, nested ones below their parent
   await page.getByRole('button', { name: /^Score/ }).click();
   await expect(page.getByLabel('View filter condition')).toBeVisible();
 });
+
+test('stacks headers three tables deep through sorting, paging, and collapsing', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await expect(page.getByRole('button', { name: 'Add relationship' })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Add relationship' }).last().click();
+  await page.getByLabel('Related collection URL').fill(childUrl);
+  await page.getByLabel('Node name').fill('Grandchildren');
+  await page.getByLabel('Parent field path').fill('parentKey');
+  await page.getByLabel('Child field path').fill('parentKey');
+  await page.getByRole('button', { name: 'Add collection node' }).click();
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await children.getByRole('button', { name: 'Expand relationships for 7-child-000000' }).click();
+  const grandchildren = children.getByRole('region', {
+    name: 'Grandchildren related items',
+    exact: true,
+  });
+  await expect(grandchildren.getByRole('table')).toBeVisible();
+  // Scrolls the table's first rows under the stuck headers.
+  const scrollIntoBody = (table: Locator) =>
+    table.evaluate((element) => {
+      const pageHeader = document.querySelector('main > header')!.getBoundingClientRect();
+      window.scrollBy(0, element.getBoundingClientRect().top - pageHeader.bottom + 80);
+    });
+  // Each header's distance from the bottom of the header above it, the page header first.
+  const gaps = () =>
+    page.evaluate(() => {
+      let bottom = document.querySelector('main > header')!.getBoundingClientRect().bottom;
+      return [...document.querySelectorAll('thead')].map((head) => {
+        const rect = head.getBoundingClientRect();
+        const gap = rect.top - bottom;
+        bottom = rect.bottom;
+        return Math.round(gap);
+      });
+    });
+
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([0, 0, 0]);
+
+  // Sorting moves the expanded row, and the tables inside it, without resizing anything.
+  await page
+    .getByRole('table')
+    .first()
+    .getByRole('button', { name: /^Category/ })
+    .click();
+  await page.getByRole('button', { name: 'Sort descending', exact: true }).click();
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([0, 0, 0]);
+
+  await grandchildren.getByRole('button', { name: 'Next' }).click();
+  await expect(grandchildren.getByText('Page 2 of 2')).toBeVisible();
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([0, 0, 0]);
+
+  await children.getByRole('button', { name: 'Collapse relationships for 7-child-000000' }).click();
+  await expect(grandchildren).toHaveCount(0);
+  await scrollIntoBody(children.getByRole('table'));
+  await expect.poll(gaps).toEqual([0, 0]);
+});

@@ -22,6 +22,9 @@ export interface DockedScroller {
 
 interface Entry extends DockedScroller {
   readonly onResize: () => void;
+  readonly table: HTMLTableElement;
+  readonly head: HTMLTableSectionElement;
+  readonly body: HTMLTableSectionElement;
   /** The nearest registered scroller around this one, or null; set on its first measure. */
   parent: Element | null | undefined;
   /** Whether the content is wider than the scroller, as of its last size change. */
@@ -99,32 +102,28 @@ function measureBars(scrollers: ReadonlyMap<Element, Entry>): readonly DockBar[]
 function placeHeads(scrollers: ReadonlyMap<Element, Entry>, top: number) {
   // The viewport line just below each table's stuck header, where its nested tables' headers stick.
   const below = new Map<Entry, number>();
-  const placements: { entry: Entry; head: HTMLElement; start: number; travel: number }[] = [];
+  const placements: { entry: Entry; start: number; travel: number }[] = [];
   const outerFirst = [...scrollers.values()]
     .map((entry) => ({ entry, depth: depthOf(entry, scrollers) }))
     .sort((left, right) => left.depth - right.depth);
   for (const { entry } of outerFirst) {
-    const table = entry.scroller.firstElementChild;
-    if (!(table instanceof HTMLTableElement) || !table.tHead) continue;
-    const head = table.tHead;
     const parent = parentOf(entry, scrollers);
     const line = (parent && below.get(parent)) ?? top;
-    const rect = table.getBoundingClientRect();
-    const headHeight = head.getBoundingClientRect().height;
+    const rect = entry.table.getBoundingClientRect();
+    const headHeight = entry.head.getBoundingClientRect().height;
     below.set(entry, line + headHeight);
     placements.push({
       entry,
-      head,
       start: rect.top + window.scrollY - line,
       travel: rect.height - headHeight,
     });
   }
-  for (const { entry, head, start, travel } of placements) {
+  for (const { entry, start, travel } of placements) {
     const placement = `${start}px ${travel}px`;
     if (entry.placement === placement) continue;
     entry.placement = placement;
-    head.style.setProperty('--sticky-head-start', `${start}px`);
-    head.style.setProperty('--sticky-head-travel', `${travel}px`);
+    entry.head.style.setProperty('--sticky-head-start', `${start}px`);
+    entry.head.style.setProperty('--sticky-head-travel', `${travel}px`);
   }
 }
 
@@ -177,25 +176,36 @@ export function createScrollDock(
     entry.overflows = overflows(entry.scroller);
     entry.onResize();
   };
-  // Exists only between `start` and its cleanup; scrollers registered earlier are observed then.
+  // Exist only between `start` and its cleanup; scrollers registered earlier are observed then.
   let observer: ResizeObserver | undefined;
+  // Sorting moves an expanded row, and the tables inside it, without resizing anything.
+  let rowMoves: MutationObserver | undefined;
 
   const register: RegisterScroller = (scroller, label, onResize) => {
+    const table = scroller.firstElementChild;
+    const body = table instanceof HTMLTableElement ? table.tBodies[0] : undefined;
+    if (!(table instanceof HTMLTableElement) || !table.tHead || !body) {
+      throw new Error('A registered scroller holds a table with a header and a body.');
+    }
     const entry: Entry = {
       id: nextScrollerId++,
       scroller,
       label,
       onResize,
+      table,
+      head: table.tHead,
+      body,
       parent: undefined,
       overflows: overflows(scroller),
       placement: '',
     };
-    const targets = [scroller, scroller.firstElementChild].filter((target) => target !== null);
+    const targets = [scroller, table];
     scrollers.set(scroller, entry);
     for (const target of targets) {
       observed.set(target, entry);
       observer?.observe(target);
     }
+    rowMoves?.observe(body, { childList: true });
     schedule();
     return () => {
       scrollers.delete(scroller);
@@ -211,9 +221,8 @@ export function createScrollDock(
   const start = () => {
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
-    // Sorting moves an expanded row, and the tables inside it, without resizing anything.
-    const mutations = new MutationObserver(schedule);
-    mutations.observe(document.body, { childList: true, subtree: true });
+    rowMoves = new MutationObserver(schedule);
+    for (const { body } of scrollers.values()) rowMoves.observe(body, { childList: true });
     if (typeof ResizeObserver !== 'undefined') {
       const current = new ResizeObserver((records) => {
         new Set(records.flatMap(({ target }) => observed.get(target) ?? [])).forEach(resized);
@@ -227,7 +236,8 @@ export function createScrollDock(
     return () => {
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
-      mutations.disconnect();
+      rowMoves?.disconnect();
+      rowMoves = undefined;
       observer?.disconnect();
       observer = undefined;
       if (frame !== undefined) cancelAnimationFrame(frame);
