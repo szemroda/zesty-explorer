@@ -655,9 +655,17 @@ test('sticks table headers below the page header, nested ones below their parent
   await expect
     .poll(gaps)
     .toMatchObject({ rootHead: expect.closeTo(0), childEnd: expect.closeTo(0) });
-  // Stuck over the nested table, the root header still takes clicks.
-  await page.getByRole('button', { name: /^Score/ }).click();
-  await expect(page.getByLabel('View filter condition')).toBeVisible();
+  // Stuck over the nested table, the root header paints above it, pinned actions included.
+  const covered = await rootTable.locator(':scope > thead th').evaluateAll((cells) =>
+    cells.flatMap((cell) => {
+      const { left, right, top, bottom } = cell.getBoundingClientRect();
+      const x = (left + Math.min(right, window.innerWidth)) / 2;
+      if (x >= window.innerWidth) return [];
+      const hit = document.elementFromPoint(x, (top + bottom) / 2);
+      return hit && cell.closest('thead')?.contains(hit) ? [] : [cell.textContent];
+    }),
+  );
+  expect(covered).toEqual([]);
 });
 
 test('stacks headers three tables deep through sorting, paging, and collapsing', async ({
@@ -696,7 +704,7 @@ test('stacks headers three tables deep through sorting, paging, and collapsing',
         const rect = head.getBoundingClientRect();
         const gap = rect.top - bottom;
         bottom = rect.bottom;
-        return Math.round(gap);
+        return Math.round(gap) || 0;
       });
     });
 

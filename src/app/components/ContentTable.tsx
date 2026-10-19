@@ -179,8 +179,9 @@ export function ContentTableGrid({
               />
             ))}
           </colgroup>
-          {/* Above body rows, pinned actions, and nested tables while it sticks over them. */}
-          <TableHeader className="sticky-head relative z-7">
+          {/* Above body rows, pinned actions, and nested tables while it sticks over them. Without
+              an inset, `sticky` never moves it, but unlike `relative` WebKit honors it on a thead. */}
+          <TableHeader className="sticky-head sticky z-7">
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
                 {group.headers.map((header) => (

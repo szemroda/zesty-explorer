@@ -1,8 +1,10 @@
 import { createContext } from 'react';
 
 /**
- * Registers a horizontal scroller with the dock and returns the function that unregisters it.
- * `onResize` runs whenever the scroller or its content changes size.
+ * Registers a table's horizontal scroller with the dock and returns the function that unregisters
+ * it. The scroller's first child is the table, with a header and a body; the dock docks the
+ * scroller's scrollbar and sticks the table's header. `onResize` runs whenever the scroller or its
+ * content changes size.
  */
 export type RegisterScroller = (
   scroller: HTMLElement,
@@ -161,16 +163,23 @@ export function createScrollDock(
   const observed = new Map<Element, Entry>();
   let bars: readonly DockBar[] = [];
   let frame: number | undefined;
+  // Header placements depend on layout only, so scrolling alone leaves them as they are.
+  let layoutChanged = true;
   const schedule = () => {
     if (frame !== undefined) return;
     frame = requestAnimationFrame(() => {
       frame = undefined;
       const next = measureBars(scrollers);
-      placeHeads(scrollers, stickyTop());
+      if (layoutChanged) placeHeads(scrollers, stickyTop());
+      layoutChanged = false;
       if (sameBars(bars, next)) return;
       bars = next;
       onBarsChange(next);
     });
+  };
+  const relayout = () => {
+    layoutChanged = true;
+    schedule();
   };
   const resized = (entry: Entry) => {
     entry.overflows = overflows(entry.scroller);
@@ -206,36 +215,36 @@ export function createScrollDock(
       observer?.observe(target);
     }
     rowMoves?.observe(body, { childList: true });
-    schedule();
+    relayout();
     return () => {
       scrollers.delete(scroller);
       for (const target of targets) {
         observed.delete(target);
         observer?.unobserve(target);
       }
-      schedule();
+      relayout();
     };
   };
 
   /** Starts following the window and the scrollers' sizes; returns the function that stops. */
   const start = () => {
     window.addEventListener('scroll', schedule, { passive: true });
-    window.addEventListener('resize', schedule);
-    rowMoves = new MutationObserver(schedule);
+    window.addEventListener('resize', relayout);
+    rowMoves = new MutationObserver(relayout);
     for (const { body } of scrollers.values()) rowMoves.observe(body, { childList: true });
     if (typeof ResizeObserver !== 'undefined') {
       const current = new ResizeObserver((records) => {
         new Set(records.flatMap(({ target }) => observed.get(target) ?? [])).forEach(resized);
-        schedule();
+        relayout();
       });
       current.observe(document.body);
       for (const target of observed.keys()) current.observe(target);
       observer = current;
     }
-    schedule();
+    relayout();
     return () => {
       window.removeEventListener('scroll', schedule);
-      window.removeEventListener('resize', schedule);
+      window.removeEventListener('resize', relayout);
       rowMoves?.disconnect();
       rowMoves = undefined;
       observer?.disconnect();
