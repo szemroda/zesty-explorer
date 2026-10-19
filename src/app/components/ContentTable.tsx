@@ -1,7 +1,15 @@
 import { ChevronDown, ChevronRight, Eye, ExternalLink, SlidersHorizontal } from 'lucide-react';
-import { Fragment, memo, type ReactNode, use, useCallback, useState } from 'react';
+import {
+  Fragment,
+  memo,
+  type CSSProperties,
+  type ReactNode,
+  use,
+  useCallback,
+  useState,
+} from 'react';
 import type { CollectionReference, ContentItem } from '../../domain';
-import type { ContentTableInstance } from '../content-table-model';
+import { actionsColumnId, type ContentTableInstance } from '../content-table-model';
 import { ScrollDockContext } from '../scroll-dock';
 import {
   itemDisplayLabel,
@@ -36,6 +44,22 @@ interface ContentTableGridProps {
 type ContentTableRowModel = ReturnType<ContentTableInstance['getRowModel']>['rows'][number];
 
 /**
+ * Sticky placement of the cell at `index` among a row's visible cells. The row actions and pinned
+ * columns come first; their left offsets live in `--pinned-start-<index>` on the table, so they
+ * stay right even when a memoized row skips rendering. The last of them casts the scroll edge.
+ */
+function pinnedCellPlacement(
+  index: number,
+  pinnedCount: number,
+): { readonly className: string; readonly style?: CSSProperties } {
+  if (index >= pinnedCount) return { className: '' };
+  return {
+    className: index === pinnedCount - 1 ? 'sticky sticky-edge' : 'sticky',
+    style: { left: `var(--pinned-start-${index})` },
+  };
+}
+
+/**
  * Returns the function that flips the frame's edge state, 0 or 1, for CSS to read:
  * `--grid-scrolled` once the scroller leaves its left edge, and `--grid-more-right` while
  * columns are hidden to the right. It writes only the values that changed.
@@ -64,6 +88,8 @@ interface ContentTableBodyRowProps {
   readonly canExpand: boolean;
   readonly expanded: boolean;
   readonly visibleColumnCount: number;
+  /** How many leading cells stay in place: the row actions and every pinned column. */
+  readonly pinnedCount: number;
   readonly toggleExpanded: (itemId: ContentItem['id']) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly renderExpandedRow: (item: ContentItem) => ReactNode;
@@ -76,6 +102,7 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
   canExpand,
   expanded,
   visibleColumnCount,
+  pinnedCount,
   toggleExpanded,
   onOpenDetails,
   renderExpandedRow,
@@ -83,27 +110,31 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
   return (
     <Fragment>
       <TableRow className="group hover:bg-transparent">
-        {row.getVisibleCells().map((cell) => (
-          <TableCell
-            key={cell.id}
-            className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
-              cell.column.id === 'actions' ? 'sticky left-0 z-3 bg-panel px-2.5 sticky-edge' : ''
-            }`}
-          >
-            {cell.column.id === 'actions' ? (
-              <ContentItemActions
-                item={row.original}
-                reference={reference}
-                canExpand={canExpand}
-                expanded={expanded}
-                onToggleExpanded={() => toggleExpanded(row.original.id)}
-                onOpenDetails={onOpenDetails}
-              />
-            ) : (
-              <table.FlexRender cell={cell} />
-            )}
-          </TableCell>
-        ))}
+        {row.getVisibleCells().map((cell, index) => {
+          const placement = pinnedCellPlacement(index, pinnedCount);
+          return (
+            <TableCell
+              key={cell.id}
+              className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
+                index < pinnedCount ? 'z-3 bg-panel' : ''
+              } ${cell.column.id === actionsColumnId ? 'px-2.5' : ''} ${placement.className}`}
+              style={placement.style}
+            >
+              {cell.column.id === actionsColumnId ? (
+                <ContentItemActions
+                  item={row.original}
+                  reference={reference}
+                  canExpand={canExpand}
+                  expanded={expanded}
+                  onToggleExpanded={() => toggleExpanded(row.original.id)}
+                  onOpenDetails={onOpenDetails}
+                />
+              ) : (
+                <table.FlexRender cell={cell} />
+              )}
+            </TableCell>
+          );
+        })}
       </TableRow>
       {expanded ? (
         <TableRow className="hover:bg-transparent">
@@ -157,17 +188,35 @@ export function ContentTableGrid({
     },
     [label, registerScroller],
   );
-  const visibleColumnCount = table.getVisibleLeafColumns().length;
+  // Pinning moves the actions and pinned columns ahead of the rest, as headers and cells render.
+  const stickyColumns = table.getStartVisibleLeafColumns();
+  const visibleColumns = [...stickyColumns, ...table.getCenterVisibleLeafColumns()];
+  const visibleColumnCount = visibleColumns.length;
+  const pinnedOffsets = Object.fromEntries(
+    stickyColumns.map((column, index) => [
+      `--pinned-start-${index}`,
+      `${column.getStart('start')}px`,
+    ]),
+  );
 
   return (
     <div className="relative isolate w-full min-w-0">
-      <div ref={scrollerRef} className="@container w-full min-w-0 overflow-x-auto">
+      <div
+        ref={scrollerRef}
+        className="@container w-full min-w-0 overflow-x-auto"
+        // Keeps a focused cell or header from scrolling into view underneath the sticky columns.
+        style={{ scrollPaddingInlineStart: table.getStartTotalSize() }}
+      >
         <Table
           className="border-separate border-spacing-0 text-xs"
-          style={{ width: `max(100%, ${table.getTotalSize()}px)`, tableLayout: 'fixed' }}
+          style={{
+            width: `max(100%, ${table.getTotalSize()}px)`,
+            tableLayout: 'fixed',
+            ...pinnedOffsets,
+          }}
         >
           <colgroup>
-            {table.getVisibleLeafColumns().map((column, index, visibleColumns) => (
+            {visibleColumns.map((column, index) => (
               <col
                 key={column.id}
                 style={
@@ -179,39 +228,45 @@ export function ContentTableGrid({
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
-                {group.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
-                      header.column.id === 'actions' ? 'sticky left-0 z-4 sticky-edge' : 'relative'
-                    }`}
-                  >
-                    {header.isPlaceholder ? null : header.column.id === 'actions' ? (
-                      <span className="sr-only">
-                        <table.FlexRender header={header} />
-                      </span>
-                    ) : (
-                      <ColumnMenuHeader
-                        header={{
-                          label: <table.FlexRender header={header} />,
-                          canSort: header.column.getCanSort(),
-                          sorted: header.column.getIsSorted(),
-                          sort: (direction) => header.column.toggleSorting(direction === 'desc'),
-                          hide: () => header.column.toggleVisibility(false),
-                        }}
-                      />
-                    )}
-                    {header.column.getCanResize() ? (
-                      <span
-                        data-slot="column-resize-handle"
-                        aria-hidden="true"
-                        className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
-                        onMouseDown={header.getResizeHandler()}
-                        onTouchStart={header.getResizeHandler()}
-                      />
-                    ) : null}
-                  </TableHead>
-                ))}
+                {group.headers.map((header, index) => {
+                  const placement = pinnedCellPlacement(index, stickyColumns.length);
+                  return (
+                    <TableHead
+                      key={header.id}
+                      className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
+                        index < stickyColumns.length ? `z-4 ${placement.className}` : 'relative'
+                      }`}
+                      style={placement.style}
+                    >
+                      {header.isPlaceholder ? null : header.column.id === actionsColumnId ? (
+                        <span className="sr-only">
+                          <table.FlexRender header={header} />
+                        </span>
+                      ) : (
+                        <ColumnMenuHeader
+                          header={{
+                            label: <table.FlexRender header={header} />,
+                            canSort: header.column.getCanSort(),
+                            sorted: header.column.getIsSorted(),
+                            sort: (direction) => header.column.toggleSorting(direction === 'desc'),
+                            hide: () => header.column.toggleVisibility(false),
+                            pinned: header.column.getIsPinned() === 'start',
+                            setPinned: (pinned) => header.column.pin(pinned ? 'start' : false),
+                          }}
+                        />
+                      )}
+                      {header.column.getCanResize() ? (
+                        <span
+                          data-slot="column-resize-handle"
+                          aria-hidden="true"
+                          className="absolute inset-y-1.5 -right-0.5 w-1.5 cursor-col-resize rounded-full hover:bg-accent/50"
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                        />
+                      ) : null}
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             ))}
           </TableHeader>
@@ -233,6 +288,7 @@ export function ContentTableGrid({
                 canExpand={canExpand}
                 expanded={expanded.has(row.original.id)}
                 visibleColumnCount={visibleColumnCount}
+                pinnedCount={stickyColumns.length}
                 toggleExpanded={toggleExpanded}
                 onOpenDetails={onOpenDetails}
                 renderExpandedRow={renderExpandedRow}

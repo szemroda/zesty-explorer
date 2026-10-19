@@ -165,6 +165,17 @@ describe('ViewCodec', () => {
     expect(ViewCodec.decode(encoded.fragment)).toEqual({ ok: true, state: shared(otherView) });
   });
 
+  it('round-trips pinned columns', () => {
+    const pinned = shared({
+      ...view,
+      root: { ...root, presentation: { ...root.presentation, pinnedColumns: ['title'] } },
+    });
+    expect(ViewCodec.decode(ViewCodec.encode(pinned).fragment)).toEqual({
+      ok: true,
+      state: pinned,
+    });
+  });
+
   it('decodes the version-one golden link fixture', () => {
     expect(ViewCodec.decode(v1Fragment)).toEqual({ ok: true, state: shared(view) });
   });
@@ -242,6 +253,28 @@ describe('ViewCodec', () => {
           root: {
             ...root,
             presentation: { ...root.presentation, columnWidths: { title: -1 } },
+          },
+        }),
+      ),
+    ).toThrow(/valid, settled/i);
+    expect(() =>
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
+            presentation: { ...root.presentation, pinnedColumns: [1] as unknown as string[] },
+          },
+        }),
+      ),
+    ).toThrow(/valid, settled/i);
+    expect(() =>
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
+            presentation: { ...root.presentation, pinnedColumns: ['title', 'title'] },
           },
         }),
       ),

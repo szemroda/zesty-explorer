@@ -210,6 +210,8 @@ export interface NodePresentation {
   readonly visibleColumns: readonly string[];
   readonly statusColumnHidden?: boolean;
   readonly columnWidths: Readonly<Record<string, number>>;
+  /** Column ids kept in place at the table's start while it scrolls sideways, in pin order. */
+  readonly pinnedColumns?: readonly string[];
   readonly sort: SortState;
   readonly filters: readonly ViewFilter[];
   readonly freeText: string;

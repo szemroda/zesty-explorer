@@ -121,7 +121,7 @@
   }
 }
 
-/* The row actions column pinned at a grid's left edge; it casts a shadow once the grid scrolls. */
+/* The last column pinned at a grid's left edge; it casts a shadow once the grid scrolls. */
 @utility sticky-edge {
   box-shadow:
     --theme(--shadow-sticky),

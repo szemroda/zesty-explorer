@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Pin, PinOff } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
@@ -10,9 +10,12 @@ export interface ColumnHeader {
   readonly sorted: false | 'asc' | 'desc';
   readonly sort: (direction: 'asc' | 'desc') => void;
   readonly hide: () => void;
+  /** Pinned columns stay at the table's start while it scrolls sideways. */
+  readonly pinned: boolean;
+  readonly setPinned: (pinned: boolean) => void;
 }
 
-/** The whole header is a button that opens the column menu: sort and hide. */
+/** The whole header is a button that opens the column menu: sort, pin, and hide. */
 export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) {
   const [open, setOpen] = useState(false);
   const headingId = useId();
@@ -21,6 +24,9 @@ export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) 
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className="group/menu relative -mx-3 -my-2 flex w-[calc(100%+1.5rem)] min-w-0 cursor-pointer items-center gap-1 px-3 py-2 text-left uppercase outline-none hover:text-content-hover focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-inset">
         <span className="truncate">{header.label}</span>
+        {header.pinned ? (
+          <Pin size={11} className="shrink-0 opacity-60" aria-label="pinned" />
+        ) : null}
         {header.sorted === 'asc' ? (
           <ArrowUp size={12} className="shrink-0" aria-label="sorted ascending" />
         ) : null}
@@ -67,6 +73,15 @@ export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) 
             <MenuSeparator />
           </>
         ) : null}
+        <MenuButton
+          icon={header.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+          onClick={() => {
+            setOpen(false);
+            header.setPinned(!header.pinned);
+          }}
+        >
+          {header.pinned ? 'Unpin column' : 'Pin column'}
+        </MenuButton>
         <MenuButton
           icon={<EyeOff size={14} />}
           onClick={() => {
