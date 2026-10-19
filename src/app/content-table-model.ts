@@ -33,6 +33,9 @@ const contentTableFeatures = tableFeatures({
 
 const contentColumnHelper = createColumnHelper<typeof contentTableFeatures, ContentItem>();
 
+/** The row actions column, always pinned first. */
+export const actionsColumnId = 'actions';
+
 interface CreateContentTableColumnsOptions {
   readonly definitions: readonly ContentItemColumn[];
   readonly actionColumnWidth: number;
@@ -48,7 +51,7 @@ export function createContentTableColumns({
 }: CreateContentTableColumnsOptions) {
   return contentColumnHelper.columns([
     contentColumnHelper.display({
-      id: 'actions',
+      id: actionsColumnId,
       header: 'Item actions',
       size: actionColumnWidth,
       enableHiding: false,
@@ -110,7 +113,10 @@ export function useContentTable({
   onPaginationChange,
   onPinnedColumnsChange,
 }: UseContentTableOptions) {
-  const columnPinning: ColumnPinningState = { start: ['actions', ...pinnedColumns], end: [] };
+  const columnPinning: ColumnPinningState = {
+    start: [actionsColumnId, ...pinnedColumns.filter((id) => id !== actionsColumnId)],
+    end: [],
+  };
   return useTable({
     features: contentTableFeatures,
     data,
@@ -132,7 +138,7 @@ export function useContentTable({
     onPaginationChange,
     onColumnPinningChange: (updater) => {
       const next = typeof updater === 'function' ? updater(columnPinning) : updater;
-      onPinnedColumnsChange(next.start.filter((id) => id !== 'actions'));
+      onPinnedColumnsChange(next.start.filter((id) => id !== actionsColumnId));
     },
     manualSorting: true,
     enableSortingRemoval: false,

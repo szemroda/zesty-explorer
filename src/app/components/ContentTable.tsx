@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 import type { CollectionReference, ContentItem } from '../../domain';
-import type { ContentTableInstance } from '../content-table-model';
+import { actionsColumnId, type ContentTableInstance } from '../content-table-model';
 import { ScrollDockContext } from '../scroll-dock';
 import {
   itemDisplayLabel,
@@ -45,8 +45,8 @@ type ContentTableRowModel = ReturnType<ContentTableInstance['getRowModel']>['row
 
 /**
  * Sticky placement of the cell at `index` among a row's visible cells. The row actions and pinned
- * columns come first; their left offsets live in `--pinned-start-<index>` on the table, so resizing
- * a column moves them without rendering any row. The last of them casts the scroll edge.
+ * columns come first; their left offsets live in `--pinned-start-<index>` on the table, so they
+ * stay right even when a memoized row skips rendering. The last of them casts the scroll edge.
  */
 function pinnedCellPlacement(
   index: number,
@@ -117,10 +117,10 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
               key={cell.id}
               className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
                 index < pinnedCount ? 'z-3 bg-panel' : ''
-              } ${cell.column.id === 'actions' ? 'px-2.5' : ''} ${placement.className}`}
+              } ${cell.column.id === actionsColumnId ? 'px-2.5' : ''} ${placement.className}`}
               style={placement.style}
             >
-              {cell.column.id === 'actions' ? (
+              {cell.column.id === actionsColumnId ? (
                 <ContentItemActions
                   item={row.original}
                   reference={reference}
@@ -189,11 +189,11 @@ export function ContentTableGrid({
     [label, registerScroller],
   );
   // Pinning moves the actions and pinned columns ahead of the rest, as headers and cells render.
-  const pinnedColumns = table.getStartVisibleLeafColumns();
-  const visibleColumns = [...pinnedColumns, ...table.getCenterVisibleLeafColumns()];
+  const stickyColumns = table.getStartVisibleLeafColumns();
+  const visibleColumns = [...stickyColumns, ...table.getCenterVisibleLeafColumns()];
   const visibleColumnCount = visibleColumns.length;
   const pinnedOffsets = Object.fromEntries(
-    pinnedColumns.map((column, index) => [
+    stickyColumns.map((column, index) => [
       `--pinned-start-${index}`,
       `${column.getStart('start')}px`,
     ]),
@@ -201,7 +201,12 @@ export function ContentTableGrid({
 
   return (
     <div className="relative isolate w-full min-w-0">
-      <div ref={scrollerRef} className="@container w-full min-w-0 overflow-x-auto">
+      <div
+        ref={scrollerRef}
+        className="@container w-full min-w-0 overflow-x-auto"
+        // Keeps a focused cell or header from scrolling into view underneath the sticky columns.
+        style={{ scrollPaddingInlineStart: table.getStartTotalSize() }}
+      >
         <Table
           className="border-separate border-spacing-0 text-xs"
           style={{
@@ -224,16 +229,16 @@ export function ContentTableGrid({
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
                 {group.headers.map((header, index) => {
-                  const placement = pinnedCellPlacement(index, pinnedColumns.length);
+                  const placement = pinnedCellPlacement(index, stickyColumns.length);
                   return (
                     <TableHead
                       key={header.id}
                       className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
-                        index < pinnedColumns.length ? `z-4 ${placement.className}` : 'relative'
+                        index < stickyColumns.length ? `z-4 ${placement.className}` : 'relative'
                       }`}
                       style={placement.style}
                     >
-                      {header.isPlaceholder ? null : header.column.id === 'actions' ? (
+                      {header.isPlaceholder ? null : header.column.id === actionsColumnId ? (
                         <span className="sr-only">
                           <table.FlexRender header={header} />
                         </span>
@@ -283,7 +288,7 @@ export function ContentTableGrid({
                 canExpand={canExpand}
                 expanded={expanded.has(row.original.id)}
                 visibleColumnCount={visibleColumnCount}
-                pinnedCount={pinnedColumns.length}
+                pinnedCount={stickyColumns.length}
                 toggleExpanded={toggleExpanded}
                 onOpenDetails={onOpenDetails}
                 renderExpandedRow={renderExpandedRow}

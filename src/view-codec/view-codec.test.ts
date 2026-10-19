@@ -274,6 +274,17 @@ describe('ViewCodec', () => {
           ...view,
           root: {
             ...root,
+            presentation: { ...root.presentation, pinnedColumns: ['title', 'title'] },
+          },
+        }),
+      ),
+    ).toThrow(/valid, settled/i);
+    expect(() =>
+      ViewCodec.encode(
+        shared({
+          ...view,
+          root: {
+            ...root,
             children: [
               {
                 ...root,

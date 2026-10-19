@@ -461,6 +461,22 @@ describe('recursive collection tables', () => {
     expect(headerNames(collection).slice(0, 2)).toEqual(['Item actions', 'ZUID']);
   });
 
+  it('restores pinned columns saved for a nested collection', async () => {
+    const pinnedChild = {
+      ...child,
+      presentation: { ...child.presentation, pinnedColumns: ['parentKey'] },
+    };
+    render(rootTable({ treeRoot: { ...root, children: [pinnedChild] } }));
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+    expect(
+      within(nestedTable)
+        .getAllByRole('columnheader')
+        .slice(0, 3)
+        .map((header) => header.textContent),
+    ).toEqual(['Item actions', 'Parent key', 'ZUID']);
+  });
+
   it('keeps a nested load failure local and reveals its technical details', async () => {
     const failure: ExplorerError = {
       kind: 'decoding',
