@@ -8,7 +8,7 @@ import {
   managerItemUrl,
   type ContentItemColumn,
 } from '../content-item-presentation';
-import { ColumnMenuHeader, type ColumnFilterEditor } from './ColumnMenu';
+import { ColumnMenuHeader } from './ColumnMenu';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import {
@@ -29,8 +29,6 @@ interface ContentTableGridProps {
   readonly canExpand: boolean;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly renderExpandedRow: (item: ContentItem) => ReactNode;
-  /** The filter a column's menu edits; undefined for columns that cannot be filtered. */
-  readonly columnFilter: (columnId: string) => ColumnFilterEditor | undefined;
   /** Shown under the headers while no rows match. */
   readonly emptyContent: ReactNode;
 }
@@ -131,7 +129,6 @@ export function ContentTableGrid({
   canExpand,
   onOpenDetails,
   renderExpandedRow,
-  columnFilter,
   emptyContent,
 }: ContentTableGridProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<ContentItem['id']>>(new Set());
@@ -196,14 +193,12 @@ export function ContentTableGrid({
                     ) : (
                       <ColumnMenuHeader
                         header={{
-                          columnId: header.column.id,
                           label: <table.FlexRender header={header} />,
                           canSort: header.column.getCanSort(),
                           sorted: header.column.getIsSorted(),
                           sort: (direction) => header.column.toggleSorting(direction === 'desc'),
                           hide: () => header.column.toggleVisibility(false),
                         }}
-                        filter={columnFilter(header.column.id)}
                       />
                     )}
                     {header.column.getCanResize() ? (

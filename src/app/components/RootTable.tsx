@@ -169,16 +169,11 @@ export function RootTable({
     contentState,
     graph,
     itemIds: snapshot.items.map((item) => item.id),
+    freeText,
     filters: viewFilters,
-    onChange: applyViewFilters,
-    // The grid is hidden while related results load, and with it every header.
-    isColumnShown: (columnId) => !resultsPending && columnVisibility[columnId] !== false,
-    search: {
-      text: freeText,
-      onChange: (text, filters) => {
-        persistPresentation({ freeText: text });
-        applyViewFilters(filters);
-      },
+    onChange: (text, filters) => {
+      persistPresentation({ freeText: text });
+      applyViewFilters(filters);
     },
   });
   const hasManagerLink = reference.area !== 'other';
@@ -295,7 +290,6 @@ export function RootTable({
                 reference={reference}
                 canExpand={canExpand}
                 onOpenDetails={onOpenDetails}
-                columnFilter={filterControls.columnFilter}
                 emptyContent={
                   <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
                     <p className="m-0 font-medium text-foreground">
@@ -325,9 +319,6 @@ export function RootTable({
                         onOpenDetails={onOpenDetails}
                         onRetry={onRetry}
                         root={treeRoot}
-                        nodePath={[child.id]}
-                        viewFilters={viewFilters}
-                        onViewFiltersChange={applyViewFilters}
                       />
                     ))}
                   </div>

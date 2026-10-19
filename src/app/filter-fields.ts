@@ -137,11 +137,6 @@ export function findFilterField(
   return key === undefined ? undefined : fields.byKey.get(key);
 }
 
-/** Whether `filter` tests exactly `field`, e.g. to find the filter a column header edits. */
-export function filtersField(filter: FilterTarget, field: FilterField): boolean {
-  return filterKey(filter) === field.key;
-}
-
 /** Booleans use the "is" (`one-of`) condition; a single true or false choice saves as that operator. */
 export type ConditionId = Exclude<FilterOperator, 'true' | 'false'>;
 
@@ -213,11 +208,6 @@ function conditionOf(filter: ViewFilter, field: CollectionField): Condition | un
   if (filter.invalid) return undefined;
   const id = conditionIdFor(filter.operator);
   return conditionsFor(field).find((candidate) => candidate.id === id);
-}
-
-/** Whether the editor can open `filter` on `field`, e.g. from the field's column header. */
-export function editsField(filter: ViewFilter, field: FilterField): boolean {
-  return filtersField(filter, field) && conditionOf(filter, field.field) !== undefined;
 }
 
 /** One choice in an option filter; `key` is its `optionKey`, used by drafts and checkboxes. */
@@ -366,8 +356,6 @@ export interface FilterDescription {
   /** Descendant node names, shown before the condition when the field is not the table's own. */
   readonly scope: string | undefined;
   readonly text: string;
-  /** `text` without the field's label, e.g. `between 10 and 20`, for where the label already shows. */
-  readonly condition: string;
   /**
    * The editor cannot open the filter: it names a node or field that is no longer in the view,
    * or a condition its field does not offer. It can still be removed.
@@ -400,7 +388,6 @@ export function describeFilter(filter: ViewFilter, fields: FilterFields): Filter
     field: found,
     scope: found?.scope,
     text: `${label} ${operator}${value}`,
-    condition: `${operator}${value}`,
     stale: condition === undefined,
   };
 }
