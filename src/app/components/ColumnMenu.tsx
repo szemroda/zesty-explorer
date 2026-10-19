@@ -41,29 +41,31 @@ export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) 
           {header.label}
         </p>
         {header.canSort ? (
-          <div role="group" aria-label="Sort">
-            <MenuButton
-              icon={<ArrowUp size={14} />}
-              checked={header.sorted === 'asc'}
-              onClick={() => {
-                header.sort('asc');
-                setOpen(false);
-              }}
-            >
-              Sort ascending
-            </MenuButton>
-            <MenuButton
-              icon={<ArrowDown size={14} />}
-              checked={header.sorted === 'desc'}
-              onClick={() => {
-                header.sort('desc');
-                setOpen(false);
-              }}
-            >
-              Sort descending
-            </MenuButton>
+          <>
+            <div role="group" aria-label="Sort">
+              <MenuButton
+                icon={<ArrowUp size={14} />}
+                checked={header.sorted === 'asc'}
+                onClick={() => {
+                  header.sort('asc');
+                  setOpen(false);
+                }}
+              >
+                Sort ascending
+              </MenuButton>
+              <MenuButton
+                icon={<ArrowDown size={14} />}
+                checked={header.sorted === 'desc'}
+                onClick={() => {
+                  header.sort('desc');
+                  setOpen(false);
+                }}
+              >
+                Sort descending
+              </MenuButton>
+            </div>
             <MenuSeparator />
-          </div>
+          </>
         ) : null}
         <MenuButton
           icon={<EyeOff size={14} />}

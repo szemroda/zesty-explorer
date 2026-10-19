@@ -245,19 +245,21 @@ describe('recursive collection tables', () => {
     ).toBeInTheDocument();
 
     fireEvent.click(within(nestedTable).getByRole('button', { name: 'Add Children filter' }));
+    const picker = await screen.findByRole('combobox', { name: 'Children table filter field' });
+    expect(
+      screen.getByText(
+        'Filters Children rows in every Children table; all Parents items stay. To keep only Parents items with a matching Children item, use Filter on the Parents table.',
+      ),
+    ).toBeInTheDocument();
     // Enter on the empty picker takes its first field, "Any field".
-    fireEvent.keyDown(
-      await screen.findByRole('combobox', { name: 'Children table filter field' }),
-      {
-        key: 'Enter',
-      },
-    );
+    fireEvent.keyDown(picker, { key: 'Enter' });
     const value = await screen.findByRole('textbox', { name: 'Children table filter value' });
     fireEvent.change(value, { target: { value: 'no matching child' } });
     fireEvent.keyDown(value, { key: 'Enter' });
     expect(await screen.findByText('No related items match.')).toBeInTheDocument();
+    const tableChips = within(nestedTable).getByRole('group', { name: 'Table filters' });
     fireEvent.click(
-      within(nestedTable).getByRole('button', {
+      within(tableChips).getByRole('button', {
         name: 'Remove filter Any field contains “no matching child”',
       }),
     );
@@ -279,16 +281,13 @@ describe('recursive collection tables', () => {
     expandFirstParent();
     const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
 
-    const viewChips = within(
-      screen.getByRole('region', { name: 'Parents collection' }),
-    ).getAllByRole('group', { name: 'Active filters' })[0]!;
-    expect(viewChips).toHaveTextContent('View filters');
+    const viewChips = screen.getByRole('group', { name: 'View filters' });
     expect(
       within(viewChips).getByRole('button', {
         name: 'Edit filter Children: Title contains “Child”',
       }),
     ).toBeInTheDocument();
-    expect(within(nestedTable).queryByRole('group', { name: 'Active filters' })).toBeNull();
+    expect(within(nestedTable).queryByRole('button', { name: /^Edit filter Children/ })).toBeNull();
   });
 
   it('explains an empty root result and clears its search and view filters', () => {

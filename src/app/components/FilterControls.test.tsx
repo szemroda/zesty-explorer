@@ -10,7 +10,7 @@ import type {
 } from '../../domain';
 import { collectionNode } from '../../test/fixtures';
 import { buildLoadedViewGraph, rootLoadedView } from '../load-view';
-import { tableFilterControls, type TableSearch } from './FilterControls';
+import { tableFilterControls } from './FilterControls';
 
 const node = { ...collectionNode('node-articles', '6-articles'), name: 'Articles' };
 const schema: CollectionSchema = {
@@ -51,16 +51,18 @@ const loadedView = rootLoadedView(node, 'latest', { schema, snapshot });
 const allItemIds = items.map((item) => item.id);
 
 interface ControlsProps {
+  readonly freeText?: string;
   readonly filters: readonly ViewFilter[];
-  /** Receives the filters of every write; defaults the search to empty. */
-  readonly onChange?: (filters: readonly ViewFilter[]) => void;
+  readonly onChange?: (freeText: string, filters: readonly ViewFilter[]) => void;
   readonly itemIds?: readonly ItemZuid[];
-  readonly search?: TableSearch;
 }
 
-const noSearch: TableSearch = { text: '', onChange: () => undefined };
-
-function controls({ filters, onChange = vi.fn(), itemIds = allItemIds, search }: ControlsProps) {
+function controls({
+  freeText = '',
+  filters,
+  onChange = vi.fn(),
+  itemIds = allItemIds,
+}: ControlsProps) {
   return tableFilterControls({
     node,
     label: 'View filter',
@@ -71,8 +73,9 @@ function controls({ filters, onChange = vi.fn(), itemIds = allItemIds, search }:
     contentState: 'latest',
     graph: buildLoadedViewGraph(node, loadedView, 'latest'),
     itemIds,
+    freeText,
     filters,
-    search: search ?? { text: '', onChange: (_text, next) => onChange(next) },
+    onChange,
   });
 }
 
@@ -109,7 +112,7 @@ describe('toolbar filter', () => {
     fireEvent.click(review);
     fireEvent.keyDown(review, { key: 'Enter' });
 
-    expect(onChange).toHaveBeenCalledWith([
+    expect(onChange).toHaveBeenCalledWith('', [
       expect.objectContaining({
         nodePath: [],
         fieldPath: ['state'],
@@ -146,12 +149,12 @@ describe('filter chips', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'In review (2)' }));
     fireEvent.click(screen.getByRole('button', { name: /Update/ }));
 
-    expect(onChange).toHaveBeenCalledWith([{ ...existing, value: ['draft', 'review'] }]);
+    expect(onChange).toHaveBeenCalledWith('', [{ ...existing, value: ['draft', 'review'] }]);
   });
 
   it('clears the search and every filter on "Clear all"', () => {
     const onSearch = vi.fn();
-    renderChips({ filters: [existing], search: { text: 'bottom', onChange: onSearch } });
+    renderChips({ freeText: 'bottom', filters: [existing], onChange: onSearch });
     fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
 
     expect(onSearch).toHaveBeenCalledWith('', []);
@@ -201,7 +204,8 @@ describe('field picker', () => {
         itemIds: allItemIds,
         heading: 'View filters',
         filters: [],
-        search: noSearch,
+        freeText: '',
+        onChange: vi.fn(),
       }).toolbarButton;
     render(<Toolbar />);
     fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
@@ -265,8 +269,7 @@ describe('search as a filter', () => {
 
   it('saves "Any field" from the toolbar as the search, keeping the filters', async () => {
     const onSearch = vi.fn();
-    const Toolbar = () =>
-      controls({ filters: [state], search: { text: '', onChange: onSearch } }).toolbarButton;
+    const Toolbar = () => controls({ filters: [state], onChange: onSearch }).toolbarButton;
     render(<Toolbar />);
     fireEvent.click(screen.getByRole('button', { name: 'Add view filter' }));
     // Enter on the empty picker takes its first field, "Any field".
@@ -282,7 +285,7 @@ describe('search as a filter', () => {
 
   it('lists the search as the first chip, and removing it clears only the search', () => {
     const onSearch = vi.fn();
-    renderChips({ filters: [state], search: { text: 'bottom', onChange: onSearch } });
+    renderChips({ freeText: 'bottom', filters: [state], onChange: onSearch });
 
     const chips = screen.getAllByRole('button', { name: /^Edit filter/ });
     expect(chips.map((chip) => chip.getAttribute('aria-label'))).toEqual([

@@ -169,13 +169,11 @@ export function RootTable({
     contentState,
     graph,
     itemIds: snapshot.items.map((item) => item.id),
+    freeText,
     filters: viewFilters,
-    search: {
-      text: freeText,
-      onChange: (text, filters) => {
-        persistPresentation({ freeText: text });
-        applyViewFilters(filters);
-      },
+    onChange: (text, filters) => {
+      persistPresentation({ freeText: text });
+      applyViewFilters(filters);
     },
   });
   const hasManagerLink = reference.area !== 'other';

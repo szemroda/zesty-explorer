@@ -33,13 +33,6 @@ function cachedFilterFields(node: CollectionNode, schemas: Schemas): FilterField
   return fields;
 }
 
-/** The table's free-text search, which the filter controls edit as the field "Any field". */
-export interface TableSearch {
-  readonly text: string;
-  /** Sets the search and the filters together, so one update doesn't undo the other. */
-  readonly onChange: (text: string, filters: readonly ViewFilter[]) => void;
-}
-
 export interface TableFilterOptions {
   readonly node: CollectionNode;
   /** Names the editor for assistive technology, e.g. `View filter`. */
@@ -50,15 +43,18 @@ export interface TableFilterOptions {
   readonly subject: string;
   /** Leads the chip row, e.g. `View filters`. */
   readonly heading: string;
-  /** Says at the top of the editor what these filters affect; omit where the heading says it. */
+  /** Says at the top of the editor what these filters affect, e.g. in a nested table. */
   readonly hint?: string;
   readonly loadedView: LoadedView;
   readonly contentState: ContentState;
   readonly graph: ExplorerGraph;
   /** The table's rows before its own filters; option counts cover these and their related items. */
   readonly itemIds: readonly ItemZuid[];
+  /** The table's free-text search, which the controls edit as the field "Any field". */
+  readonly freeText: string;
   readonly filters: readonly ViewFilter[];
-  readonly search: TableSearch;
+  /** Sets the search and the filters together, so one update doesn't undo the other. */
+  readonly onChange: (freeText: string, filters: readonly ViewFilter[]) => void;
 }
 
 export interface TableFilterControls {
@@ -71,9 +67,9 @@ export interface TableFilterControls {
 /** The toolbar button and chip row of one table, both editing its search and `filters`. */
 export function tableFilterControls(options: TableFilterOptions): TableFilterControls {
   const { node, label, subject, hint, loadedView, contentState, graph, itemIds, filters } = options;
-  const { search } = options;
+  const { freeText, onChange } = options;
   // The editor and the chips see the search as the first filter; writes split it back out.
-  const currentSearch = search.text.trim() ? searchFilter(search.text) : undefined;
+  const currentSearch = freeText.trim() ? searchFilter(freeText) : undefined;
   const context: FilterListContext = {
     label,
     subject,
@@ -91,7 +87,7 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
     onChange: (next) => {
       // A search added while one exists comes last and replaces it.
       const nextSearch = next.filter(isSearchFilter).at(-1);
-      search.onChange(
+      onChange(
         typeof nextSearch?.value === 'string' ? nextSearch.value : '',
         next.filter((filter) => !isSearchFilter(filter)),
       );

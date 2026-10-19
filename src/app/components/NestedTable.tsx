@@ -351,18 +351,16 @@ export function NestedTable(props: NestedTableProps) {
     addLabel: `Add ${node.name} filter`,
     subject: node.name,
     heading: 'Table filters',
-    hint: `Filters only ${node.name} rows; all ${root.name} stay. To keep only ${root.name} with a matching ${node.name} item, add a view filter.`,
+    hint: `Filters ${node.name} rows in every ${node.name} table; all ${root.name} items stay. To keep only ${root.name} items with a matching ${node.name} item, use Filter on the ${root.name} table.`,
     loadedView,
     contentState,
     graph,
     itemIds: graph.relatedItemIds(node.id, parentItemId),
+    freeText: sharedState.freeText,
     filters: sharedState.filters,
-    search: {
-      text: sharedState.freeText,
-      onChange: (freeText, filters) => {
-        updateSharedState({ ...sharedState, freeText, filters });
-        setPagination((current) => ({ ...current, pageIndex: 0 }));
-      },
+    onChange: (freeText, filters) => {
+      updateSharedState({ ...sharedState, freeText, filters });
+      setPagination((current) => ({ ...current, pageIndex: 0 }));
     },
   });
 

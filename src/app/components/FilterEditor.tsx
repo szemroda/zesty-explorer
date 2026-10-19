@@ -21,7 +21,7 @@ import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
-export interface FilterContext {
+interface FilterContext {
   /** Names the editor for assistive technology, e.g. `View filter`. */
   readonly label: string;
   /** The collection whose rows the filter keeps, e.g. `Articles`, used in the related-items hint. */
@@ -144,13 +144,17 @@ interface FilterChipRowProps {
 
 /** The strip under a table toolbar that holds its active filter chips. */
 export function FilterChipRow({ heading, onClearAll, children }: FilterChipRowProps) {
+  const headingId = useId();
   return (
     <div
       className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface-subtle/60 px-3.5 py-2"
-      aria-label="Active filters"
+      aria-labelledby={headingId}
       role="group"
     >
-      <span className="mr-1 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
+      <span
+        id={headingId}
+        className="mr-1 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase"
+      >
         {heading}
       </span>
       {children}
@@ -188,7 +192,6 @@ function FilterEditor({
   onSubmit,
 }: FilterEditorProps) {
   const [field, setField] = useState(fixedField);
-  // An editor that opens on a known field starts in its value control.
   const {
     draft,
     conditions,
@@ -198,7 +201,7 @@ function FilterEditor({
     submit,
     chooseCondition,
     changeField,
-  } = useFilterDraft(field, filter, onSubmit, fixedField !== undefined);
+  } = useFilterDraft(field, filter, onSubmit);
 
   function chooseField(next: FilterField) {
     changeField(next);
