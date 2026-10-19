@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 
 const rootUrl = 'https://8-fixture.manager.zesty.io/content/6-rootmodel';
 const childUrl = 'https://8-fixture.manager.zesty.io/content/6-childmodel';
@@ -603,4 +603,59 @@ test('pins nested tables and docks the root scrollbar while it is off screen', a
     element.scrollLeft = 40;
   });
   await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(40);
+});
+
+// The element's top and bottom edges in the viewport.
+async function verticalEdges(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('The element is not on the page.');
+  return { top: box.y, bottom: box.y + box.height };
+}
+
+test('sticks table headers below the page header, nested ones below their parent', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await expect(children).toBeVisible();
+  const rootTable = page.getByRole('table').first();
+  const childTable = children.getByRole('table');
+  const edges = async () => ({
+    pageHeader: await verticalEdges(page.locator('main > header')),
+    rootHead: await verticalEdges(rootTable.locator(':scope > thead')),
+    child: await verticalEdges(childTable),
+    childHead: await verticalEdges(childTable.locator(':scope > thead')),
+  });
+  // Each is 0 while its header is where it belongs: the root header right below the page
+  // header, the nested one right below the root's, or leaving with its table's last row.
+  const gaps = async () => {
+    const { pageHeader, rootHead, child, childHead } = await edges();
+    return {
+      rootHead: rootHead.top - pageHeader.bottom,
+      childHead: childHead.top - rootHead.bottom,
+      childEnd: child.bottom - childHead.bottom,
+    };
+  };
+  await page.mouse.move(800, 400);
+
+  // Into the nested table, past its first rows.
+  const before = await edges();
+  await page.mouse.wheel(0, before.child.top - before.pageHeader.bottom + 200);
+  await expect
+    .poll(gaps)
+    .toMatchObject({ rootHead: expect.closeTo(0), childHead: expect.closeTo(0) });
+
+  // Its last row 10px below the root header.
+  const inside = await edges();
+  await page.mouse.wheel(0, inside.child.bottom - inside.rootHead.bottom - 10);
+  await expect
+    .poll(gaps)
+    .toMatchObject({ rootHead: expect.closeTo(0), childEnd: expect.closeTo(0) });
+  // Stuck over the nested table, the root header still takes clicks.
+  await page.getByRole('button', { name: /^Score/ }).click();
+  await expect(page.getByLabel('View filter condition')).toBeVisible();
 });

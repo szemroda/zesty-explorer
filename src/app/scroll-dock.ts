@@ -22,10 +22,12 @@ export interface DockedScroller {
 
 interface Entry extends DockedScroller {
   readonly onResize: () => void;
-  /** Registered scrollers around this one, set on its first measure. */
-  depth: number | undefined;
+  /** The nearest registered scroller around this one, or null; set on its first measure. */
+  parent: Element | null | undefined;
   /** Whether the content is wider than the scroller, as of its last size change. */
   overflows: boolean;
+  /** The header placement last written, to skip writes that change nothing. */
+  placement: string;
 }
 
 /** A docked scrollbar for one scroller, placed under the scroller's visible width. */
@@ -45,15 +47,20 @@ function overflows(scroller: HTMLElement): boolean {
   return scroller.scrollWidth - scroller.clientWidth > 1;
 }
 
-// Nesting depth from the nearest registered ancestor scroller. It is read after the commit that
-// registered the scroller, when ancestors that mounted in the same commit are registered too.
+// The nearest registered ancestor scroller. It is read after the commit that registered the
+// scroller, when ancestors that mounted in the same commit are registered too.
+function parentOf(entry: Entry, scrollers: ReadonlyMap<Element, Entry>): Entry | undefined {
+  if (entry.parent === undefined) {
+    let ancestor = entry.scroller.parentElement;
+    while (ancestor && !scrollers.has(ancestor)) ancestor = ancestor.parentElement;
+    entry.parent = ancestor;
+  }
+  return entry.parent ? scrollers.get(entry.parent) : undefined;
+}
+
 function depthOf(entry: Entry, scrollers: ReadonlyMap<Element, Entry>): number {
-  if (entry.depth !== undefined) return entry.depth;
-  let ancestor = entry.scroller.parentElement;
-  while (ancestor && !scrollers.has(ancestor)) ancestor = ancestor.parentElement;
-  const parent = ancestor ? scrollers.get(ancestor) : undefined;
-  entry.depth = parent ? depthOf(parent, scrollers) + 1 : 0;
-  return entry.depth;
+  const parent = parentOf(entry, scrollers);
+  return parent ? depthOf(parent, scrollers) + 1 : 0;
 }
 
 /**
@@ -83,6 +90,44 @@ function measureBars(scrollers: ReadonlyMap<Element, Entry>): readonly DockBar[]
   return bars;
 }
 
+/**
+ * Tells each table's header where to stick: below `top`, or below the stuck header of the table
+ * around it, from the window scroll offset where it reaches that line until the table's last row
+ * pushes it out. The `sticky-head` style moves the header from these values on the compositor, so
+ * they change only with layout, never with scrolling.
+ */
+function placeHeads(scrollers: ReadonlyMap<Element, Entry>, top: number) {
+  // The viewport line just below each table's stuck header, where its nested tables' headers stick.
+  const below = new Map<Entry, number>();
+  const placements: { entry: Entry; head: HTMLElement; start: number; travel: number }[] = [];
+  const outerFirst = [...scrollers.values()]
+    .map((entry) => ({ entry, depth: depthOf(entry, scrollers) }))
+    .sort((left, right) => left.depth - right.depth);
+  for (const { entry } of outerFirst) {
+    const table = entry.scroller.firstElementChild;
+    if (!(table instanceof HTMLTableElement) || !table.tHead) continue;
+    const head = table.tHead;
+    const parent = parentOf(entry, scrollers);
+    const line = (parent && below.get(parent)) ?? top;
+    const rect = table.getBoundingClientRect();
+    const headHeight = head.getBoundingClientRect().height;
+    below.set(entry, line + headHeight);
+    placements.push({
+      entry,
+      head,
+      start: rect.top + window.scrollY - line,
+      travel: rect.height - headHeight,
+    });
+  }
+  for (const { entry, head, start, travel } of placements) {
+    const placement = `${start}px ${travel}px`;
+    if (entry.placement === placement) continue;
+    entry.placement = placement;
+    head.style.setProperty('--sticky-head-start', `${start}px`);
+    head.style.setProperty('--sticky-head-travel', `${travel}px`);
+  }
+}
+
 function sameBars(left: readonly DockBar[], right: readonly DockBar[]): boolean {
   return (
     left.length === right.length &&
@@ -102,12 +147,16 @@ function sameBars(left: readonly DockBar[], right: readonly DockBar[]): boolean 
 let nextScrollerId = 0;
 
 /**
- * Tracks registered scrollers against the window and reports the bars to dock whenever they
- * change. Layout is re-measured at most once per frame, after scrolls, resizes, and size changes
- * of the page or any registered scroller. Nothing is observed until `start`, and `start`'s
- * cleanup releases every listener and observer.
+ * Tracks registered scrollers against the window: reports the bars to dock whenever they change,
+ * and keeps each table's header stuck below `stickyTop`, the viewport line where the page's own
+ * sticky header ends. Layout is re-measured at most once per frame, after scrolls, resizes, DOM
+ * changes, and size changes of the page or any registered scroller. Nothing is observed until
+ * `start`, and `start`'s cleanup releases every listener and observer.
  */
-export function createScrollDock(onBarsChange: (bars: readonly DockBar[]) => void) {
+export function createScrollDock(
+  onBarsChange: (bars: readonly DockBar[]) => void,
+  stickyTop: () => number,
+) {
   const scrollers = new Map<Element, Entry>();
   // Each scroller and its content, observed once for both the dock and the scroller's own use.
   const observed = new Map<Element, Entry>();
@@ -118,6 +167,7 @@ export function createScrollDock(onBarsChange: (bars: readonly DockBar[]) => voi
     frame = requestAnimationFrame(() => {
       frame = undefined;
       const next = measureBars(scrollers);
+      placeHeads(scrollers, stickyTop());
       if (sameBars(bars, next)) return;
       bars = next;
       onBarsChange(next);
@@ -136,8 +186,9 @@ export function createScrollDock(onBarsChange: (bars: readonly DockBar[]) => voi
       scroller,
       label,
       onResize,
-      depth: undefined,
+      parent: undefined,
       overflows: overflows(scroller),
+      placement: '',
     };
     const targets = [scroller, scroller.firstElementChild].filter((target) => target !== null);
     scrollers.set(scroller, entry);
@@ -160,6 +211,9 @@ export function createScrollDock(onBarsChange: (bars: readonly DockBar[]) => voi
   const start = () => {
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
+    // Sorting moves an expanded row, and the tables inside it, without resizing anything.
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(document.body, { childList: true, subtree: true });
     if (typeof ResizeObserver !== 'undefined') {
       const current = new ResizeObserver((records) => {
         new Set(records.flatMap(({ target }) => observed.get(target) ?? [])).forEach(resized);
@@ -173,6 +227,7 @@ export function createScrollDock(onBarsChange: (bars: readonly DockBar[]) => voi
     return () => {
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
+      mutations.disconnect();
       observer?.disconnect();
       observer = undefined;
       if (frame !== undefined) cancelAnimationFrame(frame);

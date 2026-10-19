@@ -127,3 +127,25 @@
     --theme(--shadow-sticky),
     14px 0 16px -8px rgb(0 0 0 / calc(0.95 * var(--grid-scrolled, 0)));
 }
+
+/*
+ * A grid's header row, held below the page header, or below the stuck header of the grid around
+ * it, while the window scrolls. `position: sticky` would stick to the grid's own horizontal
+ * scroller, so the window's scroll offset drives a translation instead. It runs on the compositor
+ * and never trails the scroll; scroll-dock.ts writes where it starts and how far it travels.
+ * Browsers without scroll-driven animations leave the header in place.
+ */
+@utility sticky-head {
+  @supports (animation-timeline: scroll()) {
+    animation: sticky-head linear both;
+    animation-timeline: scroll(root);
+    animation-range: var(--sticky-head-start, 0px)
+      calc(var(--sticky-head-start, 0px) + var(--sticky-head-travel, 0px));
+  }
+}
+
+@keyframes sticky-head {
+  to {
+    translate: 0 var(--sticky-head-travel, 0px);
+  }
+}

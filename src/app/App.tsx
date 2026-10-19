@@ -259,6 +259,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     'root-reference': rootReferenceInput,
   });
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
+  const pageHeader = useRef<HTMLElement>(null);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
@@ -867,7 +868,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   return (
     <main className="bg-background text-foreground flex min-h-screen flex-col">
-      <header className="border-border bg-card/95 sticky top-0 z-30 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 shadow-xs backdrop-blur lg:px-6">
+      <header
+        ref={pageHeader}
+        className="border-border bg-card/95 sticky top-0 z-30 flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b px-4 py-3 shadow-xs backdrop-blur lg:px-6"
+      >
         <div className="flex items-center gap-3">
           <img src="/favicon.svg" alt="" className="size-9" />
           <div>
@@ -1281,6 +1285,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onOpenDetails={openDetails}
                   onRetry={() => void refreshCollections()}
                   onPresentationChange={changePresentation}
+                  pageHeader={pageHeader}
                 />
               </PublicationStatusProvider>
             </>

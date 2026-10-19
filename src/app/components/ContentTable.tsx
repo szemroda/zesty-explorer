@@ -179,7 +179,8 @@ export function ContentTableGrid({
               />
             ))}
           </colgroup>
-          <TableHeader>
+          {/* Above body rows, pinned actions, and nested tables while it sticks over them. */}
+          <TableHeader className="sticky-head relative z-7">
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
                 {group.headers.map((header) => (

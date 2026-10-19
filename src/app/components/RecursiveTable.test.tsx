@@ -79,6 +79,7 @@ function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
       onRetry={vi.fn()}
       onPresentationChange={vi.fn()}
       onViewFiltersChange={vi.fn()}
+      pageHeader={{ current: null }}
       {...props}
     />
   );
