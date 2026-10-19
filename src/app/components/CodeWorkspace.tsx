@@ -244,7 +244,7 @@ export function CodeWorkspace({
                   aria-current={file.id === fileId ? 'true' : undefined}
                   className={cn(
                     'hover:bg-surface-menu-hover grid w-full rounded-md px-2 py-1.5 text-left',
-                    file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1',
+                    file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
                   )}
                 >
                   <span className="truncate font-mono text-xs">{file.fileName}</span>
