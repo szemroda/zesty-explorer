@@ -4,7 +4,7 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -80,6 +80,8 @@ interface RootTableProps {
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
+  /** The page's sticky header; table headers stick below it. */
+  readonly pageHeader: RefObject<HTMLElement | null>;
 }
 
 export function RootTable({
@@ -95,6 +97,7 @@ export function RootTable({
   onOpenDetails,
   onRetry,
   onPresentationChange,
+  pageHeader,
 }: RootTableProps) {
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
@@ -251,7 +254,7 @@ export function RootTable({
   }
 
   return (
-    <ScrollDockProvider>
+    <ScrollDockProvider pageHeader={pageHeader}>
       <section
         className={`relative overflow-visible ${panelClassName}`}
         aria-label={`${schema.label} collection`}

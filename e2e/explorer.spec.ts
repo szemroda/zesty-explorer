@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 
 const rootUrl = 'https://8-fixture.manager.zesty.io/content/6-rootmodel';
 const childUrl = 'https://8-fixture.manager.zesty.io/content/6-childmodel';
@@ -604,6 +604,200 @@ test('pins nested tables and docks the root scrollbar while it is off screen', a
     element.scrollLeft = 40;
   });
   await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(40);
+});
+
+// The element's top and bottom edges in the viewport.
+async function verticalEdges(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('The element is not on the page.');
+  return { top: box.y, bottom: box.y + box.height };
+}
+
+// The text of each on-screen cell of the row that something outside the row paints over.
+function coveredCells(row: Locator) {
+  return row.locator(':scope > th, :scope > td').evaluateAll((cells) =>
+    cells.flatMap((cell) => {
+      const { left, right, top, bottom } = cell.getBoundingClientRect();
+      const x = (left + Math.min(right, window.innerWidth)) / 2;
+      if (x >= window.innerWidth) return [];
+      const hit = document.elementFromPoint(x, (top + bottom) / 2);
+      return hit && cell.parentElement?.contains(hit) ? [] : [cell.textContent];
+    }),
+  );
+}
+
+test('sticks an expanded row over its table header, the nested header below it', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await expect(children).toBeVisible();
+  const rootTable = page.getByRole('table').first();
+  const rootHead = rootTable.locator(':scope > thead > tr');
+  const itemRow = rootTable.locator(':scope > tbody > tr').first();
+  const childTable = children.getByRole('table');
+  const edges = async () => ({
+    pageHeader: await verticalEdges(page.locator('main > header')),
+    rootHead: await verticalEdges(rootHead),
+    itemRow: await verticalEdges(itemRow),
+    expansion: await verticalEdges(itemRow.locator('xpath=following-sibling::tr[1]')),
+    child: await verticalEdges(childTable),
+    childHead: await verticalEdges(childTable.locator(':scope > thead')),
+  });
+  // Each is -1 while its row is stuck where it belongs, tucked 1px under the row above: the item
+  // row over the root header under the page header, and the nested header under the item row.
+  // `childEnd` is 0 while the nested header leaves with its table's last row.
+  const gaps = async () => {
+    const { pageHeader, rootHead, itemRow, child, childHead } = await edges();
+    return {
+      rootHead: rootHead.top - pageHeader.bottom,
+      itemRow: itemRow.top - pageHeader.bottom,
+      childHead: childHead.top - itemRow.bottom,
+      childEnd: child.bottom - childHead.bottom,
+    };
+  };
+  await page.mouse.move(800, 400);
+
+  // Into the nested table, past its first rows.
+  const before = await edges();
+  await page.mouse.wheel(0, before.child.top - before.pageHeader.bottom + 200);
+  await expect.poll(gaps).toMatchObject({
+    rootHead: expect.closeTo(-1),
+    itemRow: expect.closeTo(-1),
+    childHead: expect.closeTo(-1),
+  });
+  // The item row stands in for the root header, pinned actions included.
+  expect(await coveredCells(itemRow)).toEqual([]);
+  expect(await coveredCells(rootHead)).not.toEqual([]);
+
+  // Its last row 10px below the item row.
+  const inside = await edges();
+  await page.mouse.wheel(0, inside.child.bottom - inside.itemRow.bottom - 10);
+  await expect
+    .poll(gaps)
+    .toMatchObject({ itemRow: expect.closeTo(-1), childEnd: expect.closeTo(0) });
+
+  // Past the expanded row, the root header is back on top.
+  const leaving = await edges();
+  await page.mouse.wheel(0, leaving.expansion.bottom - leaving.pageHeader.bottom + 100);
+  await expect.poll(gaps).toMatchObject({ rootHead: expect.closeTo(-1) });
+  expect((await edges()).itemRow.bottom).toBeLessThan(leaving.pageHeader.bottom);
+  expect(await coveredCells(rootHead)).toEqual([]);
+});
+
+// How many pixels of the screenshot clip are red. The PNG is decoded in the page.
+async function redPixels(
+  page: Page,
+  clip: { x: number; y: number; width: number; height: number },
+) {
+  const png = (await page.screenshot({ clip })).toString('base64');
+  return page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let red = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 100 && pixels[index + 1] < 60) red++;
+    }
+    return red;
+  }, png);
+}
+
+test('shows no content through the edge of a stuck header', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  // Red rows make any sliver of them between the page header and the stuck header countable.
+  await page.addStyleTag({ content: 'tbody td { background: rgb(255 0 0) !important; }' });
+  const line = await page
+    .locator('main > header')
+    .evaluate((header) => header.getBoundingClientRect().bottom);
+  // The table sits at a fractional offset, so some of these leave the stuck header off by a
+  // fraction of a pixel once the compositor rounds it.
+  for (let scrollY = 100; scrollY <= 400; scrollY += 13) {
+    await page.evaluate((y) => window.scrollTo(0, y), scrollY);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await redPixels(page, { x: 300, y: line, width: 900, height: 1 }), `at ${scrollY}`).toBe(
+      0,
+    );
+  }
+});
+
+test('stacks expanded rows three tables deep through sorting, paging, and collapsing', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await expect(page.getByRole('button', { name: 'Add relationship' })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Add relationship' }).last().click();
+  await page.getByLabel('Related collection URL').fill(childUrl);
+  await page.getByLabel('Node name').fill('Grandchildren');
+  await page.getByLabel('Parent field path').fill('parentKey');
+  await page.getByLabel('Child field path').fill('parentKey');
+  await page.getByRole('button', { name: 'Add collection node' }).click();
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await children.getByRole('button', { name: 'Expand relationships for 7-child-000000' }).click();
+  const grandchildren = children.getByRole('region', {
+    name: 'Grandchildren related items',
+    exact: true,
+  });
+  await expect(grandchildren.getByRole('table')).toBeVisible();
+  // Scrolls the table's first rows under the stuck rows.
+  const scrollIntoBody = (table: Locator) =>
+    table.evaluate((element) => {
+      const pageHeader = document.querySelector('main > header')!.getBoundingClientRect();
+      window.scrollBy(0, element.getBoundingClientRect().top - pageHeader.bottom + 80);
+    });
+  // The distance of each expanded row, then the deepest table's header, from the bottom of the
+  // one above it, the page header first: -1 while each is stuck, tucked under the one above.
+  const gaps = () =>
+    page.evaluate(() => {
+      let bottom = document.querySelector('main > header')!.getBoundingClientRect().bottom;
+      const expanded = [...document.querySelectorAll('[aria-label^="Collapse relationships"]')];
+      const rows = expanded.map((button) => button.closest('tr')!);
+      return [...rows, ...[...document.querySelectorAll('thead')].slice(-1)].map((row) => {
+        const rect = row.getBoundingClientRect();
+        const gap = rect.top - bottom;
+        bottom = rect.bottom;
+        return Math.round(gap) || 0;
+      });
+    });
+
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
+
+  // Sorting moves the expanded rows, and the tables inside them, without resizing anything.
+  await page
+    .getByRole('table')
+    .first()
+    .getByRole('button', { name: /^Category/ })
+    .click();
+  await page.getByRole('button', { name: 'Sort descending', exact: true }).click();
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
+
+  await grandchildren.getByRole('button', { name: 'Next' }).click();
+  await expect(grandchildren.getByText('Page 2 of 2')).toBeVisible();
+  await scrollIntoBody(grandchildren.getByRole('table'));
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
+
+  await children.getByRole('button', { name: 'Collapse relationships for 7-child-000000' }).click();
+  await expect(grandchildren).toHaveCount(0);
+  await scrollIntoBody(children.getByRole('table'));
+  await expect.poll(gaps).toEqual([-1, -1]);
 });
 
 test('keeps pinned columns in place while the table scrolls sideways', async ({

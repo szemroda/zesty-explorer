@@ -1,16 +1,25 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { createScrollDock, dockBarHeight, ScrollDockContext, type DockBar } from '../scroll-dock';
 
+interface ScrollDockProviderProps {
+  readonly children: ReactNode;
+  /** The page's sticky header; table headers stick below it. */
+  readonly pageHeader: RefObject<HTMLElement | null>;
+}
+
 /**
- * Keeps every table's horizontal scrollbar within reach. While a registered table overflows
- * sideways and its own scrollbar is below the window edge, a synced copy of that scrollbar docks
- * at the bottom of the window, aligned to the table. Nested tables' bars stack above their
- * parents' bars, in the same order as the tables' bottom edges.
+ * Keeps every table's horizontal scrollbar and header row within reach. While a registered table
+ * overflows sideways and its own scrollbar is below the window edge, a synced copy of that
+ * scrollbar docks at the bottom of the window, aligned to the table. Nested tables' bars stack
+ * above their parents' bars, in the same order as the tables' bottom edges. Header rows stick
+ * below the page header the same way, nested tables' headers below their parents'.
  */
-export function ScrollDockProvider({ children }: { readonly children: ReactNode }) {
+export function ScrollDockProvider({ children, pageHeader }: ScrollDockProviderProps) {
   const [bars, setBars] = useState<readonly DockBar[]>([]);
-  const [dock] = useState(() => createScrollDock(setBars));
+  const [dock] = useState(() =>
+    createScrollDock(setBars, () => pageHeader.current?.getBoundingClientRect().bottom ?? 0),
+  );
 
   useEffect(() => dock.start(), [dock]);
 
