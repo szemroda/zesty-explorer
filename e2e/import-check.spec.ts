@@ -10,8 +10,9 @@ async function checkStoresCsv(page: Page, csv = storesCsv()): Promise<readonly s
   const requests = await installImportFixture(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill(syntheticToken);
-  await page.getByLabel('Zesty instance URL').fill(instanceUrl);
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(instanceUrl);
+  await page.getByLabel('Or paste a Zesty URL').blur();
   await page.getByRole('tab', { name: 'Import check' }).click();
   await expect(page.getByRole('combobox', { name: 'Collection to import into' })).toHaveValue(
     'Store locations',

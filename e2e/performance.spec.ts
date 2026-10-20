@@ -61,6 +61,9 @@ async function nextPaintAfterClick(locator: Locator): Promise<number> {
 }
 
 async function installPerformanceApi(page: Page) {
+  await page.route('https://accounts.api.zesty.io/v1/instances', async (route) => {
+    await route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { data: [] } });
+  });
   const rootItems = Array.from({ length: 10_000 }, (_, index) => ({
     data: {
       title: `Performance item ${index}`,
@@ -166,10 +169,11 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await installPerformanceApi(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page
-    .getByLabel('Zesty instance URL')
+    .getByLabel('Or paste a Zesty URL')
     .fill('https://8-performance.manager.zesty.io/content/6-performance-root');
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByLabel('Or paste a Zesty URL').blur();
   await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 

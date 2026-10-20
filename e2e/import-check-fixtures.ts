@@ -263,6 +263,9 @@ export async function installImportFixture(page: Page): Promise<readonly string[
     if (url.hostname === 'localhost') await route.continue();
     else await route.abort('blockedbyclient');
   });
+  await page.route('https://accounts.api.zesty.io/v1/instances', async (route) => {
+    await route.fulfill({ headers: cors, json: { data: [] } });
+  });
   await page.route('https://8-fixture.api.zesty.io/**', async (route) => {
     const request = route.request();
     // A CORS preflight names the method the app is about to send.
