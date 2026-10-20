@@ -13,6 +13,8 @@ import type {
   ContentItemVersion,
   ContentState,
   ExplorerError,
+  Deployment,
+  InstanceList,
   InstanceReference,
   InstanceUser,
   ItemPublishing,
@@ -95,7 +97,14 @@ export interface CodeFileApi {
   ): Effect.Effect<readonly string[], ExplorerError>;
 }
 
-export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi {}
+export interface InstanceApi {
+  loadInstances(
+    deployment: Deployment,
+    sessionToken: string,
+  ): Effect.Effect<InstanceList, ExplorerError>;
+}
+
+export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi, InstanceApi {}
 
 export interface ZestyApiOptions {
   readonly budget?: RequestBudget;

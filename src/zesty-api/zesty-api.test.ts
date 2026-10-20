@@ -60,6 +60,124 @@ function respondWith(body: unknown, status = 200) {
 }
 
 describe('ZestyApi', () => {
+  it.each([
+    ['production', 'https://accounts.api.zesty.io/v1/instances'],
+    ['stage', 'https://accounts.api.stage.zesty.io/v1/instances'],
+    ['development', 'https://accounts.api.dev.zesty.io/v1/instances'],
+  ] as const)('lists instances with a GET to the %s Accounts API', async (deployment, url) => {
+    const fake = respondWith({ data: [] });
+    expect(
+      await Effect.runPromise(
+        createZestyApi(fake.transport).loadInstances(deployment, 'private-token'),
+      ),
+    ).toEqual({ deployment, instances: [] });
+    expect(fake.requests).toEqual([{ ...authenticatedGet, url }]);
+  });
+
+  it('builds instance hosts from validated ZUIDs and the requested deployment', async () => {
+    const fake = respondWith({
+      data: [
+        {
+          ZUID: '8-abc123',
+          name: ' Acme ',
+          domain: 'evil.example',
+          screenshotURL: 'https://evil.example/x',
+        },
+        { ZUID: '8-ABC123', name: 'Duplicate' },
+        { ZUID: '8-unnamed', name: null },
+        { ZUID: '8-emptyname', name: '  ' },
+      ],
+    });
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadInstances('stage', 'private-token'),
+    );
+    expect(list).toEqual({
+      deployment: 'stage',
+      instances: [
+        {
+          name: 'Acme',
+          reference: {
+            instanceZuid: '8-abc123',
+            deployment: 'stage',
+            apiBaseUrl: 'https://8-abc123.api.stage.zesty.io/v1',
+            managerBaseUrl: 'https://8-abc123.manager.stage.zesty.io',
+          },
+        },
+        {
+          reference: {
+            instanceZuid: '8-unnamed',
+            deployment: 'stage',
+            apiBaseUrl: 'https://8-unnamed.api.stage.zesty.io/v1',
+            managerBaseUrl: 'https://8-unnamed.manager.stage.zesty.io',
+          },
+        },
+        {
+          reference: {
+            instanceZuid: '8-emptyname',
+            deployment: 'stage',
+            apiBaseUrl: 'https://8-emptyname.api.stage.zesty.io/v1',
+            managerBaseUrl: 'https://8-emptyname.manager.stage.zesty.io',
+          },
+        },
+      ],
+    });
+  });
+
+  it('omits unusable instance records with safe diagnostics and counts raw records for truncation', async () => {
+    const fake = respondWith({
+      _meta: { totalResults: 5 },
+      data: [{ ZUID: '8-abc123' }, { ZUID: 'evil.example/8-x' }, { name: 'No ZUID' }],
+    });
+    const list = await Effect.runPromise(
+      createZestyApi(fake.transport).loadInstances('production', 'private-token'),
+    );
+    expect(list.instances.map((entry) => entry.reference.instanceZuid)).toEqual(['8-abc123']);
+    expect(list.truncated).toEqual({ returned: 3, total: 5 });
+    expect(list.warning).toMatchObject({
+      kind: 'decoding',
+      message: 'Some instance records could not be understood and were omitted.',
+      diagnostic: {
+        operation: 'load-instances',
+        requestUrl: 'https://accounts.api.zesty.io/v1/instances',
+        responseStatus: 200,
+        issues: [{ path: '$.data[1].ZUID' }, { path: '$.data[2].ZUID' }],
+      },
+    });
+    expect(JSON.stringify(list)).not.toContain('private-token');
+  });
+
+  it.each([undefined, { totalResults: 'unknown' }, { totalResults: 1 }])(
+    'does not invent truncation from missing or malformed metadata (%j)',
+    async (_meta) => {
+      const fake = respondWith({ _meta, data: [{ ZUID: '8-abc123' }] });
+      const list = await Effect.runPromise(
+        createZestyApi(fake.transport).loadInstances('production', 'private-token'),
+      );
+      expect(list.truncated).toBeUndefined();
+      expect(list.warning).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ['production', 'Production'],
+    ['stage', 'Stage'],
+    ['development', 'Development'],
+  ] as const)(
+    'names the deployment when listing %s instances is forbidden',
+    async (deployment, label) => {
+      const fake = respondWith({}, 403);
+      const failure = await Effect.runPromise(
+        createZestyApi(fake.transport).loadInstances(deployment, 'private-token').pipe(Effect.flip),
+      );
+      expect(failure).toMatchObject({
+        kind: 'permission',
+        status: 403,
+        message: `Your Zesty session cannot list instances in the ${label} deployment.`,
+        diagnostic: { operation: 'load-instances', responseStatus: 403 },
+      });
+    },
+  );
+
   it('honors a case-insensitive short Retry-After once, with backoff outside the active timeout', async () => {
     vi.useFakeTimers();
     const starts: number[] = [];

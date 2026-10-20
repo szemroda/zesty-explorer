@@ -8,6 +8,11 @@ export type CollectionNodeId = `node-${string}`;
 export type SnapshotId = `snapshot-${string}`;
 
 export type Deployment = 'production' | 'stage' | 'development';
+export const deploymentLabels: Readonly<Record<Deployment, string>> = {
+  production: 'Production',
+  stage: 'Stage',
+  development: 'Development',
+};
 export type CollectionArea = 'content' | 'blocks' | 'other';
 export type ContentState = 'latest' | 'published';
 // Independent of ContentState: Zesty calls these code statuses `dev` and `live`.
@@ -54,6 +59,20 @@ export interface CollectionCatalog {
   readonly collections: readonly CollectionCatalogEntry[];
   readonly incomplete: boolean;
   readonly warning?: ExplorerError;
+}
+
+export interface InstanceListEntry {
+  readonly reference: InstanceReference;
+  /** Zesty's display name, trimmed. Absent for a null or empty name. */
+  readonly name?: string;
+}
+
+export interface InstanceList {
+  readonly deployment: Deployment;
+  readonly instances: readonly InstanceListEntry[];
+  readonly warning?: ExplorerError;
+  /** Counts raw records, including records omitted during decoding. */
+  readonly truncated?: { readonly returned: number; readonly total: number };
 }
 
 /** One code file (a `/web/views` record) in one code state. Its source never leaves memory. */
@@ -259,6 +278,7 @@ export interface SharedState {
 }
 
 export type ExplorerRequestOperation =
+  | 'load-instances'
   | 'load-collection-catalog'
   | 'load-collection-schema'
   | 'load-collection-items'

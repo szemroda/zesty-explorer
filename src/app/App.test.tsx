@@ -82,6 +82,7 @@ function api(
   loadSnapshot: ZestyApi['loadCollectionSnapshot'] = () => Effect.succeed(snapshot),
 ): ZestyApi {
   return {
+    loadInstances: (deployment) => Effect.succeed({ deployment, instances: [] }),
     loadCollectionCatalog: () => Effect.succeed(catalog),
     loadCollectionSchema: () => Effect.succeed(schema),
     loadCollectionSnapshot: loadSnapshot,
