@@ -648,8 +648,9 @@ test('sticks an expanded row over its table header, the nested header below it',
     child: await verticalEdges(childTable),
     childHead: await verticalEdges(childTable.locator(':scope > thead')),
   });
-  // Each is 0 while its row is where it belongs: the item row over the root header right below
-  // the page header, the nested header right below the item row, or leaving with its last row.
+  // Each is -1 while its row is stuck where it belongs, tucked 1px under the row above: the item
+  // row over the root header under the page header, and the nested header under the item row.
+  // `childEnd` is 0 while the nested header leaves with its table's last row.
   const gaps = async () => {
     const { pageHeader, rootHead, itemRow, child, childHead } = await edges();
     return {
@@ -665,9 +666,9 @@ test('sticks an expanded row over its table header, the nested header below it',
   const before = await edges();
   await page.mouse.wheel(0, before.child.top - before.pageHeader.bottom + 200);
   await expect.poll(gaps).toMatchObject({
-    rootHead: expect.closeTo(0),
-    itemRow: expect.closeTo(0),
-    childHead: expect.closeTo(0),
+    rootHead: expect.closeTo(-1),
+    itemRow: expect.closeTo(-1),
+    childHead: expect.closeTo(-1),
   });
   // The item row stands in for the root header, pinned actions included.
   expect(await coveredCells(itemRow)).toEqual([]);
@@ -678,14 +679,58 @@ test('sticks an expanded row over its table header, the nested header below it',
   await page.mouse.wheel(0, inside.child.bottom - inside.itemRow.bottom - 10);
   await expect
     .poll(gaps)
-    .toMatchObject({ itemRow: expect.closeTo(0), childEnd: expect.closeTo(0) });
+    .toMatchObject({ itemRow: expect.closeTo(-1), childEnd: expect.closeTo(0) });
 
   // Past the expanded row, the root header is back on top.
   const leaving = await edges();
   await page.mouse.wheel(0, leaving.expansion.bottom - leaving.pageHeader.bottom + 100);
-  await expect.poll(gaps).toMatchObject({ rootHead: expect.closeTo(0) });
+  await expect.poll(gaps).toMatchObject({ rootHead: expect.closeTo(-1) });
   expect((await edges()).itemRow.bottom).toBeLessThan(leaving.pageHeader.bottom);
   expect(await coveredCells(rootHead)).toEqual([]);
+});
+
+// How many pixels of the screenshot clip are red. The PNG is decoded in the page.
+async function redPixels(
+  page: Page,
+  clip: { x: number; y: number; width: number; height: number },
+) {
+  const png = (await page.screenshot({ clip })).toString('base64');
+  return page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let red = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 100 && pixels[index + 1] < 60) red++;
+    }
+    return red;
+  }, png);
+}
+
+test('shows no content through the edge of a stuck header', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  // Red rows make any sliver of them between the page header and the stuck header countable.
+  await page.addStyleTag({ content: 'tbody td { background: rgb(255 0 0) !important; }' });
+  const line = await page
+    .locator('main > header')
+    .evaluate((header) => header.getBoundingClientRect().bottom);
+  // The table sits at a fractional offset, so some of these leave the stuck header off by a
+  // fraction of a pixel once the compositor rounds it.
+  for (let scrollY = 100; scrollY <= 400; scrollY += 13) {
+    await page.evaluate((y) => window.scrollTo(0, y), scrollY);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await redPixels(page, { x: 300, y: line, width: 900, height: 1 }), `at ${scrollY}`).toBe(
+      0,
+    );
+  }
 });
 
 test('stacks expanded rows three tables deep through sorting, paging, and collapsing', async ({
@@ -717,7 +762,7 @@ test('stacks expanded rows three tables deep through sorting, paging, and collap
       window.scrollBy(0, element.getBoundingClientRect().top - pageHeader.bottom + 80);
     });
   // The distance of each expanded row, then the deepest table's header, from the bottom of the
-  // one above it, the page header first.
+  // one above it, the page header first: -1 while each is stuck, tucked under the one above.
   const gaps = () =>
     page.evaluate(() => {
       let bottom = document.querySelector('main > header')!.getBoundingClientRect().bottom;
@@ -732,7 +777,7 @@ test('stacks expanded rows three tables deep through sorting, paging, and collap
     });
 
   await scrollIntoBody(grandchildren.getByRole('table'));
-  await expect.poll(gaps).toEqual([0, 0, 0]);
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
 
   // Sorting moves the expanded rows, and the tables inside them, without resizing anything.
   await page
@@ -742,17 +787,17 @@ test('stacks expanded rows three tables deep through sorting, paging, and collap
     .click();
   await page.getByRole('button', { name: 'Sort descending', exact: true }).click();
   await scrollIntoBody(grandchildren.getByRole('table'));
-  await expect.poll(gaps).toEqual([0, 0, 0]);
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
 
   await grandchildren.getByRole('button', { name: 'Next' }).click();
   await expect(grandchildren.getByText('Page 2 of 2')).toBeVisible();
   await scrollIntoBody(grandchildren.getByRole('table'));
-  await expect.poll(gaps).toEqual([0, 0, 0]);
+  await expect.poll(gaps).toEqual([-1, -1, -1]);
 
   await children.getByRole('button', { name: 'Collapse relationships for 7-child-000000' }).click();
   await expect(grandchildren).toHaveCount(0);
   await scrollIntoBody(children.getByRole('table'));
-  await expect.poll(gaps).toEqual([0, 0]);
+  await expect.poll(gaps).toEqual([-1, -1]);
 });
 
 test('keeps pinned columns in place while the table scrolls sideways', async ({

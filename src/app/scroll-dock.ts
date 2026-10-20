@@ -59,6 +59,10 @@ export interface DockBar {
 export const dockBarHeight = 14;
 // A table needs this much of itself on screen before its bar docks.
 const minimumVisibleHeight = 48;
+// How far a stuck row tucks under the row above it, behind that row's opaque bottom border. The
+// compositor rounds a moved row's layer to whole pixels, so a row stuck exactly at the line can
+// leave a sliver above it where the content behind shows through.
+const stuckRowTuck = 1;
 
 function overflows(scroller: HTMLElement): boolean {
   return scroller.scrollWidth - scroller.clientWidth > 1;
@@ -139,11 +143,11 @@ function placeStuckRows(
   for (const { entry } of outerFirst) {
     const parent = parentOf(entry, scrollers);
     const parentLine = parent && lines.get(parent);
-    let line = top;
+    let line = top - stuckRowTuck;
     if (entry.nestedIn && parentLine !== undefined) {
       const item = entry.nestedIn.itemRow.getBoundingClientRect();
       const expansion = entry.nestedIn.expansion.getBoundingClientRect();
-      line = parentLine + item.height;
+      line = parentLine + item.height - stuckRowTuck;
       placements.set(entry.nestedIn.itemRow, {
         start: item.top + window.scrollY - parentLine,
         travel: expansion.height,
