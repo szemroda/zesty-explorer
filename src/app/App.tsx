@@ -1,23 +1,9 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
-import {
-  Code2,
-  Copy,
-  Database,
-  Eye,
-  EyeOff,
-  FileCheck2,
-  MoreHorizontal,
-  RotateCcw,
-  Trash2,
-} from 'lucide-react';
+import { Code2, Copy, Database, FileCheck2, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  instanceReferenceFor,
-  parseCollectionReference,
-  parseInstanceReference,
-} from '../collection-reference';
+import { instanceReferenceFor, parseInstanceReference } from '../collection-reference';
 import type {
   CollectionCatalogEntry,
   CollectionNode,
@@ -26,6 +12,7 @@ import type {
   ContentItem,
   ContentItemReference,
   ContentState,
+  Deployment,
   InstanceReference,
   ModelZuid,
   NodePresentation,
@@ -35,6 +22,7 @@ import type {
   RelationshipDefinition,
   ViewFilter,
 } from '../domain';
+import { deploymentLabels } from '../domain';
 import {
   addCollectionNode,
   removeCollectionNode,
@@ -49,6 +37,8 @@ import {
   type SessionTokenStore,
 } from '../view-codec/session-token-store';
 import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } from '../zesty-api';
+import { SessionTokenForm } from './components/SessionTokenForm';
+import { useSessionTokens } from './hooks/useSessionTokens';
 import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
@@ -83,7 +73,6 @@ import { Badge } from './components/ui/badge';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './components/ui/collapsible';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -111,6 +100,8 @@ interface ExplorerProps {
 const defaultApi = createZestyApi(fetchZestyTransport);
 // Toasts with an action stay long enough to reach the button.
 const actionToastDuration = 8_000;
+
+type ExplorerStep = 'credentials' | 'picker' | 'view';
 
 interface RootChoice {
   readonly label: string;
@@ -153,13 +144,6 @@ function appUrl(fragment: string): string {
   return `${origin}${pathname}${search}${fragment}`;
 }
 
-function collectionUrl(reference: CollectionReference): string {
-  if (reference.area === 'other') {
-    return `${reference.apiBaseUrl}/content/models/${reference.modelZuid}`;
-  }
-  return `${reference.managerBaseUrl}/${reference.area}/${reference.modelZuid}`;
-}
-
 function instanceReference(reference: CollectionReference): InstanceReference {
   return {
     instanceZuid: reference.instanceZuid,
@@ -181,23 +165,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     const shared = initial.state?.instance;
     return shared ? instanceReferenceFor(shared.instanceZuid, shared.deployment) : undefined;
   });
-  const initialDeployment = initialInstance?.deployment;
-  const [initialToken] = useState(() =>
-    initialDeployment ? (tokenStore.read(initialDeployment) ?? '') : '',
+  const [step, setStep] = useState<ExplorerStep>(
+    initialView ? 'view' : initial.state ? 'picker' : 'credentials',
   );
-  const [token, setToken] = useState(initialToken);
-  const [activeToken, setActiveToken] = useState(initialToken);
-  const credentialRevision = useMemo(
-    () => (activeToken ? crypto.randomUUID() : 'no-credentials'),
-    [activeToken],
+  const [chosenDeployment, setChosenDeployment] = useState<Deployment>(
+    initialInstance?.deployment ?? 'production',
   );
-  const [tokenDeployment, setTokenDeployment] = useState(initialDeployment);
-  const [showToken, setShowToken] = useState(false);
-  const [collectionInput, setCollectionInput] = useState(() =>
-    initialView
-      ? collectionUrl(initialView.root.reference)
-      : (initialInstance?.managerBaseUrl ?? ''),
-  );
+  const [rejectedDeployment, setRejectedDeployment] = useState<Deployment>();
+  const [pastedUrl, setPastedUrl] = useState('');
+  const sessionTokens = useSessionTokens(tokenStore);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
   // The Code and Import check tabs load only once opened, then keep their state while hidden.
   const [codeOpened, setCodeOpened] = useState(initial.state?.tab === 'code');
@@ -231,10 +207,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initialView?.viewFilters ?? [],
   );
   const [viewDecodeError, setViewDecodeError] = useState(initial.error);
-  // A link without an Explorer view opens Explorer at the root picker.
-  const [selectingRoot, setSelectingRoot] = useState(
-    Boolean(initial.state && !initialView && initialToken),
-  );
   const [catalogInstance, setCatalogInstance] = useState(initialInstance);
   const [selectedRootZuid, setSelectedRootZuid] = useState<ModelZuid | undefined>(
     initialView?.root.reference.modelZuid,
@@ -243,20 +215,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [previewAuthenticationFailureRevision, setPreviewAuthenticationFailureRevision] =
     useState<string>();
   const detailsTrigger = useRef<HTMLElement | null>(null);
-  const [tokenRequired, setTokenRequired] = useState(Boolean(initial.state && !initialToken));
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
-  const sessionTokenInput = useRef<HTMLInputElement>(null);
-  const instanceUrlInput = useRef<HTMLInputElement>(null);
+  const instancePickerInput = useRef<HTMLInputElement>(null);
   const rootCollectionInput = useRef<HTMLInputElement>(null);
-  const rootReferenceInput = useRef<HTMLInputElement>(null);
+  const pastedUrlInput = useRef<HTMLInputElement>(null);
   const startFormProblem = useFieldProblem({
-    'session-token': sessionTokenInput,
-    'instance-url': instanceUrlInput,
+    instance: instancePickerInput,
     'root-collection': rootCollectionInput,
-    'root-reference': rootReferenceInput,
+    'pasted-url': pastedUrlInput,
   });
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const pageHeader = useRef<HTMLElement>(null);
@@ -267,6 +236,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const instance = useMemo(
     () => catalogInstance ?? (reference ? instanceReference(reference) : undefined),
     [catalogInstance, reference],
+  );
+  const deployment = instance?.deployment ?? chosenDeployment;
+  const activeToken = sessionTokens.read(deployment);
+  const screen: ExplorerStep = activeToken ? step : 'credentials';
+  const credentialRevision = useMemo(
+    () => (activeToken ? crypto.randomUUID() : 'no-credentials'),
+    [activeToken],
   );
   const code = useCodeTab(instance, initial.state);
 
@@ -339,11 +315,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     contentState,
     sessionToken: activeToken,
     enabled: Boolean(
-      treeRoot &&
-      activeToken &&
-      tokenDeployment === treeRoot.reference.deployment &&
-      !tokenRequired &&
-      !selectingRoot,
+      treeRoot && activeToken && deployment === treeRoot.reference.deployment && screen === 'view',
     ),
     requiresCompleteView,
   });
@@ -427,29 +399,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
         ? reference?.deployment
         : workspaceAuthenticationFailureRevision === credentialRevision
-          ? instance?.deployment
+          ? deployment
           : undefined;
-    if (!failedDeployment) return;
-    tokenStore.clear(failedDeployment);
+    if (!failedDeployment || !activeToken) return;
     const update = window.setTimeout(() => {
-      setToken('');
-      setActiveToken('');
-      setTokenRequired(true);
-      setCatalogInstance(undefined);
-      setSelectingRoot(false);
+      sessionTokens.clear(failedDeployment);
+      setRejectedDeployment(failedDeployment);
       setSelectedItemId(undefined);
     }, 0);
     return () => window.clearTimeout(update);
   }, [
+    activeToken,
     authenticationFailed,
     catalogAuthenticationFailed,
     catalogInstance?.deployment,
     workspaceAuthenticationFailureRevision,
     credentialRevision,
-    instance?.deployment,
+    deployment,
     previewAuthenticationFailureRevision,
     reference?.deployment,
-    tokenStore,
+    sessionTokens,
   ]);
 
   const selectedItemContext = useMemo(() => {
@@ -488,54 +457,72 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     [activeToken, api, relationshipSchemaSemaphore],
   );
 
-  function loadCatalog(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const tokenMissing = 'Enter the Zesty session token for this deployment.';
-    // Checked in screen order, so focus goes to the first field with a problem.
-    if (!token.trim()) {
-      startFormProblem.report('session-token', tokenMissing);
-      return;
-    }
-    const parsed = parseInstanceReference(collectionInput);
-    if (!parsed.ok) {
-      startFormProblem.report('instance-url', parsed.error.message);
-      return;
-    }
-    if (tokenDeployment !== parsed.value.deployment) {
-      startFormProblem.report('session-token', tokenMissing);
-      return;
-    }
+  function saveSessionToken(token: string) {
+    sessionTokens.save(deployment, token);
+    setRejectedDeployment(undefined);
+    setStep((current) => (current === 'credentials' ? 'picker' : current));
+  }
 
+  function chooseInstance(next: InstanceReference) {
     withdrawUndo();
-    tokenStore.set(parsed.value.deployment, token);
-    setActiveToken(token);
-    setTokenDeployment(parsed.value.deployment);
-    setCatalogInstance(parsed.value);
-    setSelectedRootZuid(parsed.value.suggestedModelZuid);
+    setCatalogInstance(next);
+    setSelectedRootZuid(next.suggestedModelZuid);
     startFormProblem.clear();
-    setTokenRequired(false);
-    setSelectingRoot(true);
+  }
+
+  function pastedReferenceProblem(parsed: InstanceReference): string | undefined {
+    if (reference && instanceKey(parsed) !== instanceKey(reference)) {
+      return 'Paste a collection from the same Zesty instance and deployment.';
+    }
+    return undefined;
+  }
+
+  // Typing only edits the draft. Paste, blur, and submit commit a complete reference.
+  function applyPastedUrl(value: string): InstanceReference | undefined {
+    if (!value.trim()) return undefined;
+    const parsed = parseInstanceReference(value);
+    if (!parsed.ok) {
+      startFormProblem.report('pasted-url', parsed.error.message);
+      return undefined;
+    }
+    const problem = pastedReferenceProblem(parsed.value);
+    if (problem) {
+      startFormProblem.report('pasted-url', problem);
+      return undefined;
+    }
+    if (
+      catalogInstance &&
+      instanceKey(parsed.value) === instanceKey(catalogInstance) &&
+      parsed.value.suggestedModelZuid === catalogInstance.suggestedModelZuid &&
+      parsed.value.suggestedItemZuid === catalogInstance.suggestedItemZuid &&
+      parsed.value.suggestedArea === catalogInstance.suggestedArea
+    )
+      return catalogInstance;
+    chooseInstance(parsed.value);
+    return parsed.value;
+  }
+
+  function leavePicker() {
+    setPastedUrl('');
+    startFormProblem.clear();
+    setCatalogInstance(reference ? instanceReference(reference) : undefined);
+    setSelectedRootZuid(reference?.modelZuid);
+    setStep(reference ? 'view' : 'credentials');
   }
 
   const rootPickerCollections = useMemo(() => {
     const collections = [...(catalogQuery.catalog?.collections ?? [])];
-    const parsed = parseCollectionReference(collectionInput);
     if (!catalogInstance) return collections;
-    const fallbackReference: CollectionReference | undefined =
-      parsed.ok &&
-      parsed.value.instanceZuid === catalogInstance.instanceZuid &&
-      parsed.value.deployment === catalogInstance.deployment
-        ? parsed.value
-        : catalogInstance.suggestedModelZuid
-          ? {
-              instanceZuid: catalogInstance.instanceZuid,
-              modelZuid: catalogInstance.suggestedModelZuid,
-              deployment: catalogInstance.deployment,
-              area: catalogInstance.suggestedArea ?? 'other',
-              apiBaseUrl: catalogInstance.apiBaseUrl,
-              managerBaseUrl: catalogInstance.managerBaseUrl,
-            }
-          : undefined;
+    const fallbackReference: CollectionReference | undefined = catalogInstance.suggestedModelZuid
+      ? {
+          instanceZuid: catalogInstance.instanceZuid,
+          modelZuid: catalogInstance.suggestedModelZuid,
+          deployment: catalogInstance.deployment,
+          area: catalogInstance.suggestedArea ?? 'other',
+          apiBaseUrl: catalogInstance.apiBaseUrl,
+          managerBaseUrl: catalogInstance.managerBaseUrl,
+        }
+      : undefined;
     if (!fallbackReference) return collections;
     if (
       collections.some(
@@ -551,46 +538,53 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       reference: fallbackReference,
     });
     return collections;
-  }, [catalogInstance, catalogQuery.catalog?.collections, collectionInput]);
-
-  // A pasted reference must name a collection in the loaded instance. The start form's bare
-  // instance URL is carried into this field, so it counts as nothing pasted yet.
-  function pastedReferenceProblem(): string | undefined {
-    const input = collectionInput.trim();
-    if (!input || !catalogInstance) return undefined;
-    const parsed = parseCollectionReference(input);
-    if (!parsed.ok) return parseInstanceReference(input).ok ? undefined : parsed.error.message;
-    if (
-      parsed.value.instanceZuid === catalogInstance.instanceZuid &&
-      parsed.value.deployment === catalogInstance.deployment
-    ) {
-      return undefined;
-    }
-    return 'Paste a collection from the same Zesty instance and deployment.';
-  }
+  }, [catalogInstance, catalogQuery.catalog?.collections]);
 
   function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const referenceProblem = pastedReferenceProblem();
-    if (referenceProblem) {
-      startFormProblem.report('root-reference', referenceProblem);
+    const pasted = pastedUrl.trim() ? applyPastedUrl(pastedUrl) : undefined;
+    if (pastedUrl.trim() && !pasted) return;
+    const targetInstance = pasted ?? catalogInstance;
+    if (!targetInstance) {
+      startFormProblem.report('instance', 'Choose an instance or paste a Zesty URL.');
       return;
     }
-    const selected = rootPickerCollections.find(
-      (collection) => collection.reference.modelZuid === selectedRootZuid,
-    );
+    if (targetInstance.deployment !== deployment || !sessionTokens.read(targetInstance.deployment))
+      return;
+    // The submit may apply a URL before React has rendered its suggested collection.
+    const modelZuid =
+      pasted && pasted !== catalogInstance ? pasted.suggestedModelZuid : selectedRootZuid;
+    const selected =
+      rootPickerCollections.find(
+        (collection) =>
+          instanceKey(collection.reference) === instanceKey(targetInstance) &&
+          collection.reference.modelZuid === modelZuid,
+      ) ??
+      (modelZuid
+        ? {
+            label: modelZuid,
+            reference: {
+              instanceZuid: targetInstance.instanceZuid,
+              deployment: targetInstance.deployment,
+              apiBaseUrl: targetInstance.apiBaseUrl,
+              managerBaseUrl: targetInstance.managerBaseUrl,
+              area: targetInstance.suggestedArea ?? 'other',
+              modelZuid,
+            },
+          }
+        : undefined);
     if (!selected) {
       startFormProblem.report(
         'root-collection',
-        'Choose a root collection or paste a collection reference.',
+        'Choose a root collection or paste a collection URL.',
       );
       return;
     }
     const selectedReference: CollectionReference = {
       ...selected.reference,
-      ...(catalogInstance?.suggestedModelZuid === selected.reference.modelZuid &&
-      catalogInstance.suggestedItemZuid
-        ? { itemZuid: catalogInstance.suggestedItemZuid }
+      ...(targetInstance.suggestedModelZuid === selected.reference.modelZuid &&
+      targetInstance.suggestedItemZuid
+        ? { itemZuid: targetInstance.suggestedItemZuid }
         : {}),
     };
     if (
@@ -630,19 +624,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     });
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
-    setTokenRequired(false);
-    setSelectingRoot(false);
+    setStep('view');
   }
 
   function clearToken() {
-    if (!instance) return;
-    tokenStore.clear(instance.deployment);
-    setToken('');
-    setActiveToken('');
-    setTokenDeployment(instance.deployment);
-    setTokenRequired(true);
-    setCatalogInstance(undefined);
-    setSelectingRoot(false);
+    sessionTokens.clear(deployment);
   }
 
   // Resets the view straight away; the toast offers to restore the previous view.
@@ -664,35 +650,31 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   // Restores a view like opening its shared link: the token comes from the store.
   function restoreView(view: PersistedView) {
     const rootReference = view.root.reference;
-    const storedToken = tokenStore.read(rootReference.deployment) ?? '';
-    setToken(storedToken);
-    setActiveToken(storedToken);
-    setTokenDeployment(rootReference.deployment);
-    setTokenRequired(!storedToken);
     startFormProblem.clear();
-    setSelectingRoot(false);
+    setStep('view');
+    setPastedUrl('');
     setTreeRoot(view.root);
     setReference(rootReference);
-    setCollectionInput(collectionUrl(rootReference));
     setContentState(view.contentState);
     setViewFilters(view.viewFilters);
     setCatalogInstance(instanceReference(rootReference));
     setSelectedRootZuid(rootReference.modelZuid);
   }
 
-  // Clears both tabs and returns to the token and instance form, keeping the token.
+  // Clears both tabs and returns to the instance picker, keeping the token.
   function clearView() {
     code.reset();
     setActiveTab('explorer');
     setTreeRoot(undefined);
     setReference(undefined);
-    setCollectionInput('');
+    setPastedUrl('');
+    setChosenDeployment(deployment);
     setContentState('latest');
     setViewFilters([]);
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
-    setTokenRequired(false);
-    setSelectingRoot(false);
+    setStep('picker');
+    startFormProblem.clear();
     setCatalogInstance(undefined);
     setSelectedRootZuid(undefined);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
@@ -725,7 +707,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   function openCollectionInExplorer(entry: CollectionCatalogEntry) {
     withdrawUndo();
-    setCollectionInput(collectionUrl(entry.reference));
     setSelectedRootZuid(entry.reference.modelZuid);
     replaceRoot({ label: entry.label, reference: entry.reference });
     setActiveTab('explorer');
@@ -755,15 +736,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   function openRootPicker() {
     if (!reference) return;
-    setCollectionInput(collectionUrl(reference));
+    setPastedUrl('');
     startFormProblem.clear();
     setCatalogInstance(instanceReference(reference));
     setSelectedRootZuid(reference.modelZuid);
-    setSelectingRoot(true);
+    setStep('picker');
   }
 
-  const showStart = !reference || tokenRequired || selectingRoot;
-  // The same options serve both tabs: a reset returns to the token and instance form.
+  // The same view options serve every tab.
   const viewOptions = (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -792,8 +772,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     </>
   );
 
-  // Tabs belong to a selected instance; the token and instance form comes before them.
-  const showTabs = Boolean(instance) && !viewDecodeError && !(showStart && !selectingRoot);
+  // Tabs belong to a selected instance and appear after credentials are available.
+  const showTabs = Boolean(instance) && !viewDecodeError && screen !== 'credentials';
   const visibleTab: WorkspaceTab = showTabs ? activeTab : 'explorer';
 
   // Removes the node straight away; the toast offers to restore the previous tree.
@@ -1028,200 +1008,113 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <Button onClick={clearView}>Reset view</Button>
               </CardFooter>
             </Card>
-          ) : showStart ? (
-            selectingRoot ? (
-              <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
-                <form
-                  className="grid gap-4 p-6"
-                  aria-labelledby="root-picker-title"
-                  noValidate
-                  onSubmit={confirmRoot}
-                >
-                  <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                    Choose a root
-                  </p>
-                  <h2 className="text-xl font-semibold" id="root-picker-title">
-                    Choose the root collection
-                  </h2>
-                  {catalogQuery.error ? (
-                    <div
-                      className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
-                      role="alert"
-                    >
-                      <p>{catalogQuery.error.message}</p>
-                      <ErrorTechnicalDetails error={catalogQuery.error} />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void catalogQuery.refresh()}
+          ) : screen === 'credentials' ? (
+            <SessionTokenForm
+              deployment={deployment}
+              savedToken={activeToken}
+              rejected={rejectedDeployment === deployment}
+              instance={instance?.instanceZuid}
+              onDeploymentChange={instance ? undefined : setChosenDeployment}
+              onBack={step === 'picker' && catalogInstance ? leavePicker : undefined}
+              onSubmit={saveSessionToken}
+            />
+          ) : screen === 'picker' ? (
+            <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
+              <form
+                className="grid gap-4 p-6"
+                aria-labelledby="root-picker-title"
+                noValidate
+                onSubmit={confirmRoot}
+              >
+                <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+                  Choose a root ? {deploymentLabels[deployment]}
+                </p>
+                <h2 className="text-xl font-semibold" id="root-picker-title">
+                  Choose an instance and root collection
+                </h2>
+                {catalogInstance ? (
+                  <>
+                    {catalogQuery.error ? (
+                      <div
+                        className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+                        role="alert"
                       >
-                        Retry catalog
-                      </Button>
-                    </div>
-                  ) : null}
-                  {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
-                    <p
-                      className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
-                      role="status"
-                    >
-                      This session returned an empty collection catalog.
-                    </p>
-                  ) : null}
-                  <CollectionPicker
-                    label="Root collection"
-                    collections={rootPickerCollections}
-                    value={selectedRootZuid}
-                    onChange={(collection) => {
-                      setSelectedRootZuid(collection?.reference.modelZuid);
-                      startFormProblem.clear('root-collection');
+                        <p>{catalogQuery.error.message}</p>
+                        <ErrorTechnicalDetails error={catalogQuery.error} />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void catalogQuery.refresh()}
+                        >
+                          Retry catalog
+                        </Button>
+                      </div>
+                    ) : null}
+                    {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
+                      <p
+                        className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
+                        role="status"
+                      >
+                        This session returned an empty collection catalog.
+                      </p>
+                    ) : null}
+                    <CollectionPicker
+                      label="Root collection"
+                      collections={rootPickerCollections}
+                      value={selectedRootZuid}
+                      onChange={(collection) => {
+                        setSelectedRootZuid(collection?.reference.modelZuid);
+                        startFormProblem.clear('root-collection');
+                      }}
+                      disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
+                      loading={catalogQuery.isLoading}
+                      error={startFormProblem.messageFor('root-collection')}
+                      inputRef={rootCollectionInput}
+                    />
+                    {catalogQuery.catalog?.warning ? (
+                      <div
+                        className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
+                        role="status"
+                      >
+                        <p>{catalogQuery.catalog.warning.message}</p>
+                        <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                <Field className="border-t pt-4" error={startFormProblem.messageFor('pasted-url')}>
+                  <FieldLabel>Or paste a Zesty URL</FieldLabel>
+                  <Input
+                    ref={pastedUrlInput}
+                    type="url"
+                    value={pastedUrl}
+                    placeholder="https://8-?.manager.zesty.io/content/6-?"
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setPastedUrl(value);
+                      startFormProblem.clear('pasted-url');
+                      if ((event.nativeEvent as InputEvent).inputType === 'insertFromPaste')
+                        applyPastedUrl(value);
                     }}
-                    disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
-                    loading={catalogQuery.isLoading}
-                    error={startFormProblem.messageFor('root-collection')}
-                    inputRef={rootCollectionInput}
+                    onBlur={(event) => applyPastedUrl(event.target.value)}
                   />
-                  {catalogQuery.catalog?.warning ? (
-                    <div
-                      className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
-                      role="status"
-                    >
-                      <p>{catalogQuery.catalog.warning.message}</p>
-                      <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
-                    </div>
-                  ) : null}
-                  <Field
-                    className="border-t pt-4"
-                    error={startFormProblem.messageFor('root-reference')}
-                  >
-                    <span className="text-muted-foreground text-xs font-medium">
-                      Or paste a collection reference
-                    </span>
-                    <Input
-                      ref={rootReferenceInput}
-                      type="url"
-                      aria-label="Root collection reference"
-                      value={collectionInput}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setCollectionInput(value);
-                        startFormProblem.clear();
-                        const parsed = parseCollectionReference(value);
-                        if (
-                          parsed.ok &&
-                          parsed.value.instanceZuid === catalogInstance?.instanceZuid &&
-                          parsed.value.deployment === catalogInstance.deployment
-                        ) {
-                          setSelectedRootZuid(parsed.value.modelZuid);
-                        }
-                      }}
-                    />
-                  </Field>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      type="button"
-                      onClick={() => {
-                        setSelectingRoot(false);
-                        // Returning to an open view returns to its instance.
-                        setCatalogInstance(reference ? instanceReference(reference) : undefined);
-                      }}
-                    >
-                      Back
-                    </Button>
-                    <Button type="submit">Open root collection</Button>
-                  </div>
-                </form>
-              </Card>
-            ) : (
-              <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
-                <form
-                  className="grid gap-4 p-6"
-                  aria-labelledby="start-title"
-                  noValidate
-                  onSubmit={loadCatalog}
-                >
-                  <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                    {tokenRequired ? 'Session expired' : 'Start a view'}
-                  </p>
-                  <h2 className="text-xl font-semibold" id="start-title">
-                    {tokenRequired ? 'Replace your session token' : 'Open a Zesty collection'}
-                  </h2>
-
-                  <Field error={startFormProblem.messageFor('session-token')}>
-                    <FieldLabel>Zesty session token</FieldLabel>
-                    <div className="relative">
-                      <Input
-                        ref={sessionTokenInput}
-                        className="pr-10"
-                        type={showToken ? 'text' : 'password'}
-                        value={token}
-                        autoComplete="off"
-                        onChange={(event) => {
-                          setToken(event.target.value);
-                          startFormProblem.clear('session-token');
-                          const parsed = parseCollectionReference(collectionInput);
-                          if (parsed.ok) setTokenDeployment(parsed.value.deployment);
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-1 right-1 size-7"
-                        aria-label={showToken ? 'Hide session token' : 'Reveal session token'}
-                        onClick={() => setShowToken((visible) => !visible)}
-                      >
-                        {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </Button>
-                    </div>
-                  </Field>
-                  <Collapsible>
-                    <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
-                      How to find the token
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="text-muted-foreground pt-2 text-xs leading-relaxed">
-                      Copy APP_SID for production, STAGE_APP_SID for stage, or DEV_APP_SID for
-                      development from your Zesty Manager cookies. It carries your permissions. Do
-                      not share it.
-                    </CollapsibleContent>
-                  </Collapsible>
-
-                  <Field error={startFormProblem.messageFor('instance-url')}>
-                    <FieldLabel>Zesty instance URL</FieldLabel>
-                    <Input
-                      ref={instanceUrlInput}
-                      type="url"
-                      value={collectionInput}
-                      placeholder="https://8-….manager.zesty.io/content/6-…"
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setCollectionInput(value);
-                        startFormProblem.clear('instance-url');
-                        const parsed = parseInstanceReference(value);
-                        if (!parsed.ok || parsed.value.deployment === tokenDeployment) return;
-                        if (!tokenDeployment) {
-                          setTokenDeployment(parsed.value.deployment);
-                          return;
-                        }
-                        setToken(tokenStore.read(parsed.value.deployment) ?? '');
-                        setTokenDeployment(parsed.value.deployment);
-                      }}
-                    />
-                    <FieldDescription>
-                      Paste any URL from an allowed Zesty Manager host, or a recognized Instances
-                      API instance or model URL.
-                    </FieldDescription>
-                  </Field>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button type="submit">Load collections</Button>
-                  </div>
-                </form>
-              </Card>
-            )
+                  <FieldDescription>
+                    A Zesty Manager or Instances API URL of an instance, collection, or item. Use it
+                    for a deep link or an instance the list does not show.
+                  </FieldDescription>
+                </Field>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" type="button" onClick={leavePicker}>
+                    Back
+                  </Button>
+                  <Button type="submit">Open root collection</Button>
+                </div>
+              </form>
+            </Card>
           ) : null}
 
-          {!showStart && loadStatus.kind === 'loading-root' ? <RootTableSkeleton /> : null}
-          {!showStart && rootFailure ? (
+          {screen === 'view' && loadStatus.kind === 'loading-root' ? <RootTableSkeleton /> : null}
+          {screen === 'view' && rootFailure ? (
             <Card
               className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"
               role="alert"
@@ -1245,7 +1138,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </CardFooter>
             </Card>
           ) : null}
-          {!showStart && loadedView && treeRoot && rootSnapshot && rootSchema ? (
+          {screen === 'view' && loadedView && treeRoot && rootSnapshot && rootSchema ? (
             <>
               {descendantResultsPending ? (
                 <p
@@ -1301,7 +1194,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             instance={instance}
             credentials={{
               revision: credentialRevision,
-              sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
+              sessionToken: activeToken,
             }}
             catalog={catalogQuery.catalog}
             selection={code.selection}
@@ -1323,7 +1216,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             api={api}
             credentials={{
               revision: credentialRevision,
-              sessionToken: tokenDeployment === instance.deployment ? activeToken : '',
+              sessionToken: activeToken,
             }}
             catalog={catalogQuery.catalog}
             initialModelZuid={
@@ -1393,7 +1286,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         description="The current view stays open. You will need to enter a token again to load data."
         confirmLabel="Clear token"
         onConfirm={clearToken}
-        finalFocus={sessionTokenInput}
       />
     </main>
   );
