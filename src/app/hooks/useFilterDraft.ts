@@ -12,7 +12,7 @@ import {
 } from '../filter-fields';
 import { useFieldProblem } from './useFieldProblem';
 
-/** What a form's value control needs from its draft: the values, focus targets, and Enter. */
+/** What the editor's value control needs from its draft: the values, focus targets, and Enter. */
 export interface DraftValueProps {
   readonly draft: FilterDraft;
   /** The input whose value has a problem, if any. */
@@ -24,21 +24,20 @@ export interface DraftValueProps {
 }
 
 /**
- * The condition and value a filter form edits on `field`, checked on submit. `submit` passes the
- * filter to `onSubmit`, keeping the id of `filter` when it edits one. With `focusOnOpen`, the form
- * starts in its value control, e.g. when it opens on a known field.
+ * The condition and value the filter editor edits on `field`, checked on submit. `submit` passes
+ * the filter to `onSubmit`, keeping the id of `filter` when it edits one. An editor that opens on a
+ * known field starts in its value control.
  */
 export function useFilterDraft(
   field: FilterField | undefined,
   filter: ViewFilter | undefined,
   onSubmit: (filter: ViewFilter) => void,
-  focusOnOpen: boolean,
 ) {
   const [draft, setDraft] = useState(() => (filter ? draftFromFilter(filter) : emptyDraft(field)));
   const valueControl = useRef<HTMLElement | null>(null);
   const upperControl = useRef<HTMLElement | null>(null);
   const problem = useFieldProblem<DraftInput>({ value: valueControl, upper: upperControl });
-  const focusValue = useRef(focusOnOpen);
+  const focusValue = useRef(field !== undefined);
   const conditions = field ? conditionsFor(field.field) : [];
 
   useEffect(() => {

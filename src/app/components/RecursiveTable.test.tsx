@@ -245,19 +245,50 @@ describe('recursive collection tables', () => {
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
 
-    // The first Title header is the Children table's; the Grandchildren table nests below it.
-    fireEvent.click(within(nestedTable).getAllByRole('button', { name: /^Title/ })[0]!);
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Children table filter value' }), {
-      target: { value: 'no matching child' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filter' }));
+    fireEvent.click(within(nestedTable).getByRole('button', { name: 'Add Children filter' }));
+    const picker = await screen.findByRole('combobox', { name: 'Children table filter field' });
+    expect(
+      screen.getByText(
+        'Filters Children rows in every Children table; all Parents items stay. To keep only Parents items with a matching Children item, use Filter on the Parents table.',
+      ),
+    ).toBeInTheDocument();
+    // Enter on the empty picker takes its first field, "Any field".
+    fireEvent.keyDown(picker, { key: 'Enter' });
+    const value = await screen.findByRole('textbox', { name: 'Children table filter value' });
+    fireEvent.change(value, { target: { value: 'no matching child' } });
+    fireEvent.keyDown(value, { key: 'Enter' });
     expect(await screen.findByText('No related items match.')).toBeInTheDocument();
-    fireEvent.click(within(nestedTable).getByRole('button', { name: /^Title/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+    const tableChips = within(nestedTable).getByRole('group', { name: 'Table filters' });
+    fireEvent.click(
+      within(tableChips).getByRole('button', {
+        name: 'Remove filter Any field contains “no matching child”',
+      }),
+    );
 
     expect(
       await screen.findByRole('region', { name: 'Grandchildren related items' }),
     ).toBeInTheDocument();
+  });
+
+  it('lists a view filter on a related field with the view filters, not in the nested table', async () => {
+    const childTitle: ViewFilter = {
+      id: 'child-title',
+      nodePath: [child.id],
+      fieldPath: ['title'],
+      operator: 'contains',
+      value: 'Child',
+    };
+    render(rootTable({ viewFilters: [childTitle] }));
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+
+    const viewChips = screen.getByRole('group', { name: 'View filters' });
+    expect(
+      within(viewChips).getByRole('button', {
+        name: 'Edit filter Children: Title contains “Child”',
+      }),
+    ).toBeInTheDocument();
+    expect(within(nestedTable).queryByRole('button', { name: /^Edit filter Children/ })).toBeNull();
   });
 
   it('explains an empty root result and clears its search and view filters', () => {
@@ -379,7 +410,72 @@ describe('recursive collection tables', () => {
       visibleColumns: ['$id', '$status', 'title', 'parentKey'],
       statusColumnHidden: false,
       columnWidths: { title: 90 },
+      pinnedColumns: [],
     });
+  });
+
+  it('pins root and nested columns after the row actions and remembers them', async () => {
+    const onPresentationChange = vi.fn();
+    render(rootTable({ onPresentationChange }));
+    const collection = screen.getByRole('region', { name: 'Parents collection' });
+    const headerNames = (table: HTMLElement) =>
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent);
+
+    fireEvent.click(within(collection).getByRole('button', { name: /^Child key/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin column' }));
+    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
+      ...root.presentation,
+      pinnedColumns: ['childKey'],
+    });
+    expect(headerNames(collection)).toEqual([
+      'Item actions',
+      'Child key',
+      'ZUID',
+      'Status',
+      'Title',
+    ]);
+    const pinnedHeader = within(collection).getByRole('columnheader', { name: /^Child key/ });
+    expect(pinnedHeader.style.left).toBe('var(--pinned-start-1)');
+    // The row actions of an expandable table with Manager links are 140px wide.
+    expect(within(collection).getByRole('table').style.getPropertyValue('--pinned-start-1')).toBe(
+      '140px',
+    );
+
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+    fireEvent.click(within(nestedTable).getByRole('button', { name: /^Title/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin column' }));
+    expect(onPresentationChange).toHaveBeenLastCalledWith(
+      child.id,
+      expect.objectContaining({ pinnedColumns: ['title'] }),
+    );
+    expect(headerNames(nestedTable).slice(0, 2)).toEqual(['Item actions', 'Title']);
+
+    fireEvent.click(within(collection).getByRole('button', { name: /^Child key/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpin column' }));
+    expect(onPresentationChange).toHaveBeenLastCalledWith(root.id, {
+      ...root.presentation,
+      pinnedColumns: [],
+    });
+    expect(headerNames(collection).slice(0, 2)).toEqual(['Item actions', 'ZUID']);
+  });
+
+  it('restores pinned columns saved for a nested collection', async () => {
+    const pinnedChild = {
+      ...child,
+      presentation: { ...child.presentation, pinnedColumns: ['parentKey'] },
+    };
+    render(rootTable({ treeRoot: { ...root, children: [pinnedChild] } }));
+    expandFirstParent();
+    const nestedTable = await screen.findByRole('region', { name: 'Children related items' });
+    expect(
+      within(nestedTable)
+        .getAllByRole('columnheader')
+        .slice(0, 3)
+        .map((header) => header.textContent),
+    ).toEqual(['Item actions', 'Parent key', 'ZUID']);
   });
 
   it('keeps a nested load failure local and reveals its technical details', async () => {

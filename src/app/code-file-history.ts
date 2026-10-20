@@ -1,9 +1,11 @@
 import type { CodeFileVersion, InstanceUser } from '../domain';
 import {
+  analyzeParsley,
   formattedLines,
   parseParsley,
   savedLines,
   sourceModeFor,
+  type AnalysisContext,
   type DisplayLine,
 } from '../parsley';
 import { authorFor, type AuthorsState, type SavedVersionOption } from './item-version-preview';
@@ -45,19 +47,37 @@ export interface VersionSource {
   readonly saved: readonly DisplayLine[];
 }
 
-/** Display lines of one saved source, without the analysis the Code tab adds. */
-export function versionSource(fileName: string, code: string): VersionSource {
+/** What the session knows to color a saved source by. Field schemas are not loaded for history. */
+export type VersionContext = Omit<AnalysisContext, 'schemas'>;
+
+/**
+ * Display lines of one saved source, colored like the Code tab but without its explanations: tokens
+ * keep their kind and reference, not their hints. Without schemas, a known collection's fields all
+ * color as fields.
+ */
+export function versionSource(
+  fileName: string,
+  code: string,
+  context: VersionContext,
+): VersionSource {
   const document = parseParsley(code);
   const mode = sourceModeFor(fileName, document);
+  const annotations = analyzeParsley(document, { ...context, schemas: new Map() }).annotations.map(
+    ({ span, kind, ref }) => ({ span, kind, ...(ref ? { ref } : {}) }),
+  );
   return {
-    formatted: formattedLines(document, [], mode),
-    saved: savedLines(document, [], mode),
+    formatted: formattedLines(document, annotations, mode),
+    saved: savedLines(document, annotations, mode),
   };
 }
 
-/** Plain text of display lines, so a comparison matches what the source view shows. */
-export function displayText(lines: readonly DisplayLine[]): string {
-  return lines
+/**
+ * Plain text of a saved source laid out as `Formatted`, so a comparison matches what the source
+ * view shows. Colors do not change the text, so the source is not analyzed.
+ */
+export function formattedText(fileName: string, code: string): string {
+  const document = parseParsley(code);
+  return formattedLines(document, [], sourceModeFor(fileName, document))
     .map((line) => '  '.repeat(line.indent) + line.tokens.map((token) => token.text).join(''))
     .join('\n');
 }

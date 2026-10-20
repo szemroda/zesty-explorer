@@ -53,6 +53,7 @@ export interface SharedNodeTableState {
   readonly sort: SortState;
   readonly hiddenColumns: ReadonlySet<string>;
   readonly columnWidths: Readonly<Record<string, number>>;
+  readonly pinnedColumns: readonly string[];
 }
 
 interface NestedTableProps {
@@ -67,11 +68,8 @@ interface NestedTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
   readonly onRetry: () => void;
-  /** The view's root, and the node path from it to this table, for filters that keep root items. */
+  /** The view's root, which the filter editor names as unaffected by table filters. */
   readonly root: CollectionNode;
-  readonly nodePath: readonly CollectionNodeId[];
-  readonly viewFilters: readonly ViewFilter[];
-  readonly onViewFiltersChange: (filters: readonly ViewFilter[]) => void;
 }
 
 type ContentItemColumns = ReturnType<typeof contentItemColumns>;
@@ -214,6 +212,7 @@ function stateFor(
         node.presentation.statusColumnHidden,
       ),
       columnWidths: node.presentation.columnWidths,
+      pinnedColumns: node.presentation.pinnedColumns ?? [],
     }
   );
 }
@@ -232,9 +231,6 @@ export function NestedTable(props: NestedTableProps) {
     onOpenDetails,
     onRetry,
     root,
-    nodePath,
-    viewFilters,
-    onViewFiltersChange,
   } = props;
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [deriveSortedIds] = useState(createSortedIdsMemo);
@@ -296,6 +292,7 @@ export function NestedTable(props: NestedTableProps) {
     columnSizing,
     columnVisibility,
     pagination,
+    pinnedColumns: sharedState.pinnedColumns,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
       const active = next[0];
@@ -320,6 +317,7 @@ export function NestedTable(props: NestedTableProps) {
       });
     },
     onPaginationChange: setPagination,
+    onPinnedColumnsChange: (pinnedColumns) => updateSharedState({ ...sharedState, pinnedColumns }),
   });
 
   if (!state) {
@@ -356,24 +354,18 @@ export function NestedTable(props: NestedTableProps) {
     label: `${node.name} table filter`,
     addLabel: `Add ${node.name} filter`,
     subject: node.name,
+    heading: 'Table filters',
+    hint: `Filters ${node.name} rows in every ${node.name} table; all ${root.name} items stay. To keep only ${root.name} items with a matching ${node.name} item, use Filter on the ${root.name} table.`,
     loadedView,
     contentState,
     graph,
     itemIds: graph.relatedItemIds(node.id, parentItemId),
+    freeText: sharedState.freeText,
     filters: sharedState.filters,
-    onChange: (filters) => {
-      updateSharedState({ ...sharedState, filters });
+    onChange: (freeText, filters) => {
+      updateSharedState({ ...sharedState, freeText, filters });
       setPagination((current) => ({ ...current, pageIndex: 0 }));
     },
-    search: {
-      text: sharedState.freeText,
-      onChange: (freeText, filters) => {
-        updateSharedState({ ...sharedState, freeText, filters });
-        setPagination((current) => ({ ...current, pageIndex: 0 }));
-      },
-    },
-    isColumnShown: (columnId) => columnVisibility[columnId] !== false,
-    viewScope: { root, nodePath, filters: viewFilters, onChange: onViewFiltersChange },
   });
 
   function updateSharedState(next: SharedNodeTableState) {
@@ -390,6 +382,7 @@ export function NestedTable(props: NestedTableProps) {
       ),
       statusColumnHidden: next.hiddenColumns.has('$status'),
       columnWidths: next.columnWidths,
+      pinnedColumns: next.pinnedColumns,
     });
   }
 
@@ -438,7 +431,6 @@ export function NestedTable(props: NestedTableProps) {
         reference={node.reference}
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
-        columnFilter={filterControls.columnFilter}
         emptyContent={
           <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
         }
@@ -451,7 +443,6 @@ export function NestedTable(props: NestedTableProps) {
                 node={child}
                 parentNode={node}
                 parentItemId={item.id}
-                nodePath={[...nodePath, child.id]}
               />
             ))}
           </div>

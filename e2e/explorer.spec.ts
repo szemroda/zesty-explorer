@@ -324,14 +324,15 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await openRoot(page);
 
   await expect(page.getByRole('cell', { name: 'First story', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /^Score/ }).click();
+  await page.getByRole('button', { name: 'Add view filter' }).click();
+  await page.getByLabel('View filter field').fill('Score');
+  await page.getByRole('option', { name: /^Score/ }).click();
   await chooseSelectOption(page, 'View filter condition', '>');
   await page.getByLabel('View filter value').fill('100');
   await page.getByLabel('View filter value').press('Enter');
   await expect(page.getByText('4 items')).toBeVisible();
 
-  await page.getByRole('button', { name: /^Score/ }).click();
-  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await page.getByRole('button', { name: /^Remove filter Score/ }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Published' }).click();
@@ -752,4 +753,43 @@ test('stacks expanded rows three tables deep through sorting, paging, and collap
   await expect(grandchildren).toHaveCount(0);
   await scrollIntoBody(children.getByRole('table'));
   await expect.poll(gaps).toEqual([0, 0]);
+});
+
+test('keeps pinned columns in place while the table scrolls sideways', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
+  await installFakeApi(page);
+  await openRoot(page);
+  const table = page.getByRole('table').first();
+  const scroller = table.locator('..');
+  // Each data column's header is its menu button; the row actions header has none.
+  const left = async (name: string) =>
+    (await table.getByRole('button', { name, exact: true }).boundingBox())?.x;
+
+  await table.getByRole('button', { name: /^Category/ }).click();
+  await page.getByRole('button', { name: 'Pin column' }).click();
+  // Opening Category's menu scrolled the table to reach it.
+  await scroller.evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  const actionsLeft = (
+    await page.getByRole('group', { name: 'Item actions' }).first().boundingBox()
+  )?.x;
+  const categoryLeft = await left('Category pinned');
+  const titleLeft = await left('Title');
+  expect(categoryLeft).toBeLessThan(titleLeft ?? 0);
+
+  await scroller.evaluate((element) => {
+    element.scrollLeft = 300;
+  });
+  await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(300);
+  expect((await page.getByRole('group', { name: 'Item actions' }).first().boundingBox())?.x).toBe(
+    actionsLeft,
+  );
+  expect(await left('Category pinned')).toBe(categoryLeft);
+  expect(await left('Title')).toBe((titleLeft ?? 0) - 300);
+
+  await page.reload();
+  await expect(table.getByRole('button', { name: 'Category pinned', exact: true })).toBeVisible();
 });

@@ -28,6 +28,7 @@ import {
   fileFormatLabel,
   fileTypeLabel,
   managerCodeFileUrl,
+  type ToneLookup,
 } from '../code-presentation';
 import type { CodeSelection } from '../../domain';
 import { isEndpoint } from '../endpoint-address';
@@ -169,6 +170,19 @@ export function CodeWorkspace({
       ),
     [latest.list],
   );
+  const collections = useMemo(
+    () =>
+      (catalog?.collections ?? []).map((entry): CodeCollection => ({
+        modelZuid: entry.reference.modelZuid,
+        name: entry.name,
+        label: entry.label,
+      })),
+    [catalog],
+  );
+  const toneFor = useMemo(
+    () => catalogTones(collections.map((collection) => collection.modelZuid)),
+    [collections],
+  );
   const listedFiles = useMemo(
     () => files.filter((file) => codeFileMatches(file, fileFilter)),
     [fileFilter, files],
@@ -294,6 +308,12 @@ export function CodeWorkspace({
             instance={instance}
             credentials={credentials}
             file={named}
+            context={{
+              collections,
+              files,
+              ...(named.contentModelZuid ? { boundModelZuid: named.contentModelZuid } : {}),
+            }}
+            toneFor={toneFor}
             shownVersion={selected?.version}
             publishedVersion={published.list?.files.find((file) => file.id === named.id)?.version}
             initialPresentation={presentation}
@@ -334,7 +354,8 @@ export function CodeWorkspace({
               files={files}
               stateFiles={stateQuery.list?.files ?? []}
               hosts={hosts}
-              catalog={catalog}
+              collections={collections}
+              toneFor={toneFor}
               presentation={presentation}
               onPresentationChange={setPresentation}
               {...(returnPin ? { initialPinned: returnPin } : {})}
@@ -377,7 +398,8 @@ interface ExplainedFileProps {
   /** The files of the selected code state, for an endpoint's request form. */
   readonly stateFiles: readonly CodeFile[];
   readonly hosts: WebEngineBaseUrlsResult;
-  readonly catalog: CollectionCatalog | undefined;
+  readonly collections: readonly CodeCollection[];
+  readonly toneFor: ToneLookup;
   readonly presentation: SourcePresentation;
   readonly onPresentationChange: (presentation: SourcePresentation) => void;
   readonly initialPinned?: string;
@@ -396,7 +418,8 @@ function ExplainedFile({
   files,
   stateFiles,
   hosts,
-  catalog,
+  collections,
+  toneFor,
   presentation,
   onPresentationChange,
   initialPinned,
@@ -411,15 +434,6 @@ function ExplainedFile({
     credentials,
   });
   const document = useMemo(() => parseParsley(file.code), [file.code]);
-  const collections = useMemo(
-    () =>
-      (catalog?.collections ?? []).map((entry): CodeCollection => ({
-        modelZuid: entry.reference.modelZuid,
-        name: entry.name,
-        label: entry.label,
-      })),
-    [catalog],
-  );
   const analysis = useMemo(
     () =>
       analyzeParsley(document, {
@@ -433,10 +447,6 @@ function ExplainedFile({
   const missing = analysis.wantedModels.filter((modelZuid) => !requested.includes(modelZuid));
   if (missing.length) setRequested([...requested, ...missing]);
 
-  const toneFor = useMemo(
-    () => catalogTones(collections.map((collection) => collection.modelZuid)),
-    [collections],
-  );
   const mode = sourceModeFor(file.fileName, document);
   const saved = useMemo(
     () => savedLines(document, analysis.annotations, mode),

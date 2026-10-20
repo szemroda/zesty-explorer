@@ -25,7 +25,8 @@ import {
 import { endpointPath, endpointUrl, wildcardCount, type QueryParameter } from '../endpoint-address';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
 import { cn } from '../lib/utils';
-import { formattedBody } from '../response-body';
+import { tokenClasses } from '../code-presentation';
+import { bodyFormat, bodyTokens, formattedBody, type BodyFormat } from '../response-body';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
@@ -369,6 +370,7 @@ function ResponsePane({
     [response],
   );
   const body = presentation === 'formatted' && formatted !== undefined ? formatted : response?.body;
+  const format = response ? bodyFormat(response.body) : undefined;
 
   return (
     <section
@@ -438,7 +440,7 @@ function ResponsePane({
       ) : null}
       <div className="min-h-0 flex-1 overflow-auto">
         {body !== undefined ? (
-          <ResponseBody text={body} />
+          <ResponseBody text={body} format={format} />
         ) : result?.kind === 'failure' ? (
           <FailureMessage url={result.url} failure={result.failure} />
         ) : sendingUrl ? (
@@ -462,8 +464,22 @@ function ResponsePane({
 // Beyond this many lines, numbering would cost more than it helps, so the body goes without it.
 const numberedLineLimit = 100_000;
 
-// Line numbers and text in two columns; one text node keeps multi-megabyte bodies cheap to render.
-function ResponseBody({ text }: { readonly text: string }) {
+// Beyond this many characters, coloring would take too long to render, so the body goes without it.
+const highlightLimit = 250_000;
+
+// Line numbers and text in two columns. Uncolored text stays one text node, which keeps
+// multi-megabyte bodies cheap to render.
+function ResponseBody({
+  text,
+  format,
+}: {
+  readonly text: string;
+  readonly format: BodyFormat | undefined;
+}) {
+  const tokens = useMemo(
+    () => (format && text.length <= highlightLimit ? bodyTokens(text, format) : undefined),
+    [format, text],
+  );
   if (!text) return <Message>The response has an empty body.</Message>;
   let lines = 1;
   for (let index = text.indexOf('\n'); index >= 0; index = text.indexOf('\n', index + 1)) lines++;
@@ -479,7 +495,19 @@ function ResponseBody({ text }: { readonly text: string }) {
       ) : (
         <span className="w-4 shrink-0" />
       )}
-      <pre className="text-code-content min-w-0 flex-1 pr-4 whitespace-pre">{text}</pre>
+      <pre className="text-code-content min-w-0 flex-1 pr-4 whitespace-pre">
+        {tokens
+          ? tokens.map((token, index) =>
+              token.kind === 'text' ? (
+                token.text
+              ) : (
+                <span key={index} className={tokenClasses[token.kind]}>
+                  {token.text}
+                </span>
+              ),
+            )
+          : text}
+      </pre>
     </div>
   );
 }

@@ -1,13 +1,79 @@
-// Readable layouts of endpoint response bodies for the response pane's `Formatted` view. They may
-// change whitespace the body relies on, such as between inline elements or inside scripts; the
-// `As received` view shows the body exactly.
+// Readable layouts of endpoint response bodies for the response pane's `Formatted` view, and the
+// syntax colors of both views. A layout may change whitespace the body relies on, such as between
+// inline elements or inside scripts; the `As received` view shows the body exactly.
+import type { TokenKind } from '../parsley';
 
-/** The body laid out for reading when it is JSON or markup, whatever its content type says. */
-export function formattedBody(body: string): string | undefined {
-  const text = body.trim();
-  if (text.startsWith('{') || text.startsWith('[')) return formattedJson(text);
-  if (/^<[a-z!?]/i.test(text)) return formattedMarkup(text);
+export type BodyFormat = 'json' | 'markup';
+
+/** Whether the body reads as JSON or markup, whatever its content type says. */
+export function bodyFormat(body: string): BodyFormat | undefined {
+  const text = body.trimStart();
+  if (text.startsWith('{') || text.startsWith('[')) return 'json';
+  if (/^<[a-z!?]/i.test(text)) return 'markup';
   return undefined;
+}
+
+/** The body laid out for reading when it is JSON or markup. */
+export function formattedBody(body: string): string | undefined {
+  const format = bodyFormat(body);
+  if (format === 'json') return formattedJson(body.trim());
+  if (format === 'markup') return formattedMarkup(body.trim());
+  return undefined;
+}
+
+/** A run of body text colored like the same syntax in Code tab source. */
+export interface BodyToken {
+  readonly text: string;
+  readonly kind: Extract<
+    TokenKind,
+    | 'json-key'
+    | 'string'
+    | 'number'
+    | 'builtin'
+    | 'json-punctuation'
+    | 'html-tag'
+    | 'comment'
+    | 'text'
+  >;
+}
+
+// One alternative per kind, in `jsonKinds` order. Malformed or cut-off JSON still colors: an
+// unclosed string ends at the line, and anything else is text.
+const jsonToken =
+  /("(?:[^"\\\n]|\\.)*"(?=\s*:))|("(?:[^"\\\n]|\\.)*"?)|(-?\d[\d.eE+-]*)|(true|false|null)\b|([{}[\],:]+)|(\s+|[^"\s{}[\],:]+)/g;
+const jsonKinds = ['json-key', 'string', 'number', 'builtin', 'json-punctuation', 'text'] as const;
+
+// Comments and declarations, tags up to their `>` (a `>` inside a quoted value does not end one),
+// and the text between them, where a `<` that starts no tag is text. A quoted value ends at the
+// line, so a stray quote such as `title=Don't` miscolors one line at most.
+const markupToken =
+  /(<!--[\s\S]*?(?:-->|$)|<[!?][^>]*>?)|(<\/?[a-z](?:"[^"\n]*"|'[^'\n]*'|[^"'>])*>?)|([^<]+|<)/gi;
+
+/** The body split into colored runs. Adjacent runs of one kind merge, so there are few of them. */
+export function bodyTokens(body: string, format: BodyFormat): readonly BodyToken[] {
+  const tokens: BodyToken[] = [];
+  const append = (text: string, kind: BodyToken['kind']) => {
+    const last = tokens.at(-1);
+    if (last?.kind === kind) tokens[tokens.length - 1] = { text: last.text + text, kind };
+    else tokens.push({ text, kind });
+  };
+  if (format === 'json') {
+    for (const match of body.matchAll(jsonToken)) {
+      const group = match.findIndex((text, index) => index > 0 && text !== undefined);
+      append(match[0], jsonKinds[group - 1]!);
+    }
+    return tokens;
+  }
+  for (const [text, comment, tag] of body.matchAll(markupToken)) {
+    if (comment) append(comment, 'comment');
+    else if (tag) {
+      // Quoted attribute values are strings; the rest of the tag is the tag's color.
+      for (const [index, part] of tag.split(/("[^"\n]*"|'[^'\n]*')/).entries()) {
+        if (part) append(part, index % 2 ? 'string' : 'html-tag');
+      }
+    } else append(text, 'text');
+  }
+  return tokens;
 }
 
 function formattedJson(text: string): string | undefined {

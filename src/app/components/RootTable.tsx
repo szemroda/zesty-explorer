@@ -124,6 +124,9 @@ export function RootTable({
     ),
   );
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
+  const [pinnedColumns, setPinnedColumns] = useState<readonly string[]>(
+    treeRoot.presentation.pinnedColumns ?? [],
+  );
 
   useEffect(() => {
     const active = sorting[0];
@@ -172,16 +175,11 @@ export function RootTable({
     contentState,
     graph,
     itemIds: snapshot.items.map((item) => item.id),
+    freeText,
     filters: viewFilters,
-    onChange: applyViewFilters,
-    // The grid is hidden while related results load, and with it every header.
-    isColumnShown: (columnId) => !resultsPending && columnVisibility[columnId] !== false,
-    search: {
-      text: freeText,
-      onChange: (text, filters) => {
-        persistPresentation({ freeText: text });
-        applyViewFilters(filters);
-      },
+    onChange: (text, filters) => {
+      persistPresentation({ freeText: text });
+      applyViewFilters(filters);
     },
   });
   const hasManagerLink = reference.area !== 'other';
@@ -208,6 +206,7 @@ export function RootTable({
     columnSizing,
     columnVisibility,
     pagination,
+    pinnedColumns,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater;
       setSorting(next);
@@ -226,6 +225,10 @@ export function RootTable({
       });
     },
     onPaginationChange: setPagination,
+    onPinnedColumnsChange: (next) => {
+      setPinnedColumns(next);
+      persistPresentation({ pinnedColumns: next });
+    },
   });
 
   function persistPresentation(patch: Partial<NodePresentation>) {
@@ -298,7 +301,6 @@ export function RootTable({
                 reference={reference}
                 canExpand={canExpand}
                 onOpenDetails={onOpenDetails}
-                columnFilter={filterControls.columnFilter}
                 emptyContent={
                   <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
                     <p className="m-0 font-medium text-foreground">
@@ -328,9 +330,6 @@ export function RootTable({
                         onOpenDetails={onOpenDetails}
                         onRetry={onRetry}
                         root={treeRoot}
-                        nodePath={[child.id]}
-                        viewFilters={viewFilters}
-                        onViewFiltersChange={applyViewFilters}
                       />
                     ))}
                   </div>

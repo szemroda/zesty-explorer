@@ -199,6 +199,9 @@ function isCollectionNode(value: unknown, depth = 1): value is CollectionNode {
       (width) =>
         typeof width === 'number' && Number.isFinite(width) && width >= 40 && width <= 2_000,
     ) &&
+    (presentation.pinnedColumns === undefined ||
+      (isStringArray(presentation.pinnedColumns) &&
+        new Set(presentation.pinnedColumns).size === presentation.pinnedColumns.length)) &&
     isSortState(presentation.sort) &&
     Array.isArray(presentation.filters) &&
     presentation.filters.every(isViewFilter) &&
