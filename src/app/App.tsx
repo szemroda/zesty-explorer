@@ -39,6 +39,8 @@ import {
 import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } from '../zesty-api';
 import { SessionTokenForm } from './components/SessionTokenForm';
 import { useSessionTokens } from './hooks/useSessionTokens';
+import { useInstanceList } from './hooks/useInstanceList';
+import { InstancePicker } from './components/InstancePicker';
 import { CollectionPicker } from './components/CollectionPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
@@ -229,6 +231,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   });
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const pageHeader = useRef<HTMLElement>(null);
+  const focusPicker = useCallback((form: HTMLFormElement | null) => {
+    if (!form) return;
+    const root = rootCollectionInput.current;
+    if (root && !root.disabled) root.focus();
+    else instancePickerInput.current?.focus();
+  }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
@@ -335,6 +343,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     sessionToken: activeToken,
     enabled: Boolean(catalogInstance && activeToken),
   });
+  const instanceList = useInstanceList({
+    api,
+    deployment,
+    sessionToken: activeToken,
+    enabled: screen === 'picker',
+  });
 
   useEffect(() => {
     clearItemVersionPreviewCacheOutsideScope(queryClient, {
@@ -393,14 +407,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     ? describeExplorerError(rootFailure, window.location.origin)
     : undefined;
   const catalogAuthenticationFailed = catalogQuery.error?.kind === 'authentication';
+  const instanceListAuthenticationFailed = instanceList.error?.kind === 'authentication';
   useEffect(() => {
-    const failedDeployment = catalogAuthenticationFailed
-      ? catalogInstance?.deployment
-      : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
-        ? reference?.deployment
-        : workspaceAuthenticationFailureRevision === credentialRevision
-          ? deployment
-          : undefined;
+    const failedDeployment = instanceListAuthenticationFailed
+      ? deployment
+      : catalogAuthenticationFailed
+        ? catalogInstance?.deployment
+        : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
+          ? reference?.deployment
+          : workspaceAuthenticationFailureRevision === credentialRevision
+            ? deployment
+            : undefined;
     if (!failedDeployment || !activeToken) return;
     const update = window.setTimeout(() => {
       sessionTokens.clear(failedDeployment);
@@ -412,6 +429,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     activeToken,
     authenticationFailed,
     catalogAuthenticationFailed,
+    instanceListAuthenticationFailed,
     catalogInstance?.deployment,
     workspaceAuthenticationFailureRevision,
     credentialRevision,
@@ -463,11 +481,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setStep((current) => (current === 'credentials' ? 'picker' : current));
   }
 
-  function chooseInstance(next: InstanceReference) {
+  function chooseInstance(next: InstanceReference | undefined) {
     withdrawUndo();
     setCatalogInstance(next);
-    setSelectedRootZuid(next.suggestedModelZuid);
+    setSelectedRootZuid(next?.suggestedModelZuid);
     startFormProblem.clear();
+  }
+
+  function pickInstance(next: InstanceReference | undefined) {
+    if (next && catalogInstance && instanceKey(next) === instanceKey(catalogInstance)) return;
+    setPastedUrl('');
+    chooseInstance(next);
   }
 
   function pastedReferenceProblem(parsed: InstanceReference): string | undefined {
@@ -1022,16 +1046,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
               <form
                 className="grid gap-4 p-6"
+                ref={focusPicker}
                 aria-labelledby="root-picker-title"
                 noValidate
                 onSubmit={confirmRoot}
               >
                 <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                  Choose a root ? {deploymentLabels[deployment]}
+                  Choose a root · {deploymentLabels[deployment]}
                 </p>
                 <h2 className="text-xl font-semibold" id="root-picker-title">
                   Choose an instance and root collection
                 </h2>
+                <InstancePicker
+                  query={instanceList}
+                  value={catalogInstance}
+                  onChange={pickInstance}
+                  disabled={Boolean(reference)}
+                  error={startFormProblem.messageFor('instance')}
+                  inputRef={instancePickerInput}
+                />
                 {catalogInstance ? (
                   <>
                     {catalogQuery.error ? (
@@ -1088,7 +1121,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     ref={pastedUrlInput}
                     type="url"
                     value={pastedUrl}
-                    placeholder="https://8-?.manager.zesty.io/content/6-?"
+                    placeholder="https://8-….manager.zesty.io/content/6-…"
                     onChange={(event) => {
                       const value = event.target.value;
                       setPastedUrl(value);

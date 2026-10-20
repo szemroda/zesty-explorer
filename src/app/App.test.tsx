@@ -16,6 +16,7 @@ import {
 import type { SessionTokenStore } from '../view-codec';
 import { ViewCodec } from '../view-codec';
 import type { ZestyApi } from '../zesty-api';
+import { instanceReferenceFor } from '../collection-reference';
 import { App } from './App';
 
 const decoded = decodeCollectionPage(fixtureCollectionPage);
@@ -202,6 +203,161 @@ async function searchFor(text: string) {
 }
 
 describe('root collection browser', () => {
+  it('applies a browser paste immediately while the instance list is still loading', async () => {
+    const loadCollectionCatalog = vi.fn<ZestyApi['loadCollectionCatalog']>(() =>
+      Effect.succeed(catalog),
+    );
+    render(
+      <App
+        api={{ ...api(), loadInstances: () => Effect.never, loadCollectionCatalog }}
+        tokenStore={memoryTokenStore()}
+      />,
+    );
+    startSession();
+    fireEvent.input(screen.getByLabelText('Or paste a Zesty URL'), {
+      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
+      inputType: 'insertFromPaste',
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
+    );
+    expect(loadCollectionCatalog.mock.calls[0]?.[0]).toEqual({
+      instanceZuid: '8-abc123',
+      deployment: 'production',
+      apiBaseUrl: 'https://8-abc123.api.zesty.io/v1',
+      managerBaseUrl: 'https://8-abc123.manager.zesty.io',
+      suggestedModelZuid: '6-model123',
+      suggestedArea: 'content',
+    });
+    expect(screen.getByRole('status', { name: 'Loading instance list' })).toBeInTheDocument();
+  });
+
+  it('opens a collection from the instance list without a Manager URL or auto-selecting the only instance', async () => {
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment) =>
+      Effect.succeed({
+        deployment,
+        instances: [{ name: 'Acme', reference: instanceReferenceFor('8-abc123', deployment) }],
+      }),
+    );
+    render(<App api={{ ...api(), loadInstances }} tokenStore={memoryTokenStore()} />);
+    expect(loadInstances).not.toHaveBeenCalled();
+    startSession();
+    const instance = await screen.findByRole('combobox', { name: 'Instance' });
+    await waitFor(() => expect(instance).not.toBeDisabled());
+    expect(screen.queryByRole('combobox', { name: 'Root collection' })).not.toBeInTheDocument();
+    fireEvent.change(instance, { target: { value: 'acme' } });
+    fireEvent.keyDown(instance, { key: 'ArrowDown' });
+    fireEvent.click(await screen.findByRole('option', { name: /Acme.*8-abc123/ }));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Root collection' })).not.toBeDisabled(),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Show collections' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Stories.*6-model123/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    expect(loadInstances).toHaveBeenCalledWith('production', 'fixture-session-token');
+  });
+
+  it('lists the chosen deployment with its saved token and names its cookie in help', async () => {
+    const store = memoryTokenStore([['stage', 'saved-stage-token']]);
+    const save = vi.spyOn(store, 'set');
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment) =>
+      Effect.succeed({ deployment, instances: [] }),
+    );
+    render(<App api={{ ...api(), loadInstances }} tokenStore={store} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
+    fireEvent.click(screen.getByRole('button', { name: 'How to find the token' }));
+    expect(
+      screen.getByText(
+        'Copy STAGE_APP_SID from your Stage Zesty Manager cookies. It carries your permissions. Do not share it.',
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(loadInstances).toHaveBeenCalledWith('stage', 'saved-stage-token'));
+    expect(save).toHaveBeenCalledWith('stage', 'saved-stage-token');
+    expect(
+      await screen.findByText(
+        'Zesty lists no Stage instances for this session token. If you work in stage or development, choose Back and pick that deployment. Or paste a Zesty URL below.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('clears only the rejected deployment token when the instance list answers 401 and retries with a replacement', async () => {
+    const store = memoryTokenStore([['stage', 'saved-stage-token']]);
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment, token) =>
+      token === 'expired-token'
+        ? Effect.fail({ kind: 'authentication', status: 401, message: 'Expired' })
+        : Effect.succeed({ deployment, instances: [] }),
+    );
+    render(<App api={{ ...api(), loadInstances }} tokenStore={store} />);
+    startSession('expired-token');
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+    expect(store.read('production')).toBeNull();
+    expect(store.read('stage')).toBe('saved-stage-token');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Zesty rejected the Production session token. Copy a fresh APP_SID cookie from Zesty Manager.',
+    );
+    expect(screen.getByRole('button', { name: 'Stage' })).toBeInTheDocument();
+    startSession('replacement-token');
+    await waitFor(() =>
+      expect(loadInstances).toHaveBeenCalledWith('production', 'replacement-token'),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps item deep links usable when the instance list fails', async () => {
+    render(
+      <App
+        api={{
+          ...api(),
+          loadInstances: () => Effect.fail({ kind: 'network', message: 'List unavailable.' }),
+        }}
+        tokenStore={memoryTokenStore()}
+      />,
+    );
+    startSession();
+    expect(
+      await screen.findByText('Paste a Zesty URL below to open an instance directly.'),
+    ).toBeInTheDocument();
+    pasteUrl('https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit');
+    expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
+    fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
+    expect(
+      await screen.findByRole('option', { name: /8-abc123.*Not in your instance list/ }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Instance' }), { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(await screen.findByRole('dialog', { name: 'First story' })).toBeInTheDocument();
+  });
+
+  it('asks a shared Stage view recipient for a fixed deployment token and resumes the view', async () => {
+    const reference = instanceReferenceFor('8-abc123', 'stage');
+    openSharedView({
+      ...rootWithChild,
+      children: [],
+      reference: { ...rootWithChild.reference, ...reference },
+    });
+    const store = memoryTokenStore();
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>(() => Effect.never);
+    render(<App api={{ ...api(), loadInstances }} tokenStore={store} />);
+    expect(
+      screen.getByRole('heading', { name: 'Enter your Stage session token' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Production' })).not.toBeInTheDocument();
+    startSession('stage-token');
+    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    expect(store.read('stage')).toBe('stage-token');
+    expect(loadInstances).not.toHaveBeenCalled();
+  });
+
   it('applies typed URLs only on blur or submit, and Back from a cross-deployment token request returns to credentials', async () => {
     const loadCollectionCatalog = vi.fn<ZestyApi['loadCollectionCatalog']>(() =>
       Effect.succeed(catalog),
@@ -1225,6 +1381,27 @@ describe('Code tab', () => {
 
     expect(await screen.findByRole('button', { name: /\/8-xyz789\.json/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Choose a file' })).toBeInTheDocument();
+  });
+
+  it('keeps the view instance and Code selection while Change root is cancelled', async () => {
+    render(<App api={codeApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: /\/8-abc123\.json/ }));
+    await screen.findByRole('heading', { name: '/8-abc123.json' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Explorer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
+    expect(screen.getByRole('combobox', { name: 'Instance' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
+    pasteUrl('https://8-other123.manager.stage.zesty.io/content/6-model123');
+    expect(screen.getByLabelText('Or paste a Zesty URL')).toHaveAccessibleDescription(
+      'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. Paste a collection from the same Zesty instance and deployment.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
+    expect(screen.getByRole('heading', { name: '/8-abc123.json' })).toBeInTheDocument();
   });
 
   it('clears the saved token from the Code tab without an Explorer view', async () => {
