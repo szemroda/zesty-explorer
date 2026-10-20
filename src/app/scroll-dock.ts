@@ -3,8 +3,9 @@ import { createContext } from 'react';
 /**
  * Registers a table's horizontal scroller with the dock and returns the function that unregisters
  * it. The scroller's first child is the table, with a header and a body; the dock docks the
- * scroller's scrollbar and sticks the table's header. `onResize` runs whenever the scroller or its
- * content changes size.
+ * scroller's scrollbar and sticks the table's header. A nested table sits in an expanded row right
+ * after its item's row, which the dock sticks over the parent table's header. `onResize` runs
+ * whenever the scroller or its content changes size.
  */
 export type RegisterScroller = (
   scroller: HTMLElement,
@@ -27,12 +28,23 @@ interface Entry extends DockedScroller {
   readonly table: HTMLTableElement;
   readonly head: HTMLTableSectionElement;
   readonly body: HTMLTableSectionElement;
+  /** For a nested table, its item's row and the expanded row after it that holds the table. */
+  readonly nestedIn: NestedIn | undefined;
   /** The nearest registered scroller around this one, or null; set on its first measure. */
   parent: Element | null | undefined;
   /** Whether the content is wider than the scroller, as of its last size change. */
   overflows: boolean;
-  /** The header placement last written, to skip writes that change nothing. */
-  placement: string;
+}
+
+interface NestedIn {
+  readonly itemRow: HTMLTableRowElement;
+  readonly expansion: HTMLTableRowElement;
+}
+
+/** The window scroll offset where a row starts sticking, and how far it travels while stuck. */
+interface Placement {
+  readonly start: number;
+  readonly travel: number;
 }
 
 /** A docked scrollbar for one scroller, placed under the scroller's visible width. */
@@ -68,6 +80,17 @@ function depthOf(entry: Entry, scrollers: ReadonlyMap<Element, Entry>): number {
   return parent ? depthOf(parent, scrollers) + 1 : 0;
 }
 
+// A nested table sits in its parent table's expanded row, right after the row of its item.
+function nestedInOf(scroller: HTMLElement): NestedIn | undefined {
+  const expansion = scroller.closest('tr');
+  if (!expansion) return undefined;
+  const itemRow = expansion.previousElementSibling;
+  if (!(itemRow instanceof HTMLTableRowElement)) {
+    throw new Error('A nested table sits in the row right after its item row.');
+  }
+  return { itemRow, expansion };
+}
+
 /**
  * Which scrollers need a docked bar: those that overflow sideways and whose own scrollbar is
  * below the viewport or hidden behind the docked bars of the tables around them.
@@ -96,36 +119,67 @@ function measureBars(scrollers: ReadonlyMap<Element, Entry>): readonly DockBar[]
 }
 
 /**
- * Tells each table's header where to stick: below `top`, or below the stuck header of the table
- * around it, from the window scroll offset where it reaches that line until the table's last row
- * pushes it out. The `sticky-head` style moves the header from these values on the compositor, so
- * they change only with layout, never with scrolling.
+ * Where each stuck row sticks. A table's header sticks below `top`, or, for a nested table, below
+ * its item's row. That item row sticks over the parent table's header while the expanded row after
+ * it is on screen, so the stuck rows read as the path to the table being scrolled. Each row sticks
+ * from the window scroll offset where it reaches its line until the end of its table, or of its
+ * expansion, pushes it out. The `sticky-to-window` style moves the rows from these values on the
+ * compositor, so they change only with layout, never with scrolling.
  */
-function placeHeads(scrollers: ReadonlyMap<Element, Entry>, top: number) {
-  // The viewport line just below each table's stuck header, where its nested tables' headers stick.
-  const below = new Map<Entry, number>();
-  const placements: { entry: Entry; start: number; travel: number }[] = [];
+function placeStuckRows(
+  scrollers: ReadonlyMap<Element, Entry>,
+  top: number,
+): ReadonlyMap<HTMLElement, Placement> {
+  // The viewport line where each table's header sticks, and its stuck item rows over it.
+  const lines = new Map<Entry, number>();
+  const placements = new Map<HTMLElement, Placement>();
   const outerFirst = [...scrollers.values()]
     .map((entry) => ({ entry, depth: depthOf(entry, scrollers) }))
     .sort((left, right) => left.depth - right.depth);
   for (const { entry } of outerFirst) {
     const parent = parentOf(entry, scrollers);
-    const line = (parent && below.get(parent)) ?? top;
-    const rect = entry.table.getBoundingClientRect();
+    const parentLine = parent && lines.get(parent);
+    let line = top;
+    if (entry.nestedIn && parentLine !== undefined) {
+      const item = entry.nestedIn.itemRow.getBoundingClientRect();
+      const expansion = entry.nestedIn.expansion.getBoundingClientRect();
+      line = parentLine + item.height;
+      placements.set(entry.nestedIn.itemRow, {
+        start: item.top + window.scrollY - parentLine,
+        travel: expansion.height,
+      });
+    }
+    lines.set(entry, line);
+    const table = entry.table.getBoundingClientRect();
     const headHeight = entry.head.getBoundingClientRect().height;
-    below.set(entry, line + headHeight);
-    placements.push({
-      entry,
-      start: rect.top + window.scrollY - line,
-      travel: rect.height - headHeight,
+    placements.set(entry.head, {
+      start: table.top + window.scrollY - line,
+      travel: table.height - headHeight,
     });
   }
-  for (const { entry, start, travel } of placements) {
+  return placements;
+}
+
+/**
+ * Writes `next` as each row's `sticky-to-window` values and clears rows no longer placed, such as
+ * a collapsed item row. `written` holds what was last written, to skip writes that change nothing.
+ */
+function writePlacements(
+  next: ReadonlyMap<HTMLElement, Placement>,
+  written: Map<HTMLElement, string>,
+) {
+  for (const row of written.keys()) {
+    if (next.has(row)) continue;
+    written.delete(row);
+    row.style.removeProperty('--sticky-start');
+    row.style.removeProperty('--sticky-travel');
+  }
+  for (const [row, { start, travel }] of next) {
     const placement = `${start}px ${travel}px`;
-    if (entry.placement === placement) continue;
-    entry.placement = placement;
-    entry.head.style.setProperty('--sticky-head-start', `${start}px`);
-    entry.head.style.setProperty('--sticky-head-travel', `${travel}px`);
+    if (written.get(row) === placement) continue;
+    written.set(row, placement);
+    row.style.setProperty('--sticky-start', `${start}px`);
+    row.style.setProperty('--sticky-travel', `${travel}px`);
   }
 }
 
@@ -149,10 +203,11 @@ let nextScrollerId = 0;
 
 /**
  * Tracks registered scrollers against the window: reports the bars to dock whenever they change,
- * and keeps each table's header stuck below `stickyTop`, the viewport line where the page's own
- * sticky header ends. Layout is re-measured at most once per frame, after scrolls, resizes, DOM
- * changes, and size changes of the page or any registered scroller. Nothing is observed until
- * `start`, and `start`'s cleanup releases every listener and observer.
+ * and keeps each table's header, or the expanded row over it, stuck below `stickyTop`, the
+ * viewport line where the page's own sticky header ends. Layout is re-measured at most once per
+ * frame, after scrolls, resizes, DOM changes, and size changes of the page or any registered
+ * scroller. Nothing is observed until `start`, and `start`'s cleanup releases every listener and
+ * observer.
  */
 export function createScrollDock(
   onBarsChange: (bars: readonly DockBar[]) => void,
@@ -162,15 +217,16 @@ export function createScrollDock(
   // Each scroller and its content, observed once for both the dock and the scroller's own use.
   const observed = new Map<Element, Entry>();
   let bars: readonly DockBar[] = [];
+  const placements = new Map<HTMLElement, string>();
   let frame: number | undefined;
-  // Header placements depend on layout only, so scrolling alone leaves them as they are.
+  // Stuck row placements depend on layout only, so scrolling alone leaves them as they are.
   let layoutChanged = true;
   const schedule = () => {
     if (frame !== undefined) return;
     frame = requestAnimationFrame(() => {
       frame = undefined;
       const next = measureBars(scrollers);
-      if (layoutChanged) placeHeads(scrollers, stickyTop());
+      if (layoutChanged) writePlacements(placeStuckRows(scrollers, stickyTop()), placements);
       layoutChanged = false;
       if (sameBars(bars, next)) return;
       bars = next;
@@ -204,9 +260,9 @@ export function createScrollDock(
       table,
       head: table.tHead,
       body,
+      nestedIn: nestedInOf(scroller),
       parent: undefined,
       overflows: overflows(scroller),
-      placement: '',
     };
     const targets = [scroller, table];
     scrollers.set(scroller, entry);

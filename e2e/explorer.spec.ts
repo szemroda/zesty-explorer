@@ -612,7 +612,20 @@ async function verticalEdges(locator: Locator) {
   return { top: box.y, bottom: box.y + box.height };
 }
 
-test('sticks table headers below the page header, nested ones below their parent', async ({
+// The text of each on-screen cell of the row that something outside the row paints over.
+function coveredCells(row: Locator) {
+  return row.locator(':scope > th, :scope > td').evaluateAll((cells) =>
+    cells.flatMap((cell) => {
+      const { left, right, top, bottom } = cell.getBoundingClientRect();
+      const x = (left + Math.min(right, window.innerWidth)) / 2;
+      if (x >= window.innerWidth) return [];
+      const hit = document.elementFromPoint(x, (top + bottom) / 2);
+      return hit && cell.parentElement?.contains(hit) ? [] : [cell.textContent];
+    }),
+  );
+}
+
+test('sticks an expanded row over its table header, the nested header below it', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
@@ -623,20 +636,25 @@ test('sticks table headers below the page header, nested ones below their parent
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
   await expect(children).toBeVisible();
   const rootTable = page.getByRole('table').first();
+  const rootHead = rootTable.locator(':scope > thead > tr');
+  const itemRow = rootTable.locator(':scope > tbody > tr').first();
   const childTable = children.getByRole('table');
   const edges = async () => ({
     pageHeader: await verticalEdges(page.locator('main > header')),
-    rootHead: await verticalEdges(rootTable.locator(':scope > thead')),
+    rootHead: await verticalEdges(rootHead),
+    itemRow: await verticalEdges(itemRow),
+    expansion: await verticalEdges(itemRow.locator('xpath=following-sibling::tr[1]')),
     child: await verticalEdges(childTable),
     childHead: await verticalEdges(childTable.locator(':scope > thead')),
   });
-  // Each is 0 while its header is where it belongs: the root header right below the page
-  // header, the nested one right below the root's, or leaving with its table's last row.
+  // Each is 0 while its row is where it belongs: the item row over the root header right below
+  // the page header, the nested header right below the item row, or leaving with its last row.
   const gaps = async () => {
-    const { pageHeader, rootHead, child, childHead } = await edges();
+    const { pageHeader, rootHead, itemRow, child, childHead } = await edges();
     return {
       rootHead: rootHead.top - pageHeader.bottom,
-      childHead: childHead.top - rootHead.bottom,
+      itemRow: itemRow.top - pageHeader.bottom,
+      childHead: childHead.top - itemRow.bottom,
       childEnd: child.bottom - childHead.bottom,
     };
   };
@@ -645,30 +663,31 @@ test('sticks table headers below the page header, nested ones below their parent
   // Into the nested table, past its first rows.
   const before = await edges();
   await page.mouse.wheel(0, before.child.top - before.pageHeader.bottom + 200);
-  await expect
-    .poll(gaps)
-    .toMatchObject({ rootHead: expect.closeTo(0), childHead: expect.closeTo(0) });
+  await expect.poll(gaps).toMatchObject({
+    rootHead: expect.closeTo(0),
+    itemRow: expect.closeTo(0),
+    childHead: expect.closeTo(0),
+  });
+  // The item row stands in for the root header, pinned actions included.
+  expect(await coveredCells(itemRow)).toEqual([]);
+  expect(await coveredCells(rootHead)).not.toEqual([]);
 
-  // Its last row 10px below the root header.
+  // Its last row 10px below the item row.
   const inside = await edges();
-  await page.mouse.wheel(0, inside.child.bottom - inside.rootHead.bottom - 10);
+  await page.mouse.wheel(0, inside.child.bottom - inside.itemRow.bottom - 10);
   await expect
     .poll(gaps)
-    .toMatchObject({ rootHead: expect.closeTo(0), childEnd: expect.closeTo(0) });
-  // Stuck over the nested table, the root header paints above it, pinned actions included.
-  const covered = await rootTable.locator(':scope > thead th').evaluateAll((cells) =>
-    cells.flatMap((cell) => {
-      const { left, right, top, bottom } = cell.getBoundingClientRect();
-      const x = (left + Math.min(right, window.innerWidth)) / 2;
-      if (x >= window.innerWidth) return [];
-      const hit = document.elementFromPoint(x, (top + bottom) / 2);
-      return hit && cell.closest('thead')?.contains(hit) ? [] : [cell.textContent];
-    }),
-  );
-  expect(covered).toEqual([]);
+    .toMatchObject({ itemRow: expect.closeTo(0), childEnd: expect.closeTo(0) });
+
+  // Past the expanded row, the root header is back on top.
+  const leaving = await edges();
+  await page.mouse.wheel(0, leaving.expansion.bottom - leaving.pageHeader.bottom + 100);
+  await expect.poll(gaps).toMatchObject({ rootHead: expect.closeTo(0) });
+  expect((await edges()).itemRow.bottom).toBeLessThan(leaving.pageHeader.bottom);
+  expect(await coveredCells(rootHead)).toEqual([]);
 });
 
-test('stacks headers three tables deep through sorting, paging, and collapsing', async ({
+test('stacks expanded rows three tables deep through sorting, paging, and collapsing', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-laptop', 'Checks the laptop layout.');
@@ -690,18 +709,21 @@ test('stacks headers three tables deep through sorting, paging, and collapsing',
     exact: true,
   });
   await expect(grandchildren.getByRole('table')).toBeVisible();
-  // Scrolls the table's first rows under the stuck headers.
+  // Scrolls the table's first rows under the stuck rows.
   const scrollIntoBody = (table: Locator) =>
     table.evaluate((element) => {
       const pageHeader = document.querySelector('main > header')!.getBoundingClientRect();
       window.scrollBy(0, element.getBoundingClientRect().top - pageHeader.bottom + 80);
     });
-  // Each header's distance from the bottom of the header above it, the page header first.
+  // The distance of each expanded row, then the deepest table's header, from the bottom of the
+  // one above it, the page header first.
   const gaps = () =>
     page.evaluate(() => {
       let bottom = document.querySelector('main > header')!.getBoundingClientRect().bottom;
-      return [...document.querySelectorAll('thead')].map((head) => {
-        const rect = head.getBoundingClientRect();
+      const expanded = [...document.querySelectorAll('[aria-label^="Collapse relationships"]')];
+      const rows = expanded.map((button) => button.closest('tr')!);
+      return [...rows, ...[...document.querySelectorAll('thead')].slice(-1)].map((row) => {
+        const rect = row.getBoundingClientRect();
         const gap = rect.top - bottom;
         bottom = rect.bottom;
         return Math.round(gap) || 0;
@@ -711,7 +733,7 @@ test('stacks headers three tables deep through sorting, paging, and collapsing',
   await scrollIntoBody(grandchildren.getByRole('table'));
   await expect.poll(gaps).toEqual([0, 0, 0]);
 
-  // Sorting moves the expanded row, and the tables inside it, without resizing anything.
+  // Sorting moves the expanded rows, and the tables inside them, without resizing anything.
   await page
     .getByRole('table')
     .first()

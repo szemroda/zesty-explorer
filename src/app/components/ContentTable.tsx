@@ -84,12 +84,20 @@ const ContentTableBodyRow = memo(function ContentTableBodyRow({
 }: ContentTableBodyRowProps) {
   return (
     <Fragment>
-      <TableRow className="group hover:bg-transparent">
+      {/* Expanded, the row sticks over the table's header while its related tables scroll by, so it
+          stacks above the header and its cells are opaque. */}
+      <TableRow
+        className={`group hover:bg-transparent ${expanded ? 'sticky-to-window sticky z-8' : ''}`}
+      >
         {row.getVisibleCells().map((cell) => (
           <TableCell
             key={cell.id}
             className={`h-11 max-w-[520px] border-b border-divider-subtle px-3 py-2 align-middle whitespace-nowrap group-hover:bg-surface-hover ${
-              cell.column.id === 'actions' ? 'sticky left-0 z-3 bg-panel px-2.5 sticky-edge' : ''
+              expanded ? 'bg-surface-header' : ''
+            } ${
+              cell.column.id === 'actions'
+                ? `sticky left-0 z-3 px-2.5 sticky-edge ${expanded ? '' : 'bg-panel'}`
+                : ''
             }`}
           >
             {cell.column.id === 'actions' ? (
@@ -181,7 +189,7 @@ export function ContentTableGrid({
           </colgroup>
           {/* Above body rows, pinned actions, and nested tables while it sticks over them. Without
               an inset, `sticky` never moves it, but unlike `relative` WebKit honors it on a thead. */}
-          <TableHeader className="sticky-head sticky z-7">
+          <TableHeader className="sticky-to-window sticky z-7">
             {table.getHeaderGroups().map((group) => (
               <TableRow className="hover:bg-transparent" key={group.id}>
                 {group.headers.map((header) => (
