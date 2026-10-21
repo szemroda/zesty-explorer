@@ -160,6 +160,7 @@ test('closing a tab releases its active slots and allows a queued tab to load', 
   const first = started[0];
   if (!first) throw new Error('Expected an active tab');
   await first.close();
-  await expect.poll(() => started.length).toBe(5);
+  // Chromium frees a closed page's Web Locks after page teardown, measured at up to 10 seconds.
+  await expect.poll(() => started.length, { timeout: 20_000 }).toBe(5);
   await Promise.all(tabs.filter((tab) => !tab.isClosed()).map((tab) => tab.close()));
 });
