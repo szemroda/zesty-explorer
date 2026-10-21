@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { instanceReferenceFor } from '../../collection-reference';
 import type { InstanceListEntry } from '../../domain';
@@ -94,6 +94,77 @@ describe('InstancePicker', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Retry instance list' }));
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a loading row in the popup before the list arrives', async () => {
+    render(
+      <InstancePicker
+        query={query({ list: undefined, isLoading: true })}
+        value={undefined}
+        onChange={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
+    expect(await screen.findByText('Loading instances…')).toBeInTheDocument();
+    expect(screen.queryByText('No instances found.')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { state: 'loading', isLoading: true, error: undefined },
+    { state: 'failed', isLoading: false, error: { kind: 'network', message: 'Unavailable.' } },
+  ] as const)(
+    'does not call a selected instance unlisted while the list is $state',
+    async (state) => {
+      render(
+        <InstancePicker
+          query={query({ list: undefined, isLoading: state.isLoading, error: state.error })}
+          value={instanceReferenceFor('8-missing', 'production')}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
+      expect(await screen.findByRole('option')).toHaveTextContent('8-missing8-missing');
+      expect(screen.queryByText('Not in your instance list')).not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps focus when the list names a selected instance', () => {
+    const value = instanceReferenceFor('8-acme123', 'production');
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <InstancePicker
+        query={query({ list: undefined, isLoading: true })}
+        value={value}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Instance' });
+    act(() => input.focus());
+    rerender(<InstancePicker query={query()} value={value} onChange={onChange} />);
+    expect(screen.getByRole('combobox', { name: 'Instance' })).toBe(input);
+    expect(input).toHaveFocus();
+  });
+
+  it('hides instance list notices and Retry when instance selection is disabled', () => {
+    render(
+      <InstancePicker
+        query={query({
+          error: { kind: 'network', message: 'Instance list is unavailable.' },
+          list: {
+            deployment: 'production',
+            instances: [],
+            warning: { kind: 'decoding', message: 'Omitted records.' },
+            truncated: { returned: 0, total: 10 },
+          },
+        })}
+        value={instanceReferenceFor('8-acme123', 'production')}
+        disabled
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry instance list' })).not.toBeInTheDocument();
   });
 
   it('reports omitted and truncated records together and points at the URL fallback', () => {

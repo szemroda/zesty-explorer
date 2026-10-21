@@ -49,17 +49,22 @@ export function InstancePicker({
       ) ?? { reference: value, unlisted: true })
     : undefined;
   const choices: readonly InstanceChoice[] = selected?.unlisted ? [selected, ...listed] : listed;
-  const loading = query.isLoading;
-  const failure = query.error
-    ? describeExplorerError(query.error, window.location.origin)
-    : undefined;
-  const list = query.list;
+  const loading = !disabled && query.isLoading;
+  const failure =
+    !disabled && query.error
+      ? { ...describeExplorerError(query.error, window.location.origin), error: query.error }
+      : undefined;
+  const list = disabled ? undefined : query.list;
+  const otherDeployments = Object.entries(deploymentLabels)
+    .filter(([deployment]) => deployment !== list?.deployment)
+    .map(([, label]) => label)
+    .join(' or ');
 
   return (
     <div className="grid gap-3">
       <Field error={error}>
         <Combobox.Root
-          key={`${value?.instanceZuid ?? 'empty'}:${selected?.name ?? ''}`}
+          key={`${value?.deployment ?? ''}:${value?.instanceZuid ?? 'empty'}`}
           items={choices}
           value={selected ?? null}
           onValueChange={(choice) => onChange(choice?.reference)}
@@ -79,7 +84,6 @@ export function InstancePicker({
           <Combobox.InputGroup className="relative flex items-center">
             <Combobox.Input
               ref={inputRef}
-              autoFocus={!value}
               className={`border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring data-invalid:border-destructive data-invalid:focus-visible:ring-destructive/30 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${loading ? 'pr-24' : 'pr-16'}`}
               placeholder={loading ? 'Loading instances…' : 'Search instances by name or ZUID'}
             />
@@ -111,11 +115,17 @@ export function InstancePicker({
           <Combobox.Portal>
             <Combobox.Positioner className="z-50" sideOffset={5}>
               <Combobox.Popup className="bg-popover text-popover-foreground max-h-80 min-w-[var(--anchor-width)] overflow-hidden rounded-md border shadow-md">
-                <Combobox.Empty>
+                {loading ? (
                   <div className="text-muted-foreground px-3 py-6 text-center text-sm">
-                    No instances found.
+                    Loading instances…
                   </div>
-                </Combobox.Empty>
+                ) : (
+                  <Combobox.Empty>
+                    <div className="text-muted-foreground px-3 py-6 text-center text-sm">
+                      No instances found.
+                    </div>
+                  </Combobox.Empty>
+                )}
                 <Combobox.List className="max-h-72 overflow-y-auto p-1 outline-none">
                   {(choice: InstanceChoice) => (
                     <Combobox.Item
@@ -131,7 +141,7 @@ export function InstancePicker({
                           {choice.name ?? choice.reference.instanceZuid}
                         </strong>
                         <span className="text-muted-foreground truncate text-xs">
-                          {choice.unlisted
+                          {choice.unlisted && list && !loading && !failure
                             ? 'Not in your instance list'
                             : choice.reference.instanceZuid}
                         </span>
@@ -144,7 +154,7 @@ export function InstancePicker({
           </Combobox.Portal>
         </Combobox.Root>
       </Field>
-      {query.error && failure ? (
+      {failure ? (
         <div
           className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
           role="alert"
@@ -152,7 +162,7 @@ export function InstancePicker({
           <p>{failure.message}</p>
           <p>{failure.recovery}</p>
           <p>Paste a Zesty URL below to open an instance directly.</p>
-          <ErrorTechnicalDetails error={query.error} />
+          <ErrorTechnicalDetails error={failure.error} />
           <Button type="button" variant="outline" onClick={() => void query.refresh()}>
             Retry instance list
           </Button>
@@ -174,8 +184,8 @@ export function InstancePicker({
       ) : list && list.instances.length === 0 ? (
         <p className="bg-muted text-muted-foreground rounded-md p-3 text-sm" role="status">
           Zesty lists no {deploymentLabels[list.deployment]} instances for this session token. If
-          you work in stage or development, choose Back and pick that deployment. Or paste a Zesty
-          URL below.
+          you work in {otherDeployments}, choose Back and pick that deployment. Or paste a Zesty URL
+          below.
         </p>
       ) : null}
     </div>

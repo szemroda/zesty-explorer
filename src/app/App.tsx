@@ -347,7 +347,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     api,
     deployment,
     sessionToken: activeToken,
-    enabled: screen === 'picker',
+    enabled: screen === 'picker' && !reference,
   });
 
   useEffect(() => {
@@ -1134,8 +1134,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     onBlur={(event) => applyPastedUrl(event.target.value)}
                   />
                   <FieldDescription>
-                    A Zesty Manager or Instances API URL of an instance, collection, or item. Use it
-                    for a deep link or an instance the list does not show.
+                    {reference
+                      ? 'A Zesty Manager or Instances API URL of a collection or item in this instance.'
+                      : 'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show.'}
                   </FieldDescription>
                 </Field>
                 <div className="flex flex-wrap justify-end gap-2">

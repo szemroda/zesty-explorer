@@ -293,7 +293,7 @@ describe('root collection browser', () => {
     expect(save).toHaveBeenCalledWith('stage', 'saved-stage-token');
     expect(
       await screen.findByText(
-        'Zesty lists no Stage instances for this session token. If you work in stage or development, choose Back and pick that deployment. Or paste a Zesty URL below.',
+        'Zesty lists no Stage instances for this session token. If you work in Production or Development, choose Back and pick that deployment. Or paste a Zesty URL below.',
       ),
     ).toBeInTheDocument();
   });
@@ -371,9 +371,7 @@ describe('root collection browser', () => {
     pasteUrl('https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit');
     expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
     fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
-    expect(
-      await screen.findByRole('option', { name: /8-abc123.*Not in your instance list/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('option')).toHaveTextContent('8-abc1238-abc123');
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Instance' }), { key: 'Escape' });
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
@@ -482,8 +480,16 @@ describe('root collection browser', () => {
   });
 
   it('opens the root picker directly from the root collection menu', async () => {
-    render(<App api={api()} tokenStore={memoryTokenStore()} />);
-    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    openSharedView({ ...rootWithChild, children: [] });
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>(() =>
+      Effect.fail({ kind: 'authentication', status: 401, message: 'Expired' }),
+    );
+    render(
+      <App
+        api={{ ...api(), loadInstances }}
+        tokenStore={memoryTokenStore([['production', 'saved-token']])}
+      />,
+    );
     await screen.findByRole('heading', { name: 'Stories' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
@@ -492,6 +498,10 @@ describe('root collection browser', () => {
     expect(
       screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
     ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Instance' })).toBeDisabled();
+    expect(loadInstances).not.toHaveBeenCalled();
+    expect(screen.queryByText(/an instance the list does not show/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry instance list' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Zesty instance URL')).not.toBeInTheDocument();
   });
 
@@ -1251,7 +1261,7 @@ describe('form errors', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
     expect(pasted).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. Paste a collection from the same Zesty instance and deployment.',
+      'A Zesty Manager or Instances API URL of a collection or item in this instance. Paste a collection from the same Zesty instance and deployment.',
     );
     expect(loadCollectionSnapshot).not.toHaveBeenCalled();
   });
@@ -1441,7 +1451,7 @@ describe('Code tab', () => {
     expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
     pasteUrl('https://8-other123.manager.stage.zesty.io/content/6-model123');
     expect(screen.getByLabelText('Or paste a Zesty URL')).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. Paste a collection from the same Zesty instance and deployment.',
+      'A Zesty Manager or Instances API URL of a collection or item in this instance. Paste a collection from the same Zesty instance and deployment.',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
