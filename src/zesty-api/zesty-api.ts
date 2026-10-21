@@ -138,7 +138,7 @@ const RawInstanceSchema = Schema.Struct({
   ZUID: Schema.String.pipe(
     Schema.filter(isInstanceZuid, { message: () => 'Instance ZUID is invalid' }),
   ),
-  name: Schema.optional(Schema.NullOr(Schema.String)),
+  name: Schema.optional(Schema.Unknown),
 });
 const RawInstanceListMetaSchema = Schema.Struct({
   _meta: Schema.Struct({ totalResults: Schema.Number }),
@@ -332,13 +332,11 @@ function decodeInstanceList(
     Effect.map(({ records, received, warning }): InstanceList => {
       const seen = new Set<string>();
       const instances = records.flatMap((record): InstanceListEntry[] => {
-        const key = record.ZUID.toLowerCase();
-        if (seen.has(key)) return [];
-        seen.add(key);
-        const name = record.name?.trim();
-        return [
-          { reference: instanceReferenceFor(record.ZUID, deployment), ...(name ? { name } : {}) },
-        ];
+        const reference = instanceReferenceFor(record.ZUID, deployment);
+        if (seen.has(reference.instanceZuid)) return [];
+        seen.add(reference.instanceZuid);
+        const name = typeof record.name === 'string' ? record.name.trim() : undefined;
+        return [{ reference, ...(name ? { name } : {}) }];
       });
       const meta = Schema.decodeUnknownEither(RawInstanceListMetaSchema)(input);
       const total = Either.isRight(meta) ? meta.right._meta.totalResults : undefined;

@@ -15,8 +15,9 @@ import {
 } from '../domain';
 import type { SessionTokenStore } from '../view-codec';
 import { ViewCodec } from '../view-codec';
-import type { ZestyApi } from '../zesty-api';
+import { createZestyApi, type ZestyApi } from '../zesty-api';
 import { instanceReferenceFor } from '../collection-reference';
+import { immediateRequestBudget } from '../test/request-budget';
 import { App } from './App';
 
 const decoded = decodeCollectionPage(fixtureCollectionPage);
@@ -232,18 +233,28 @@ describe('root collection browser', () => {
     expect(screen.getByRole('status', { name: 'Loading instance list' })).toBeInTheDocument();
   });
 
-  it('opens a collection from the instance list without a Manager URL or auto-selecting the only instance', async () => {
-    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment) =>
-      Effect.succeed({
-        deployment,
-        instances: [{ name: 'Acme', reference: instanceReferenceFor('8-abc123', deployment) }],
-      }),
+  it('opens a collection from an uppercase listed ZUID without a Manager URL or auto-selecting the only instance', async () => {
+    const listApi = createZestyApi(
+      {
+        request: () =>
+          Effect.succeed({
+            status: 200,
+            headers: {},
+            body: { data: [{ ZUID: '8-ABC123', name: 'Acme' }] },
+          }),
+      },
+      { budget: immediateRequestBudget() },
     );
+    const loadInstances = vi.fn(listApi.loadInstances);
     render(<App api={{ ...api(), loadInstances }} tokenStore={memoryTokenStore()} />);
     expect(loadInstances).not.toHaveBeenCalled();
     startSession();
     const instance = await screen.findByRole('combobox', { name: 'Instance' });
-    await waitFor(() => expect(instance).not.toBeDisabled());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('status', { name: 'Loading instance list' }),
+      ).not.toBeInTheDocument(),
+    );
     expect(screen.queryByRole('combobox', { name: 'Root collection' })).not.toBeInTheDocument();
     fireEvent.change(instance, { target: { value: 'acme' } });
     fireEvent.keyDown(instance, { key: 'ArrowDown' });

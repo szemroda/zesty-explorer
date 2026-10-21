@@ -44,7 +44,7 @@ export function InstancePicker({
   const selected: InstanceChoice | undefined = value
     ? (listed.find(
         (entry) =>
-          entry.reference.instanceZuid.toLowerCase() === value.instanceZuid.toLowerCase() &&
+          entry.reference.instanceZuid === value.instanceZuid &&
           entry.reference.deployment === value.deployment,
       ) ?? { reference: value, unlisted: true })
     : undefined;
@@ -65,8 +65,7 @@ export function InstancePicker({
           onValueChange={(choice) => onChange(choice?.reference)}
           itemToStringLabel={(choice) => choice.name ?? choice.reference.instanceZuid}
           isItemEqualToValue={(left, right) =>
-            left.reference.instanceZuid.toLowerCase() ===
-              right.reference.instanceZuid.toLowerCase() &&
+            left.reference.instanceZuid === right.reference.instanceZuid &&
             left.reference.deployment === right.reference.deployment
           }
           filter={(choice, search) =>

@@ -78,14 +78,15 @@ describe('ZestyApi', () => {
     const fake = respondWith({
       data: [
         {
-          ZUID: '8-abc123',
+          ZUID: '8-ABC123',
           name: ' Acme ',
           domain: 'evil.example',
           screenshotURL: 'https://evil.example/x',
         },
-        { ZUID: '8-ABC123', name: 'Duplicate' },
+        { ZUID: '8-abc123', name: 'Duplicate' },
         { ZUID: '8-unnamed', name: null },
         { ZUID: '8-emptyname', name: '  ' },
+        { ZUID: '8-numbername', name: 42 },
       ],
     });
     const list = await Effect.runPromise(
@@ -117,6 +118,14 @@ describe('ZestyApi', () => {
             deployment: 'stage',
             apiBaseUrl: 'https://8-emptyname.api.stage.zesty.io/v1',
             managerBaseUrl: 'https://8-emptyname.manager.stage.zesty.io',
+          },
+        },
+        {
+          reference: {
+            instanceZuid: '8-numbername',
+            deployment: 'stage',
+            apiBaseUrl: 'https://8-numbername.api.stage.zesty.io/v1',
+            managerBaseUrl: 'https://8-numbername.manager.stage.zesty.io',
           },
         },
       ],

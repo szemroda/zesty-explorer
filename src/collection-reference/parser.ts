@@ -94,7 +94,11 @@ export function instanceReferenceFor(
 ): InstanceReference {
   const hosts = deploymentHosts.find((candidate) => candidate.deployment === deployment);
   if (!hosts) throw new Error(`Unknown deployment ${deployment}.`);
-  return buildInstanceReference({ instanceZuid, hosts, source: 'manager' });
+  return buildInstanceReference({
+    instanceZuid: instanceZuid.toLowerCase() as InstanceZuid,
+    hosts,
+    source: 'manager',
+  });
 }
 
 export function isInstanceZuid(value: string): value is InstanceZuid {
