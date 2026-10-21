@@ -278,6 +278,10 @@ describe('root collection browser', () => {
     render(<App api={{ ...api(), loadInstances }} tokenStore={store} />);
     fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
+    fireEvent.click(screen.getByRole('button', { name: 'Production' }));
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
     fireEvent.click(screen.getByRole('button', { name: 'How to find the token' }));
     expect(
       screen.getByText(
@@ -319,6 +323,35 @@ describe('root collection browser', () => {
     expect(
       screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
     ).toBeInTheDocument();
+  });
+
+  it('keeps a typed replacement token when switching deployment after a 401 and waits for Continue', async () => {
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment, token) =>
+      token === 'expired-token'
+        ? Effect.fail({ kind: 'authentication', status: 401, message: 'Expired' })
+        : Effect.succeed({ deployment, instances: [] }),
+    );
+    render(
+      <App
+        api={{ ...api(), loadInstances }}
+        tokenStore={memoryTokenStore([['stage', 'saved-stage-token']])}
+      />,
+    );
+    startSession('expired-token');
+    await screen.findByRole('heading', { name: 'Replace your session token' });
+    fireEvent.change(screen.getByLabelText('Zesty session token'), {
+      target: { value: 'typed-stage-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+    expect(screen.getByLabelText('Zesty session token')).toHaveValue('typed-stage-token');
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    expect(loadInstances.mock.calls).toEqual([['production', 'expired-token']]);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByRole('heading', { name: 'Choose an instance and root collection' });
+    expect(loadInstances.mock.calls).toEqual([
+      ['production', 'expired-token'],
+      ['stage', 'typed-stage-token'],
+    ]);
   });
 
   it('keeps item deep links usable when the instance list fails', async () => {

@@ -409,19 +409,16 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const catalogAuthenticationFailed = catalogQuery.error?.kind === 'authentication';
   const instanceListAuthenticationFailed = instanceList.error?.kind === 'authentication';
   useEffect(() => {
-    const failedDeployment = instanceListAuthenticationFailed
-      ? deployment
-      : catalogAuthenticationFailed
-        ? catalogInstance?.deployment
-        : authenticationFailed || previewAuthenticationFailureRevision === credentialRevision
-          ? reference?.deployment
-          : workspaceAuthenticationFailureRevision === credentialRevision
-            ? deployment
-            : undefined;
-    if (!failedDeployment || !activeToken) return;
+    const tokenRejected =
+      instanceListAuthenticationFailed ||
+      catalogAuthenticationFailed ||
+      authenticationFailed ||
+      previewAuthenticationFailureRevision === credentialRevision ||
+      workspaceAuthenticationFailureRevision === credentialRevision;
+    if (!tokenRejected || !activeToken) return;
     const update = window.setTimeout(() => {
-      sessionTokens.clear(failedDeployment);
-      setRejectedDeployment(failedDeployment);
+      sessionTokens.clear(deployment);
+      setRejectedDeployment(deployment);
       setSelectedItemId(undefined);
     }, 0);
     return () => window.clearTimeout(update);
@@ -430,12 +427,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     authenticationFailed,
     catalogAuthenticationFailed,
     instanceListAuthenticationFailed,
-    catalogInstance?.deployment,
     workspaceAuthenticationFailureRevision,
     credentialRevision,
     deployment,
     previewAuthenticationFailureRevision,
-    reference?.deployment,
     sessionTokens,
   ]);
 
@@ -1038,7 +1033,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               savedToken={activeToken}
               rejected={rejectedDeployment === deployment}
               instance={instance?.instanceZuid}
-              onDeploymentChange={instance ? undefined : setChosenDeployment}
+              onDeploymentChange={
+                instance
+                  ? undefined
+                  : (next) => {
+                      setChosenDeployment(next);
+                      setStep('credentials');
+                    }
+              }
               onBack={step === 'picker' && catalogInstance ? leavePicker : undefined}
               onSubmit={saveSessionToken}
             />

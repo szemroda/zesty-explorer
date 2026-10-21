@@ -36,13 +36,13 @@ export function SessionTokenForm({
   onBack,
 }: SessionTokenFormProps) {
   const [draft, setDraft] = useState(savedToken);
-  const [draftDeployment, setDraftDeployment] = useState(deployment);
+  const [draftSource, setDraftSource] = useState({ deployment, savedToken });
   const [showToken, setShowToken] = useState(false);
   const tokenInput = useRef<HTMLInputElement>(null);
   const problem = useFieldProblem({ 'session-token': tokenInput });
-  if (deployment !== draftDeployment) {
-    setDraftDeployment(deployment);
-    setDraft(savedToken);
+  if (deployment !== draftSource.deployment) {
+    setDraftSource({ deployment, savedToken });
+    if (!draft || draft === draftSource.savedToken) setDraft(savedToken);
     setShowToken(false);
     problem.clear();
   }
