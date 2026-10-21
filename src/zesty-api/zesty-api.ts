@@ -552,6 +552,19 @@ function statusError(response: ZestyTransportResponse): ExplorerError | undefine
   return { kind: 'network', message: `Zesty returned HTTP ${response.status}.` };
 }
 
+function describeInstanceListError(error: ExplorerError, deployment: Deployment): ExplorerError {
+  if (error.kind === 'permission') {
+    return {
+      ...error,
+      message: `Your Zesty session cannot list instances in the ${deploymentLabels[deployment]} deployment.`,
+    };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'The Accounts API did not return an instance list.' };
+  }
+  return error;
+}
+
 // The shared status messages name collections; code file requests need their own wording.
 function describeCodeFileError(error: ExplorerError): ExplorerError {
   if (error.kind === 'permission') {
@@ -942,18 +955,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       const requestUrl = `${accountsApiBaseUrls[deployment]}/instances`;
       const operation = 'load-instances' as const;
       return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
-        Effect.mapError((error) => {
-          if (error.kind === 'permission') {
-            return {
-              ...error,
-              message: `Your Zesty session cannot list instances in the ${deploymentLabels[deployment]} deployment.`,
-            };
-          }
-          if (error.kind === 'missing-resource') {
-            return { ...error, message: 'The Accounts API did not return an instance list.' };
-          }
-          return error;
-        }),
+        Effect.mapError((error) => describeInstanceListError(error, deployment)),
         Effect.flatMap((response) =>
           decodeInstanceList(deployment, response.body).pipe(
             Effect.map((list) =>

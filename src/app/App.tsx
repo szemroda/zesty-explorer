@@ -158,6 +158,25 @@ function instanceReference(reference: CollectionReference): InstanceReference {
   };
 }
 
+function suggestedRoot(instance: InstanceReference): CollectionCatalogEntry | undefined {
+  if (!instance.suggestedModelZuid) return undefined;
+  const reference: CollectionReference = {
+    instanceZuid: instance.instanceZuid,
+    modelZuid: instance.suggestedModelZuid,
+    deployment: instance.deployment,
+    area: instance.suggestedArea ?? 'other',
+    apiBaseUrl: instance.apiBaseUrl,
+    managerBaseUrl: instance.managerBaseUrl,
+  };
+  return {
+    label: reference.modelZuid,
+    name: reference.modelZuid,
+    type: 'uncatalogued',
+    group: reference.area,
+    reference,
+  };
+}
+
 function Explorer({ api, tokenStore }: ExplorerProps) {
   const queryClient = useQueryClient();
   const [initial] = useState(initialSharedView);
@@ -532,44 +551,29 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const rootPickerCollections = useMemo(() => {
     const collections = [...(catalogQuery.catalog?.collections ?? [])];
     if (!catalogInstance) return collections;
-    const fallbackReference: CollectionReference | undefined = catalogInstance.suggestedModelZuid
-      ? {
-          instanceZuid: catalogInstance.instanceZuid,
-          modelZuid: catalogInstance.suggestedModelZuid,
-          deployment: catalogInstance.deployment,
-          area: catalogInstance.suggestedArea ?? 'other',
-          apiBaseUrl: catalogInstance.apiBaseUrl,
-          managerBaseUrl: catalogInstance.managerBaseUrl,
-        }
-      : undefined;
-    if (!fallbackReference) return collections;
+    const fallback = suggestedRoot(catalogInstance);
+    if (!fallback) return collections;
     if (
       collections.some(
-        (collection) => collection.reference.modelZuid === fallbackReference.modelZuid,
+        (collection) => collection.reference.modelZuid === fallback.reference.modelZuid,
       )
     )
       return collections;
-    collections.push({
-      label: fallbackReference.modelZuid,
-      name: fallbackReference.modelZuid,
-      type: 'uncatalogued',
-      group: fallbackReference.area,
-      reference: fallbackReference,
-    });
+    collections.push(fallback);
     return collections;
   }, [catalogInstance, catalogQuery.catalog?.collections]);
 
   function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const pasted = pastedUrl.trim() ? applyPastedUrl(pastedUrl) : undefined;
-    if (pastedUrl.trim() && !pasted) return;
+    const trimmedUrl = pastedUrl.trim();
+    const pasted = trimmedUrl ? applyPastedUrl(trimmedUrl) : undefined;
+    if (trimmedUrl && !pasted) return;
     const targetInstance = pasted ?? catalogInstance;
     if (!targetInstance) {
       startFormProblem.report('instance', 'Choose an instance or paste a Zesty URL.');
       return;
     }
-    if (targetInstance.deployment !== deployment || !sessionTokens.read(targetInstance.deployment))
-      return;
+    if (targetInstance.deployment !== deployment) return;
     // The submit may apply a URL before React has rendered its suggested collection.
     const modelZuid =
       pasted && pasted !== catalogInstance ? pasted.suggestedModelZuid : selectedRootZuid;
@@ -579,19 +583,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           instanceKey(collection.reference) === instanceKey(targetInstance) &&
           collection.reference.modelZuid === modelZuid,
       ) ??
-      (modelZuid
-        ? {
-            label: modelZuid,
-            reference: {
-              instanceZuid: targetInstance.instanceZuid,
-              deployment: targetInstance.deployment,
-              apiBaseUrl: targetInstance.apiBaseUrl,
-              managerBaseUrl: targetInstance.managerBaseUrl,
-              area: targetInstance.suggestedArea ?? 'other',
-              modelZuid,
-            },
-          }
-        : undefined);
+      (modelZuid ? suggestedRoot({ ...targetInstance, suggestedModelZuid: modelZuid }) : undefined);
     if (!selected) {
       startFormProblem.report(
         'root-collection',

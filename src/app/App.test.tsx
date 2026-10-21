@@ -245,7 +245,9 @@ describe('root collection browser', () => {
       },
       { budget: immediateRequestBudget() },
     );
-    const loadInstances = vi.fn(listApi.loadInstances);
+    const loadInstances = vi.fn<ZestyApi['loadInstances']>((deployment, token) =>
+      listApi.loadInstances(deployment, token),
+    );
     render(<App api={{ ...api(), loadInstances }} tokenStore={memoryTokenStore()} />);
     expect(loadInstances).not.toHaveBeenCalled();
     startSession();
