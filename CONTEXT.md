@@ -20,8 +20,20 @@ _Avoid_: Workspace, site
 A Zesty Manager or Instances API URL that identifies an instance and may also identify a collection or content item within it.
 _Avoid_: Collection reference when no collection is identified, instance link
 
+**Instance list**:
+The instances that one session token can access in one Zesty deployment, as returned by the Accounts API. Records that cannot be understood are omitted with a warning, and a list shorter than the total Zesty reports is marked as truncated.
+_Avoid_: Instance catalog, sites
+
+**Instance picker**:
+The searchable control for choosing an instance from an instance list by name or instance ZUID.
+_Avoid_: Instance dropdown, site selector
+
+**Unlisted instance**:
+An instance identified by an instance reference or a shared view but absent from the instance list. Its absence does not prove that the instance is missing or inaccessible.
+_Avoid_: Unknown instance, forbidden instance
+
 **Zesty deployment**:
-The production, stage, or development Zesty infrastructure selected by an instance reference. Every collection node in a view belongs to the same deployment.
+The production, stage, or development Zesty infrastructure. The user chooses it with the session token, or an instance reference or shared view selects it. Every collection node in a view belongs to the same deployment.
 _Avoid_: Content state, environment
 
 **Collection**:
