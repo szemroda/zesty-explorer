@@ -1,7 +1,9 @@
 import { Either, Effect, Schema } from 'effect';
+import { instanceReferenceFor, isInstanceZuid } from '../collection-reference';
 import { defaultRequestBudget, retryAfterMs, type RequestBudget } from './request-budget';
 import {
   decodeCollectionPage,
+  deploymentLabels,
   decodeItemVersions,
   isCodeFileZuid,
   isModelZuid,
@@ -29,6 +31,8 @@ import {
   type FieldKind,
   type FieldZuid,
   type InstanceReference,
+  type InstanceList,
+  type InstanceListEntry,
   type InstanceUser,
   type ItemPublishing,
 } from '../domain';
@@ -129,6 +133,16 @@ const RawInstanceUserSchema = Schema.Struct({
   email: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const RawInstanceUsersResponseSchema = Schema.Struct({ data: Schema.Array(RawInstanceUserSchema) });
+
+const RawInstanceSchema = Schema.Struct({
+  ZUID: Schema.String.pipe(
+    Schema.filter(isInstanceZuid, { message: () => 'Instance ZUID is invalid' }),
+  ),
+  name: Schema.optional(Schema.Unknown),
+});
+const RawInstanceListMetaSchema = Schema.Struct({
+  _meta: Schema.Struct({ totalResults: Schema.Number }),
+});
 
 const RawInstanceDetailsSchema = Schema.Struct({
   data: Schema.Struct({
@@ -252,6 +266,7 @@ function prefixRecordIssues(
 
 interface DecodedRecords<Record> {
   readonly records: readonly Record[];
+  readonly received: number;
   readonly incomplete: boolean;
   readonly warning?: ExplorerError;
 }
@@ -288,6 +303,7 @@ function decodeRecordList<Record, Encoded>(
   const incomplete = issues.length > 0 || issuesOmitted;
   return Effect.succeed({
     records,
+    received: envelope.right.data.length,
     incomplete,
     ...(incomplete
       ? {
@@ -302,6 +318,38 @@ function decodeRecordList<Record, Encoded>(
         }
       : {}),
   });
+}
+
+function decodeInstanceList(
+  deployment: Deployment,
+  input: unknown,
+): Effect.Effect<InstanceList, ExplorerError> {
+  return decodeRecordList(input, RawInstanceSchema, {
+    envelope: 'Zesty returned the instance list in an unsupported shape.',
+    record: 'An instance record is invalid.',
+    omitted: 'Some instance records could not be understood and were omitted.',
+  }).pipe(
+    Effect.map(({ records, received, warning }): InstanceList => {
+      const seen = new Set<string>();
+      const instances = records.flatMap((record): InstanceListEntry[] => {
+        const reference = instanceReferenceFor(record.ZUID, deployment);
+        if (seen.has(reference.instanceZuid)) return [];
+        seen.add(reference.instanceZuid);
+        const name = typeof record.name === 'string' ? record.name.trim() : undefined;
+        return [{ reference, ...(name ? { name } : {}) }];
+      });
+      const meta = Schema.decodeUnknownEither(RawInstanceListMetaSchema)(input);
+      const total = Either.isRight(meta) ? meta.right._meta.totalResults : undefined;
+      return {
+        deployment,
+        instances,
+        ...(warning ? { warning } : {}),
+        ...(total !== undefined && total > received
+          ? { truncated: { returned: received, total } }
+          : {}),
+      };
+    }),
+  );
 }
 
 function decodeCatalog(
@@ -502,6 +550,19 @@ function statusError(response: ZestyTransportResponse): ExplorerError | undefine
     };
   }
   return { kind: 'network', message: `Zesty returned HTTP ${response.status}.` };
+}
+
+function describeInstanceListError(error: ExplorerError, deployment: Deployment): ExplorerError {
+  if (error.kind === 'permission') {
+    return {
+      ...error,
+      message: `Your Zesty session cannot list instances in the ${deploymentLabels[deployment]} deployment.`,
+    };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'The Accounts API did not return an instance list.' };
+  }
+  return error;
 }
 
 // The shared status messages name collections; code file requests need their own wording.
@@ -884,6 +945,34 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             Effect.map(({ records }) => liveBaseUrls(records)),
             Effect.mapError((error) =>
               withRequestDiagnostic(error, operation, domainsUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadInstances: (deployment, sessionToken) => {
+      const requestUrl = `${accountsApiBaseUrls[deployment]}/instances`;
+      const operation = 'load-instances' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.mapError((error) => describeInstanceListError(error, deployment)),
+        Effect.flatMap((response) =>
+          decodeInstanceList(deployment, response.body).pipe(
+            Effect.map((list) =>
+              list.warning
+                ? {
+                    ...list,
+                    warning: withRequestDiagnostic(
+                      list.warning,
+                      operation,
+                      requestUrl,
+                      response.status,
+                    ),
+                  }
+                : list,
+            ),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
             ),
           ),
         ),

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { parseCollectionReference, parseInstanceReference } from './index';
+import { instanceReferenceFor, parseCollectionReference, parseInstanceReference } from './index';
 
 describe('InstanceReferenceParser', () => {
+  it('normalizes instance ZUIDs and hosts when building a reference', () => {
+    expect(instanceReferenceFor('8-ABC123', 'stage')).toEqual({
+      instanceZuid: '8-abc123',
+      deployment: 'stage',
+      apiBaseUrl: 'https://8-abc123.api.stage.zesty.io/v1',
+      managerBaseUrl: 'https://8-abc123.manager.stage.zesty.io',
+    });
+  });
+
   it.each([
     {
       input: 'https://8-abc123.manager.zesty.io/',

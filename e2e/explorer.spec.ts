@@ -114,6 +114,16 @@ async function fulfillApi(route: Route, state: FakeApiState) {
   }
 
   const url = new URL(request.url());
+  if (url.pathname === '/v1/instances') {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        _meta: { totalResults: 1 },
+        data: [{ ZUID: '8-fixture', name: 'Fixture site', domain: 'evil.example' }],
+      },
+    });
+    return;
+  }
   if (url.pathname.endsWith('/content/models')) {
     await route.fulfill({
       headers: cors,
@@ -214,10 +224,17 @@ async function installFakeApi(page: Page): Promise<FakeApiState> {
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname === 'localhost') await route.continue();
-    else await route.abort('blockedbyclient');
+    else {
+      state.requests.push(`${route.request().method()} ${route.request().url()}`);
+      await route.abort('blockedbyclient');
+    }
   });
   await page.route('https://8-fixture.api.zesty.io/**', (route) => fulfillApi(route, state));
   await page.route('https://accounts.api.zesty.io/**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/v1/instances') {
+      await fulfillApi(route, state);
+      return;
+    }
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({
         status: 204,
@@ -251,10 +268,15 @@ async function openRoot(page: Page) {
   await page.goto('/');
   await expect(page.getByText('How to find the token')).toBeVisible();
   await page.getByText('How to find the token').click();
-  await expect(page.getByText(/Copy APP_SID for production/)).toBeVisible();
+  await expect(
+    page.getByText(/Copy APP_SID from your Production Zesty Manager cookies/),
+  ).toBeVisible();
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await page.getByLabel('Zesty instance URL').fill(rootUrl);
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('combobox', { name: 'Instance' }).fill('Fixture');
+  await page.getByRole('option', { name: /Fixture site.*8-fixture/ }).click();
+  await page.getByRole('combobox', { name: 'Root collection' }).fill('6-rootmodel');
+  await page.getByRole('option', { name: /6-rootmodel.*root/ }).click();
   await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
@@ -312,9 +334,24 @@ test('requests Zesty using only headers accepted by its CORS preflight', async (
   const requestHeaders = await page.evaluate(
     () => (window as unknown as { __zestyRequestHeaders: string[][] }).__zestyRequestHeaders,
   );
-  expect(state.requests.length).toBeGreaterThan(0);
+  expect(state.requests).toContain('GET https://accounts.api.zesty.io/v1/instances');
+  expect(state.requests.some((request) => request.includes('evil.example'))).toBe(false);
   expect(requestHeaders.length).toBeGreaterThan(0);
   for (const headers of requestHeaders) expect(headers).toEqual(['authorization']);
+});
+
+test('opens an item deep link through the pasted URL fallback', async ({ page }) => {
+  const state = await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(`${rootUrl}/7-root-000000/edit`);
+  await page.getByLabel('Or paste a Zesty URL').blur();
+  await expect(page.getByRole('combobox', { name: 'Instance' })).toHaveValue('Fixture site');
+  await expect(page.getByRole('combobox', { name: 'Root collection' })).toHaveValue('6-rootmodel');
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await expect(page.getByRole('dialog', { name: 'First story' })).toBeVisible();
+  expect(state.requests.some((request) => request.includes('evil.example'))).toBe(false);
 });
 
 test('opens, filters, paginates, refreshes, and recovers from authentication failure', async ({
@@ -353,8 +390,9 @@ test('reports the browser origin without claiming that CORS caused a network fai
   state.networkFailure = true;
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await page.getByLabel('Zesty instance URL').fill(rootUrl);
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(rootUrl);
+  await page.getByLabel('Or paste a Zesty URL').blur();
   await page.getByRole('button', { name: 'Open root collection' }).click();
 
   const alert = page.getByRole('alert');
@@ -501,10 +539,11 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   const restored = await context.newPage();
   await installFakeApi(restored);
   await restored.goto(copied);
-  await expect(restored.getByRole('heading', { name: 'Replace your session token' })).toBeVisible();
+  await expect(
+    restored.getByRole('heading', { name: 'Enter your Production session token' }),
+  ).toBeVisible();
   await restored.getByLabel('Zesty session token').fill('synthetic-session-token');
-  await restored.getByRole('button', { name: 'Load collections' }).click();
-  await restored.getByRole('button', { name: 'Open root collection' }).click();
+  await restored.getByRole('button', { name: 'Continue' }).click();
   await expect(restored.getByText('1 items')).toBeVisible();
   await expect(
     restored.getByRole('button', { name: 'Edit filter Children: Active is true' }),
@@ -532,7 +571,7 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
   await page.getByRole('button', { name: /^Remove filter Any field/ }).click();
   await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
   await page.getByRole('menuitem', { name: 'Change root collection' }).click();
-  await page.getByLabel('Root collection reference').fill(childUrl);
+  await page.getByLabel('Or paste a Zesty URL').fill(childUrl);
   await page.getByRole('button', { name: 'Open root collection' }).click();
   const replaceRoot = page.getByRole('alertdialog', { name: 'Replace root collection?' });
   await expect(replaceRoot.getByRole('listitem')).toHaveText(['6-rootmodel']);

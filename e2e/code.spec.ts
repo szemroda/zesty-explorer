@@ -13,8 +13,9 @@ async function openInstance(page: Page, url = codeInstanceUrl) {
   await installCodeFixture(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill(syntheticToken);
-  await page.getByLabel('Zesty instance URL').fill(url);
-  await page.getByRole('button', { name: 'Load collections' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(url);
+  await page.getByLabel('Or paste a Zesty URL').blur();
 }
 
 function toggle(page: Page, group: string, name: string): Locator {
@@ -43,7 +44,9 @@ async function firstHighlightVisible(page: Page): Promise<boolean> {
 
 test('opens Code without a root collection and explains a file', async ({ page }) => {
   await openInstance(page);
-  await expect(page.getByRole('heading', { name: 'Choose the root collection' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Choose an instance and root collection' }),
+  ).toBeVisible();
 
   await page.getByRole('tab', { name: 'Code' }).click();
   await expect(fileButton(page, '/z/layouts/home.json')).toBeVisible();

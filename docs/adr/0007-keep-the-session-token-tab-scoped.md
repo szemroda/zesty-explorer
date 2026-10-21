@@ -4,7 +4,7 @@ status: accepted
 
 # Keep the session token tab-scoped and send it only to derived hosts
 
-The session token is the user's Zesty Manager session, so it carries all of that user's permissions rather than a read-only scope. Zesty Explorer therefore keeps it only in the tab's `sessionStorage`, keyed by Zesty deployment, and sends it only to hosts that the application builds from a closed deployment table after validating an instance reference. A host copied from user input never receives the token, an unknown host is rejected without a request, and users cannot add hosts, because a leaked token or a mistyped host would expose full account access.
+The session token is the user's Zesty Manager session, so it carries all of that user's permissions rather than a read-only scope. Zesty Explorer therefore keeps it only in the tab's `sessionStorage`, keyed by Zesty deployment, and sends it only to hosts that the application builds from a closed deployment table: the Accounts API host of the token's deployment, and the Instances API host of an instance whose ZUID passed validation, whether that ZUID came from a pasted reference, a shared link, or the instance list. A host copied from user input never receives the token, an unknown host is rejected without a request, and users cannot add hosts, because a leaked token or a mistyped host would expose full account access.
 
 ## Consequences
 
@@ -13,4 +13,5 @@ The session token is the user's Zesty Manager session, so it carries all of that
 - The application sends only `GET` requests, because the same token could also change content.
 - An authenticated Accounts or Instances API `401` clears only that deployment's token and preserves the view.
 - The token reaches the instance's Instances API host and the deployment's Accounts API host ([ADR 0006](./0006-enrich-item-history-independently.md)). Supporting another Zesty host requires a code change.
+- Listing instances sends the token to the deployment's Accounts API host before any instance is selected ([ADR 0015](./0015-list-instances-through-accounts-api.md)). Response fields such as `domain` never become a request host.
 - Anonymous WebEngine endpoint requests follow [ADR 0011](./0011-call-webengine-endpoints-anonymously.md). Their hosts never receive the session token, and their responses do not invalidate it.

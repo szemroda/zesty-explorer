@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 
 const operationLabels: Readonly<Record<ExplorerRequestOperation, string>> = {
+  'load-instances': 'Loading instance list',
   'load-collection-catalog': 'Loading collection catalog',
   'load-collection-schema': 'Loading collection schema',
   'load-collection-items': 'Loading collection items',

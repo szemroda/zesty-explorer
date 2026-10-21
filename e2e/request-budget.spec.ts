@@ -10,9 +10,12 @@ async function prepare(page: Page) {
   await installCodeFixture(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill(syntheticToken);
-  await page.getByLabel('Zesty instance URL').fill(codeInstanceUrl);
-  await page.getByRole('button', { name: 'Load collections' }).click();
-  await expect(page.getByRole('heading', { name: 'Choose the root collection' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(codeInstanceUrl);
+  await page.getByLabel('Or paste a Zesty URL').blur();
+  await expect(
+    page.getByRole('heading', { name: 'Choose an instance and root collection' }),
+  ).toBeVisible();
   await page.getByRole('tab', { name: 'Code' }).click();
 }
 
@@ -52,12 +55,16 @@ test('paces each tab while sharing four active slots and releases them after req
     });
     await tab.goto('/');
     await tab.getByLabel('Zesty session token').fill(syntheticToken);
-    await tab.getByLabel('Zesty instance URL').fill(codeInstanceUrl);
+    await tab.getByRole('button', { name: 'Continue' }).click();
+    await expect(tab.getByRole('status', { name: 'Loading instance list' })).toBeHidden();
+    await tab.getByLabel('Or paste a Zesty URL').fill(codeInstanceUrl);
   }
   await Promise.all(
     [page, second].map(async (tab) => {
-      await tab.getByRole('button', { name: 'Load collections' }).click();
-      await expect(tab.getByRole('heading', { name: 'Choose the root collection' })).toBeVisible();
+      await tab.getByLabel('Or paste a Zesty URL').blur();
+      await expect(
+        tab.getByRole('heading', { name: 'Choose an instance and root collection' }),
+      ).toBeVisible();
       await tab.getByRole('tab', { name: 'Code' }).click();
       await selectEndpoint(tab);
     }),
@@ -144,15 +151,16 @@ test('closing a tab releases its active slots and allows a queued tab to load', 
     });
     await tab.goto('/');
     await tab.getByLabel('Zesty session token').fill(syntheticToken);
-    await tab.getByLabel('Zesty instance URL').fill(codeInstanceUrl);
+    await tab.getByRole('button', { name: 'Continue' }).click();
+    await expect(tab.getByRole('status', { name: 'Loading instance list' })).toBeHidden();
+    await tab.getByLabel('Or paste a Zesty URL').fill(codeInstanceUrl);
   }
-  await Promise.all(
-    tabs.map((tab) => tab.getByRole('button', { name: 'Load collections' }).click()),
-  );
+  await Promise.all(tabs.map((tab) => tab.getByLabel('Or paste a Zesty URL').blur()));
   await expect.poll(() => started.length).toBe(4);
   const first = started[0];
   if (!first) throw new Error('Expected an active tab');
   await first.close();
-  await expect.poll(() => started.length).toBe(5);
+  // Chromium frees a closed page's Web Locks after page teardown, measured at up to 10 seconds.
+  await expect.poll(() => started.length, { timeout: 20_000 }).toBe(5);
   await Promise.all(tabs.filter((tab) => !tab.isClosed()).map((tab) => tab.close()));
 });
