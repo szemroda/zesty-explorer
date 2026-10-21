@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { Effect, Either } from 'effect';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Deferred, Effect, Either } from 'effect';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -505,6 +505,31 @@ describe('root collection browser', () => {
     expect(screen.queryByText(/an instance the list does not show/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry instance list' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Zesty instance URL')).not.toBeInTheDocument();
+  });
+
+  it('keeps an open view when its earlier instance list request finishes with a 401', async () => {
+    const pendingList = Effect.runSync(Deferred.make<never, ExplorerError>());
+    const store = memoryTokenStore();
+    render(
+      <App
+        api={{ ...api(), loadInstances: () => Deferred.await(pendingList) }}
+        tokenStore={store}
+      />,
+    );
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    await screen.findByRole('heading', { name: 'Stories' });
+    await act(async () => {
+      await Effect.runPromise(
+        Deferred.fail(pendingList, { kind: 'authentication', status: 401, message: 'Expired' }),
+      );
+    });
+    // Let the query notification and the token-clearing timer both settle.
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+    expect(store.read('production')).toBe('fixture-session-token');
+    expect(screen.getByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Zesty session token')).not.toBeInTheDocument();
   });
 
   it('can open a recognized API model URL when the catalog is unavailable', async () => {

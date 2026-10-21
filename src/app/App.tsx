@@ -426,7 +426,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     ? describeExplorerError(rootFailure, window.location.origin)
     : undefined;
   const catalogAuthenticationFailed = catalogQuery.error?.kind === 'authentication';
-  const instanceListAuthenticationFailed = instanceList.error?.kind === 'authentication';
+  const instanceListAuthenticationFailed =
+    !reference && instanceList.error?.kind === 'authentication';
   useEffect(() => {
     const tokenRejected =
       instanceListAuthenticationFailed ||
