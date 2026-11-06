@@ -92,7 +92,7 @@ The `Import check` tab predicts what Zesty's `Import CSV` would do with a file b
 
 The summary reconciles the file's line count with the items expected. Lines that won't import, and lines that aren't entries (blank lines and line breaks inside quoted cells), are subtracted from the total; rows that may fail are counted as imported. Pick a finding to see its lines, search by value, `line 12` or `row 12`, and select a line to see why. The `More actions` menu downloads the rows with problems or the importable rows as CSV, and copies a Markdown report.
 
-Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each.
+Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each. Zesty's `Import CSV` creates items in the instance's default language, so the check reads items in that language.
 
 ## Limits and failures
 

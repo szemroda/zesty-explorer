@@ -69,16 +69,23 @@ function collectionQueryKey(
   ] as const;
 }
 
+/**
+ * The instance's default language. The app read only en-US before languages could be chosen, so
+ * it still does for an instance that reports no active language.
+ */
+export function defaultLanguage(languages: readonly ContentLanguage[]): LanguageCode {
+  return (languages.find((language) => language.isDefault) ?? languages[0])?.code ?? 'en-US';
+}
+
 // The language the view reads. A named language is trusted until the instance's languages are
-// known, then only if it is still active. The Explorer read only en-US before languages could be
-// chosen, so it still does for an instance that reports no active language.
+// known, then only if it is still active.
 function resolveLanguage(
   named: LanguageCode | undefined,
   languages: readonly ContentLanguage[] | undefined,
 ): LanguageCode | undefined {
   if (!languages) return named;
   if (named && languages.some((language) => language.code === named)) return named;
-  return (languages.find((language) => language.isDefault) ?? languages[0])?.code ?? 'en-US';
+  return defaultLanguage(languages);
 }
 
 function hasAuthenticationFailure(
