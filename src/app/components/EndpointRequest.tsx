@@ -344,7 +344,7 @@ export function EndpointRequest({
             type="submit"
             size="sm"
             className="h-7 rounded-full"
-            disabled={!url || Boolean(blocked)}
+            disabled={Boolean(blocked)}
             {...(blocked ? { title: blocked } : {})}
           >
             <ArrowRight aria-hidden="true" />

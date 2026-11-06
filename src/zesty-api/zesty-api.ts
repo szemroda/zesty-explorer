@@ -156,11 +156,10 @@ const RawInstanceDetailsSchema = Schema.Struct({
     ),
   }),
 });
-// Every setting value is a string; checkboxes hold "0" or "1".
-const RawSettingsSchema = Schema.Struct({
-  data: Schema.Array(
-    Schema.Struct({ key: Schema.String, value: Schema.optional(Schema.NullOr(Schema.String)) }),
-  ),
+// Setting values are strings, or null when unset; checkboxes hold "0" or "1".
+const RawSettingSchema = Schema.Struct({
+  key: Schema.String,
+  value: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const RawDomainSchema = Schema.Struct({
   domain: Schema.String,
@@ -543,22 +542,22 @@ const previewBaseUrls: Readonly<Record<Deployment, (hash: string) => string>> = 
 };
 
 /**
- * Domains on the live branch as origins, ordered the way Zesty Manager picks one: newest first,
- * then the first domain outside `.zesty.dev`, usually the customer's own, moved to the front.
- * Records that are not a bare host name are skipped.
- */
-/**
  * WebEngine locks the preview host while the password is set, unless `preview_lock` is switched
  * off. Instances without a `preview_lock` setting are locked.
  */
-function previewLock(settings: typeof RawSettingsSchema.Type): PreviewLock {
-  const value = (key: string) => settings.data.find((setting) => setting.key === key)?.value;
+function previewLock(settings: readonly (typeof RawSettingSchema.Type)[]): PreviewLock {
+  const value = (key: string) => settings.find((setting) => setting.key === key)?.value;
   const password = value('preview_lock_password');
   return password && value('preview_lock') !== '0'
     ? { kind: 'password', password }
     : { kind: 'off' };
 }
 
+/**
+ * Domains on the live branch as origins, ordered the way Zesty Manager picks one: newest first,
+ * then the first domain outside `.zesty.dev`, usually the customer's own, moved to the front.
+ * Records that are not a bare host name are skipped.
+ */
 function liveBaseUrls(domains: readonly (typeof RawDomainSchema.Type)[]): string[] {
   const origins = [...domains]
     .filter((record) => record.branch === 'live')
@@ -1030,24 +1029,19 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       const operation = 'load-instance-settings' as const;
       return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
         Effect.mapError(describeSettingsError),
-        Effect.flatMap((response) => {
-          const decoded = Schema.decodeUnknownEither(RawSettingsSchema, { errors: 'all' })(
-            response.body,
-          );
-          return Either.isLeft(decoded)
-            ? Effect.fail(
-                withRequestDiagnostic(
-                  unsupportedShapeError(
-                    'Zesty returned instance settings in an unsupported shape.',
-                    decoded.left,
-                  ),
-                  operation,
-                  requestUrl,
-                  response.status,
-                ),
-              )
-            : Effect.succeed(previewLock(decoded.right));
-        }),
+        // A setting that cannot be understood is skipped; only the two lock settings matter.
+        Effect.flatMap((response) =>
+          decodeRecordList(response.body, RawSettingSchema, {
+            envelope: 'Zesty returned instance settings in an unsupported shape.',
+            record: 'A setting record is invalid.',
+            omitted: 'Some settings could not be understood and were omitted.',
+          }).pipe(
+            Effect.map(({ records }) => previewLock(records)),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
       );
     },
 

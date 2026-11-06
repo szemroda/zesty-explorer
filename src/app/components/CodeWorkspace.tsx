@@ -131,9 +131,12 @@ export function CodeWorkspace({
     credentials,
     enabled: selected !== undefined && isEndpoint(selected),
   });
-  const authenticationFailed = [latest.error, published.error, hosts.error].some(
-    (error) => error?.kind === 'authentication',
-  );
+  const authenticationFailed = [
+    latest.error,
+    published.error,
+    hosts.error,
+    hosts.previewLockError,
+  ].some((error) => error?.kind === 'authentication');
 
   useEffect(() => {
     if (authenticationFailed) onAuthenticationFailure();

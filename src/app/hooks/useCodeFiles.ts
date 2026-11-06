@@ -108,7 +108,7 @@ export interface WebEngineBaseUrlsResult {
   /** The preferred origin first; empty when published code has no live domain. */
   readonly baseUrls: readonly string[] | undefined;
   readonly error: ExplorerError | undefined;
-  /** Undefined until read. Only the preview host of latest code can be locked. */
+  /** Undefined until read or after a failed read. Only latest code's preview host can be locked. */
   readonly previewLock: PreviewLock | undefined;
   /** Failing to read the lock leaves endpoints callable without its password. */
   readonly previewLockError: ExplorerError | undefined;
@@ -165,7 +165,8 @@ export function useWebEngineBaseUrls({
   return {
     baseUrls: query.data,
     error: explorerFailure(query.error),
-    previewLock: latest ? lockQuery.data : unlocked,
+    // After a failed refresh the cached password may be out of date, so none is used.
+    previewLock: !latest ? unlocked : lockQuery.error ? undefined : lockQuery.data,
     previewLockError: latest ? explorerFailure(lockQuery.error) : undefined,
     refresh: useCallback(() => {
       void refetch();

@@ -146,6 +146,34 @@ describe('EndpointRequest', () => {
     );
   });
 
+  it('stays callable without a password when the preview lock cannot be read', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response('[]')));
+    vi.stubGlobal('fetch', fetch);
+    render(
+      <EndpointRequest
+        instance={instance}
+        state="latest"
+        file={endpoint('11-unreadable-lock', '')}
+        files={[]}
+        hosts={{
+          ...hosts('latest'),
+          previewLock: undefined,
+          previewLockError: { kind: 'network', message: 'Zesty could not be reached.' },
+        }}
+      >
+        <p>Source view</p>
+      </EndpointRequest>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Zesty Explorer could not read the preview lock password. If the preview answers 401, add ?zpw with the password.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(`${preview}/data/list.json`, expect.anything()),
+    );
+  });
+
   it('restores its form, and a refreshed source only adds new suggestions', () => {
     const file = endpoint('11-restore', '{{get_var.limit}}');
     const first = renderPanel(file);

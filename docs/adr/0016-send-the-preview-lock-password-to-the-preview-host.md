@@ -14,6 +14,8 @@ WebEngine locks an instance's preview host for anonymous visitors: without its p
 ## Consequences
 
 - The password is added only when the request is sent. The address bar, the `Open in a new tab` link, the response pane, technical details, and shared links show the URL without it. A `zpw` the user adds is sent instead.
+- Response bodies are shown as received, so an endpoint that prints its query string shows the password to the user who already has access to it. Explorer does not rewrite response bodies.
 - The password is cached in memory with the preview host, and `Refresh` reads it again. A stale password produces a `401` like any other wrong password, and endpoint sends are never replayed automatically, so WebEngine's five-attempt lockout is not reached by Explorer alone.
-- When the settings cannot be read, endpoints stay callable without the password, and the panel says how to add it.
+- When the settings cannot be read, including after a failed `Refresh`, endpoints stay callable without the password, and the panel says how to add it. An expired session token asks for a replacement like every other authenticated read.
+- The development deployment serves previews over HTTP, so there the password travels unencrypted.
 - Live domains never receive the password. The `preview_lock_custom` setting, which locks custom domains, is not handled.
