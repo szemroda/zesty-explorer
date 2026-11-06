@@ -364,18 +364,19 @@ test('reads the view in a language chosen from the instance languages', async ({
   const state = await installFakeApi(page);
   await openRoot(page);
   const language = page.getByRole('combobox', { name: 'Content language' });
-  await expect(language).toContainText('English (US)');
+  await expect(language).toContainText('en-US');
+  const width = (await language.boundingBox())?.width;
   await language.click();
   await expect(page.getByRole('option')).toHaveText([/English \(US\)/, /German \(Germany\)/]);
   await page.getByRole('option', { name: /German/ }).click();
 
   await expect(page.getByRole('cell', { name: 'DE Story 1 with', exact: false })).toBeVisible();
   expect(state.requests.some((request) => request.includes('lang=de-DE'))).toBe(true);
+  await expect(language).toContainText('de-DE');
+  expect((await language.boundingBox())?.width).toBe(width);
 
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Content language' })).toContainText(
-    'German (Germany)',
-  );
+  await expect(page.getByRole('combobox', { name: 'Content language' })).toContainText('de-DE');
 });
 
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {

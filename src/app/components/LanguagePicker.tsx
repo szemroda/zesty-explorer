@@ -8,11 +8,14 @@ interface LanguagePickerProps {
   readonly onChange: (language: ContentLanguage) => void;
 }
 
-/** Chooses the language every collection in the view is read in. */
+/**
+ * Chooses the language every collection in the view is read in. The trigger shows only the code in
+ * a monospace font, so switching languages keeps the header's width.
+ */
 export function LanguagePicker({ languages, value, onChange }: LanguagePickerProps) {
   return (
     <Select
-      items={languages.map((language) => ({ label: language.name, value: language.code }))}
+      items={languages.map((language) => ({ label: language.code, value: language.code }))}
       value={value}
       onValueChange={(code) => {
         const language = languages.find((entry) => entry.code === code);
@@ -21,7 +24,7 @@ export function LanguagePicker({ languages, value, onChange }: LanguagePickerPro
     >
       <SelectTrigger size="sm" aria-label="Content language">
         <Languages size={13} aria-hidden="true" />
-        <SelectValue />
+        <SelectValue className="min-w-[5ch] font-mono" />
       </SelectTrigger>
       <SelectContent align="end" alignItemWithTrigger={false}>
         {languages.map((language) => (
