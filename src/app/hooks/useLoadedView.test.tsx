@@ -132,6 +132,38 @@ describe('loaded view query', () => {
     ]);
   });
 
+  it('reads the default language instead of a named one the instance no longer has', async () => {
+    const api: CollectionApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () =>
+        Effect.succeed([
+          { code: 'en-US', name: 'English (US)', isDefault: true },
+          { code: 'de-DE', name: 'German', isDefault: false },
+        ]),
+      loadCollectionSchema: () =>
+        Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
+      loadCollectionSnapshot: (reference) =>
+        Effect.succeed(collectionSnapshot(reference.modelZuid)),
+    };
+    const { result } = renderHook(
+      () =>
+        useLoadedView({
+          api,
+          root: collectionNode('node-root', '6-root'),
+          contentState: 'latest',
+          language: 'fr-FR',
+          sessionToken: 'session-token',
+          enabled: true,
+          requiresCompleteView: false,
+        }),
+      { wrapper: queryClientWrapper(new QueryClient()) },
+    );
+
+    await waitFor(() =>
+      expect(result.current.contentScope).toEqual({ state: 'latest', language: 'en-US' }),
+    );
+  });
+
   it('fails the view with the language list failure while its default language is unknown', async () => {
     const failure: ExplorerError = { kind: 'network', message: 'Unreachable' };
     const loadCollectionSnapshot = vi.fn<CollectionApi['loadCollectionSnapshot']>();

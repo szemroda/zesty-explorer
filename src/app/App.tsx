@@ -763,7 +763,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         version: 2,
         root: createRootNode(entry.reference, entry.label),
         contentState: 'latest',
-        ...(chosenLanguage ? { language: chosenLanguage } : {}),
         viewFilters: [],
       },
     });

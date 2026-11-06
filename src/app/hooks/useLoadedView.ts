@@ -69,9 +69,15 @@ function collectionQueryKey(
   ] as const;
 }
 
-// The Explorer read only en-US before languages could be chosen, so it still does for an
-// instance that reports no active language.
-function defaultLanguage(languages: readonly ContentLanguage[]): LanguageCode {
+// The language the view reads. A named language is trusted until the instance's languages are
+// known, then only if it is still active. The Explorer read only en-US before languages could be
+// chosen, so it still does for an instance that reports no active language.
+function resolveLanguage(
+  named: LanguageCode | undefined,
+  languages: readonly ContentLanguage[] | undefined,
+): LanguageCode | undefined {
+  if (!languages) return named;
+  if (named && languages.some((language) => language.code === named)) return named;
   return (languages.find((language) => language.isDefault) ?? languages[0])?.code ?? 'en-US';
 }
 
@@ -139,8 +145,7 @@ export function useLoadedView({
       return runExplorerQuery(api.loadLanguages(root.reference, credentials.sessionToken), signal);
     },
   });
-  const resolvedLanguage =
-    language ?? (languagesQuery.data ? defaultLanguage(languagesQuery.data) : undefined);
+  const resolvedLanguage = resolveLanguage(language, languagesQuery.data);
   const contentScope = useMemo<ContentScope | undefined>(
     () => (resolvedLanguage ? { state: contentState, language: resolvedLanguage } : undefined),
     [contentState, resolvedLanguage],
