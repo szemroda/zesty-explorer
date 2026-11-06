@@ -12,7 +12,7 @@ function Field({
   return (
     <FieldPrimitive.Root
       data-slot="field"
-      className={cn('grid gap-2', className)}
+      className={cn('grid grid-cols-1 gap-2', className)}
       invalid={error !== undefined}
       {...props}
     >
