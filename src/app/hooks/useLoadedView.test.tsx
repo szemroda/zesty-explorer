@@ -9,7 +9,7 @@ import {
   type ExplorerError,
   type ModelZuid,
 } from '../../domain';
-import { collectionNode, queryClientWrapper } from '../../test/fixtures';
+import { collectionNode, latestScope, queryClientWrapper } from '../../test/fixtures';
 import type { CollectionApi } from '../../zesty-api';
 import { useLoadedView } from './useLoadedView';
 
@@ -29,6 +29,7 @@ describe('loaded view query', () => {
     );
     const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
       loadCollectionSchema: (reference) =>
         Effect.succeed({
           modelZuid: reference.modelZuid,
@@ -43,7 +44,7 @@ describe('loaded view query', () => {
         useLoadedView({
           api,
           root,
-          contentState: 'latest',
+          contentScope: latestScope,
           sessionToken: 'session-token',
           enabled: true,
           requiresCompleteView: false,
@@ -69,6 +70,7 @@ describe('loaded view query', () => {
     };
     const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
       loadCollectionSchema: () =>
         Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
       loadCollectionSnapshot: () => Effect.fail(failure),
@@ -80,7 +82,7 @@ describe('loaded view query', () => {
         useLoadedView({
           api,
           root,
-          contentState: 'latest',
+          contentScope: latestScope,
           sessionToken: 'expired-token',
           enabled: true,
           requiresCompleteView: false,

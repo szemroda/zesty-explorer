@@ -116,6 +116,10 @@ _Avoid_: Joined rows, owned items
 The single version policy applied to every collection in a view. It is either latest saved or published.
 _Avoid_: Environment, mode
 
+**Content language**:
+The single language applied to every collection in a view, chosen from the instance's active languages. It defaults to the instance's default language. Each language version of a content item has its own ZUID, so relationships connect items of the same language.
+_Avoid_: Locale, translation
+
 **Latest saved**:
 The content state that selects the most recently saved version of each content item, whether published or not. That content item version has `Latest saved` status in a version preview.
 _Avoid_: Draft

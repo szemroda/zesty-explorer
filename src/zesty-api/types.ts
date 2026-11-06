@@ -11,7 +11,8 @@ import type {
   CollectionSnapshot,
   ContentItemReference,
   ContentItemVersion,
-  ContentState,
+  ContentLanguage,
+  ContentScope,
   ExplorerError,
   Deployment,
   InstanceList,
@@ -51,10 +52,15 @@ export interface CollectionApi {
   ): Effect.Effect<CollectionSchema, ExplorerError>;
   loadCollectionSnapshot(
     reference: CollectionReference,
-    state: ContentState,
+    scope: ContentScope,
     sessionToken: string,
     itemLimit?: number,
   ): Effect.Effect<CollectionSnapshot, ExplorerError>;
+  /** The instance's active languages, the default one first, then by name. */
+  loadLanguages(
+    reference: InstanceReference,
+    sessionToken: string,
+  ): Effect.Effect<readonly ContentLanguage[], ExplorerError>;
 }
 
 export interface ItemVersionApi {

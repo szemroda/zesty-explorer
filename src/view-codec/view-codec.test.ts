@@ -62,6 +62,17 @@ describe('ViewCodec', () => {
     expect(ViewCodec.encode(shared(view))).toEqual(encoded);
   });
 
+  it('round-trips the content language and rejects a malformed language code', () => {
+    const german = shared({ ...view, language: 'de-DE' });
+    expect(ViewCodec.decode(ViewCodec.encode(german).fragment)).toEqual({
+      ok: true,
+      state: german,
+    });
+    expect(
+      ViewCodec.decode(gzipFragment({ ...shared(view), view: { ...view, language: 'de DE' } })),
+    ).toMatchObject({ ok: false });
+  });
+
   it('round-trips the Code tab selection with or without an Explorer view', () => {
     const codeOnly: SharedState = {
       version: 3,

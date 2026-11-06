@@ -75,6 +75,7 @@ V1 assumes one open tab: multiple tabs can multiply the request rate, and a cool
 ## Use the explorer
 
 - `Published only` applies the same content state to every collection. Off means latest saved content.
+- The language menu next to it appears when the instance has more than one active language. The chosen language applies to every collection in the view and is kept in its link. Views open in the instance's default language.
 - `Add related collection` attaches a collection below a tree node. All nodes must belong to the root instance and deployment.
 - Native relationships use model relationship fields declared on either collection. When several fields connect the same models, choose the intended field.
 - Custom relationships compare one parent field path with one child field path using strict scalar equality. Values are not coerced.

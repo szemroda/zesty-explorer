@@ -5,7 +5,7 @@ import {
   type CollectionSchema,
   type CollectionSnapshot,
 } from '../domain';
-import { collectionNode as node } from '../test/fixtures';
+import { collectionNode as node, latestScope } from '../test/fixtures';
 import type { CollectionApi } from '../zesty-api';
 import { loadCollection, loadView, ViewLoadError } from './load-view';
 
@@ -43,7 +43,7 @@ describe('view loading', () => {
 
     const loaded = await loadView(
       root,
-      'latest',
+      latestScope,
       { schema, snapshot: snapshot('6-root', rootItems) },
       (collection, itemLimit) => {
         limits.push(itemLimit);
@@ -73,6 +73,7 @@ describe('view loading', () => {
     const root = node('node-root', '6-root');
     const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
       loadCollectionSchema: () => Effect.succeed(schema),
       loadCollectionSnapshot: () =>
         Effect.never.pipe(
@@ -84,7 +85,7 @@ describe('view loading', () => {
         ),
     };
     const controller = new AbortController();
-    const pending = loadCollection(api, root, 'latest', 'token', 10_000, controller.signal);
+    const pending = loadCollection(api, root, latestScope, 'token', 10_000, controller.signal);
     await new Promise((resolve) => setTimeout(resolve, 0));
     controller.abort();
     await expect(pending).rejects.toBeDefined();
@@ -94,11 +95,12 @@ describe('view loading', () => {
   it('surfaces typed root failures', async () => {
     const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
       loadCollectionSchema: () => Effect.fail({ kind: 'network', message: 'Offline' }),
       loadCollectionSnapshot: () => Effect.succeed(snapshot('6-root')),
     };
     await expect(
-      loadCollection(api, node('node-root', '6-root'), 'latest', 'token', 10_000),
+      loadCollection(api, node('node-root', '6-root'), latestScope, 'token', 10_000),
     ).rejects.toBeInstanceOf(ViewLoadError);
   });
 });

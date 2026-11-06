@@ -11,9 +11,11 @@ import type {
   CollectionReference,
   ContentItem,
   ContentItemReference,
+  ContentScope,
   ContentState,
   Deployment,
   InstanceReference,
+  LanguageCode,
   ModelZuid,
   NodePresentation,
   PersistedView,
@@ -60,6 +62,8 @@ import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
+import { useInstanceLanguages } from './hooks/useInstanceLanguages';
+import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
 import { useFieldProblem } from './hooks/useFieldProblem';
 import {
@@ -224,6 +228,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [contentState, setContentState] = useState<ContentState>(
     initialView?.contentState ?? 'latest',
   );
+  // A language other than the instance default, tagged with its instance so that it can't leak
+  // into a view of another instance.
+  const [languageChoice, setLanguageChoice] = useState(() =>
+    initialView?.language
+      ? { instance: instanceKey(initialView.root.reference), code: initialView.language }
+      : undefined,
+  );
   const [viewFilters, setViewFilters] = useState<readonly ViewFilter[]>(
     initialView?.viewFilters ?? [],
   );
@@ -272,6 +283,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     [activeToken],
   );
   const code = useCodeTab(instance, initial.state);
+  const viewIsLoadable = Boolean(
+    treeRoot && activeToken && deployment === treeRoot.reference.deployment,
+  );
+  const chosenLanguage: LanguageCode | undefined =
+    treeRoot && languageChoice?.instance === instanceKey(treeRoot.reference)
+      ? languageChoice.code
+      : undefined;
+  const viewLanguages = useInstanceLanguages({
+    api,
+    instance: treeRoot ? instanceReference(treeRoot.reference) : undefined,
+    sessionToken: activeToken,
+    enabled: viewIsLoadable,
+    chosen: chosenLanguage,
+  });
+  const { languages, language: contentLanguage } = viewLanguages;
+  const contentScope = useMemo<ContentScope | undefined>(
+    () => (contentLanguage ? { state: contentState, language: contentLanguage } : undefined),
+    [contentLanguage, contentState],
+  );
 
   const onImportModelZuidChange = useCallback(
     (modelZuid: ModelZuid | undefined) =>
@@ -289,7 +319,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     const view =
       treeRoot?.reference.instanceZuid === instance.instanceZuid &&
       treeRoot.reference.deployment === instance.deployment
-        ? ({ version: 2, root: treeRoot, contentState, viewFilters } as const)
+        ? ({
+            version: 2,
+            root: treeRoot,
+            contentState,
+            ...(chosenLanguage ? { language: chosenLanguage } : {}),
+            viewFilters,
+          } as const)
         : undefined;
     const selection = code.selection;
     const fileFilter = shareableFileFilter(code.fileFilter);
@@ -308,6 +344,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     activeTab,
     code.fileFilter,
     code.selection,
+    chosenLanguage,
     contentState,
     importCollection,
     instance,
@@ -339,11 +376,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const loadedViewQuery = useLoadedView({
     api,
     root: treeRoot,
-    contentState,
+    contentScope,
     sessionToken: activeToken,
-    enabled: Boolean(
-      treeRoot && activeToken && deployment === treeRoot.reference.deployment && screen === 'view',
-    ),
+    enabled: viewIsLoadable && screen === 'view',
     requiresCompleteView,
   });
   const {
@@ -455,10 +490,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   ]);
 
   const selectedItemContext = useMemo(() => {
-    if (!selectedItemId || !loadedView || !treeRoot) return undefined;
+    if (!selectedItemId || !loadedView || !treeRoot || !contentScope) return undefined;
     for (const node of flattenCollectionNodes(treeRoot)) {
       const state = loadedView.snapshots.snapshots.get(
-        snapshotQueryKey(node.reference, contentState),
+        snapshotQueryKey(node.reference, contentScope),
       );
       if (!state) continue;
       if (state.status !== 'complete' && state.status !== 'partial') continue;
@@ -472,7 +507,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       }
     }
     return undefined;
-  }, [contentState, loadedView, selectedItemId, treeRoot]);
+  }, [contentScope, loadedView, selectedItemId, treeRoot]);
 
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
   const loadRelationshipSchema = useCallback(
@@ -653,6 +688,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       version: 2,
       root: treeRoot,
       contentState,
+      ...(chosenLanguage ? { language: chosenLanguage } : {}),
       viewFilters,
     };
     clearView();
@@ -668,6 +704,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTreeRoot(view.root);
     setReference(rootReference);
     setContentState(view.contentState);
+    setLanguageChoice(
+      view.language ? { instance: instanceKey(rootReference), code: view.language } : undefined,
+    );
     setViewFilters(view.viewFilters);
     setCatalogInstance(instanceReference(rootReference));
     setSelectedRootZuid(rootReference.modelZuid);
@@ -682,6 +721,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setPastedUrl('');
     setChosenDeployment(deployment);
     setContentState('latest');
+    setLanguageChoice(undefined);
     setViewFilters([]);
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
@@ -735,6 +775,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         version: 2,
         root: createRootNode(entry.reference, entry.label),
         contentState: 'latest',
+        ...(chosenLanguage ? { language: chosenLanguage } : {}),
         viewFilters: [],
       },
     });
@@ -927,6 +968,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">Latest</ToggleGroupItem>
                 <ToggleGroupItem value="published">Published</ToggleGroupItem>
               </ToggleGroup>
+              {treeRoot && contentLanguage && languages && languages.length > 1 ? (
+                <LanguagePicker
+                  languages={languages}
+                  value={contentLanguage}
+                  onChange={(language) =>
+                    setLanguageChoice(
+                      language.isDefault
+                        ? undefined
+                        : { instance: instanceKey(treeRoot.reference), code: language.code },
+                    )
+                  }
+                />
+              ) : null}
               <RefreshButton
                 refreshing={isRefreshing}
                 failed={refreshFailed}
@@ -1167,7 +1221,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               </CardFooter>
             </Card>
           ) : null}
-          {screen === 'view' && loadedView && treeRoot && rootSnapshot && rootSchema ? (
+          {screen === 'view' &&
+          loadedView &&
+          treeRoot &&
+          contentScope &&
+          rootSnapshot &&
+          rootSchema ? (
             <>
               {descendantResultsPending ? (
                 <p
@@ -1200,7 +1259,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   reference={treeRoot.reference}
                   treeRoot={treeRoot}
                   loadedView={loadedView}
-                  contentState={contentState}
+                  contentScope={contentScope}
                   resultsPending={descendantResultsPending}
                   viewFilters={viewFilters}
                   onViewFiltersChange={setViewFilters}

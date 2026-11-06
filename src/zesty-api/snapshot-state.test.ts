@@ -12,18 +12,20 @@ const reference = {
 } satisfies CollectionReference;
 
 describe('snapshot state identity', () => {
-  it('separates content state and deployment without item identity', () => {
+  it('separates content state, language and deployment without item identity', () => {
     const itemReference: CollectionReference = {
       ...reference,
       deployment: 'stage',
       itemZuid: '7-ignored',
     };
-    expect(snapshotQueryKey(reference, 'latest')).toBe(
+    expect(snapshotQueryKey(reference, { state: 'latest', language: 'en-US' })).toBe(
       '8-instance:production:6-model:latest:en-US',
     );
-    expect(snapshotQueryKey(reference, 'published')).not.toBe(
-      snapshotQueryKey(reference, 'latest'),
+    expect(snapshotQueryKey(reference, { state: 'published', language: 'en-US' })).not.toBe(
+      snapshotQueryKey(reference, { state: 'latest', language: 'en-US' }),
     );
-    expect(snapshotQueryKey(itemReference, 'latest')).toBe('8-instance:stage:6-model:latest:en-US');
+    expect(snapshotQueryKey(itemReference, { state: 'latest', language: 'de-DE' })).toBe(
+      '8-instance:stage:6-model:latest:de-DE',
+    );
   });
 });

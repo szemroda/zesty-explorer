@@ -2,7 +2,7 @@
 // Every request is a read; nothing is written to Zesty.
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
-import type { CollectionCatalogEntry, CollectionReference } from '../../domain';
+import type { CollectionCatalogEntry, CollectionReference, ContentScope } from '../../domain';
 import {
   checkImport,
   suggestMapping,
@@ -33,6 +33,8 @@ export interface ImportCheckQuery {
 }
 
 const queryRoot = 'import-check';
+// Only the Explorer chooses a language; the check compares a file with en-US content.
+const importScope: ContentScope = { state: 'latest', language: 'en-US' };
 
 /** Reads the open check's Zesty data again; the results stay on screen until it arrives. */
 export async function refreshImportCheck(queryClient: QueryClient): Promise<void> {
@@ -88,7 +90,7 @@ export function useImportCheck({
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: ({ signal }) =>
       runExplorerQuery(
-        api.loadCollectionSnapshot(reference!, 'latest', credentials.sessionToken),
+        api.loadCollectionSnapshot(reference!, importScope, credentials.sessionToken),
         signal,
       ),
   });
@@ -114,7 +116,7 @@ export function useImportCheck({
         relatedModels.map(async (modelZuid) => {
           const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
           const snapshot = await runExplorerQuery(
-            api.loadCollectionSnapshot(relatedReference, 'latest', credentials.sessionToken),
+            api.loadCollectionSnapshot(relatedReference, importScope, credentials.sessionToken),
             signal,
           );
           return { modelZuid, snapshot };

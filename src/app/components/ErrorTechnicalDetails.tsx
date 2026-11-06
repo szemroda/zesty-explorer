@@ -16,6 +16,7 @@ const operationLabels: Readonly<Record<ExplorerRequestOperation, string>> = {
   'load-code-file-versions': 'Loading code file versions',
   'load-instance-details': 'Loading instance details',
   'load-instance-domains': 'Loading instance domains',
+  'load-languages': 'Loading instance languages',
 };
 
 function technicalDetailsLines(error: ExplorerError): readonly string[] {

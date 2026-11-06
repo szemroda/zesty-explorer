@@ -23,6 +23,7 @@ import {
   type CollectionSchema,
   type CollectionSnapshot,
   type ContentItem,
+  type ContentLanguage,
   type Deployment,
   type ExplorerError,
   type ExplorerDecodingIssue,
@@ -158,6 +159,13 @@ const RawDomainSchema = Schema.Struct({
   domain: Schema.String,
   branch: Schema.optional(Schema.NullOr(Schema.String)),
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const RawLanguageSchema = Schema.Struct({
+  code: Schema.NonEmptyString,
+  name: Schema.String,
+  active: Schema.optional(Schema.Boolean),
+  default: Schema.optional(Schema.Boolean),
 });
 
 const defaultOptions = {
@@ -491,6 +499,29 @@ function decodeInstanceUsers(
   );
 }
 
+// Inactive languages and records that cannot be understood are left out.
+function decodeLanguages(input: unknown): Effect.Effect<readonly ContentLanguage[], ExplorerError> {
+  return decodeRecordList(input, RawLanguageSchema, {
+    envelope: 'Zesty returned the instance languages in an unsupported shape.',
+    record: 'A language record is invalid.',
+    omitted: 'Some language records could not be understood and were omitted.',
+  }).pipe(
+    Effect.map(({ records }) =>
+      records
+        .filter((language) => language.active !== false)
+        .map((language): ContentLanguage => ({
+          code: language.code,
+          name: language.name || language.code,
+          isDefault: language.default ?? false,
+        }))
+        .toSorted(
+          (left, right) =>
+            Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name),
+        ),
+    ),
+  );
+}
+
 const accountsApiBaseUrls = {
   production: 'https://accounts.api.zesty.io/v1',
   stage: 'https://accounts.api.stage.zesty.io/v1',
@@ -775,7 +806,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       );
     },
 
-    loadCollectionSnapshot: (reference, state, sessionToken, itemLimit) =>
+    loadCollectionSnapshot: (reference, { state, language }, sessionToken, itemLimit) =>
       Effect.gen(function* () {
         const items: ContentItem[] = [];
         let page = 1;
@@ -789,7 +820,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
           const url = new URL(
             `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items`,
           );
-          url.searchParams.set('lang', 'en-US');
+          url.searchParams.set('lang', language);
           url.searchParams.set(
             'limit',
             String(Math.min(resolved.pageSize, effectiveLimit - items.length)),
@@ -818,16 +849,30 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
         }
 
         return {
-          id: `snapshot-${reference.instanceZuid}-${reference.modelZuid}-${state}-en-US`,
+          id: `snapshot-${reference.instanceZuid}-${reference.modelZuid}-${state}-${language}`,
           instanceZuid: reference.instanceZuid,
           modelZuid: reference.modelZuid,
           state,
-          language: 'en-US',
+          language,
           items,
           itemsById: new Map(items.map((item) => [item.id, item])),
           partial: items.length < totalResults,
         } satisfies CollectionSnapshot;
       }),
+
+    loadLanguages: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/env/langs?type=active`;
+      const operation = 'load-languages' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.flatMap((response) =>
+          decodeLanguages(response.body).pipe(
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
 
     loadItemVersions: (reference, sessionToken) => {
       const requestUrl = `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items/${reference.itemZuid}/versions`;

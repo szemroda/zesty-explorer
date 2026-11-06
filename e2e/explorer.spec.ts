@@ -124,6 +124,19 @@ async function fulfillApi(route: Route, state: FakeApiState) {
     });
     return;
   }
+  if (url.pathname.endsWith('/env/langs')) {
+    await route.fulfill({
+      headers: cors,
+      json: {
+        data: [
+          { ID: 1, code: 'en-US', name: 'English (US)', active: true, default: true },
+          { ID: 2, code: 'de-DE', name: 'German (Germany)', active: true, default: false },
+          { ID: 3, code: 'fr-FR', name: 'French (France)', active: false, default: false },
+        ],
+      },
+    });
+    return;
+  }
   if (url.pathname.endsWith('/content/models')) {
     await route.fulfill({
       headers: cors,
@@ -187,7 +200,14 @@ async function fulfillApi(route: Route, state: FakeApiState) {
     await route.fulfill({ status: 403, headers: cors, json: {} });
     return;
   }
-  const data = model === '6-childmodel' ? childItems : rootItems;
+  const items = model === '6-childmodel' ? childItems : rootItems;
+  // Each language version of an item has its own ZUID.
+  const data =
+    url.searchParams.get('lang') === 'de-DE'
+      ? items.map((item) =>
+          rawItem(item.meta.ZUID.replace('7-', '7-de-'), `DE ${String(item.data.title)}`),
+        )
+      : items;
   const limit = Number(url.searchParams.get('limit') ?? 2_500);
   const page = Number(url.searchParams.get('page') ?? 1);
   const partialTotal = model === '6-rootmodel' && state.partialRoot ? 10_001 : data.length;
@@ -338,6 +358,24 @@ test('requests Zesty using only headers accepted by its CORS preflight', async (
   expect(state.requests.some((request) => request.includes('evil.example'))).toBe(false);
   expect(requestHeaders.length).toBeGreaterThan(0);
   for (const headers of requestHeaders) expect(headers).toEqual(['authorization']);
+});
+
+test('reads the view in a language chosen from the instance languages', async ({ page }) => {
+  const state = await installFakeApi(page);
+  await openRoot(page);
+  const language = page.getByRole('combobox', { name: 'Content language' });
+  await expect(language).toContainText('English (US)');
+  await language.click();
+  await expect(page.getByRole('option')).toHaveText([/English \(US\)/, /German \(Germany\)/]);
+  await page.getByRole('option', { name: /German/ }).click();
+
+  await expect(page.getByRole('cell', { name: 'DE Story 1 with', exact: false })).toBeVisible();
+  expect(state.requests.some((request) => request.includes('lang=de-DE'))).toBe(true);
+
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Content language' })).toContainText(
+    'German (Germany)',
+  );
 });
 
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {

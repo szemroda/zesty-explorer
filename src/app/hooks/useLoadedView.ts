@@ -4,7 +4,7 @@ import type {
   CollectionNode,
   CollectionSchema,
   CollectionSnapshot,
-  ContentState,
+  ContentScope,
   ExplorerError,
 } from '../../domain';
 import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
@@ -22,7 +22,8 @@ import {
 interface LoadedViewQueryOptions {
   readonly api: CollectionApi;
   readonly root: CollectionNode | undefined;
-  readonly contentState: ContentState;
+  /** Undefined until the view's language is known; the view then counts as loading. */
+  readonly contentScope: ContentScope | undefined;
   readonly sessionToken: string;
   readonly enabled: boolean;
   readonly requiresCompleteView: boolean;
@@ -49,13 +50,13 @@ export interface LoadedViewQueryResult {
 function collectionQueryKey(
   credentialRevision: string,
   node: CollectionNode,
-  contentState: ContentState,
+  contentScope: ContentScope,
   itemLimit: number,
 ) {
   return [
     'collection',
     credentialRevision,
-    snapshotQueryKey(node.reference, contentState),
+    snapshotQueryKey(node.reference, contentScope),
     itemLimit,
   ] as const;
 }
@@ -97,7 +98,7 @@ function queryStatus(
 export function useLoadedView({
   api,
   root,
-  contentState,
+  contentScope,
   sessionToken,
   enabled,
   requiresCompleteView,
@@ -108,19 +109,22 @@ export function useLoadedView({
     [sessionToken],
   );
   const rootQuery = useQuery<LoadedCollection, Error>({
-    queryKey: root
-      ? collectionQueryKey(credentials.revision, root, contentState, 10_000)
-      : ['collection', 'closed'],
-    enabled,
+    queryKey:
+      root && contentScope
+        ? collectionQueryKey(credentials.revision, root, contentScope, 10_000)
+        : ['collection', 'closed'],
+    enabled: enabled && Boolean(contentScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      if (!root || !credentials.sessionToken) throw new Error('Collection request is not ready.');
+      if (!root || !contentScope || !credentials.sessionToken) {
+        throw new Error('Collection request is not ready.');
+      }
       try {
         return await loadCollection(
           api,
           root,
-          contentState,
+          contentScope,
           credentials.sessionToken,
           10_000,
           signal,
@@ -133,31 +137,32 @@ export function useLoadedView({
   });
 
   const viewQuery = useQuery<LoadedView, Error>({
-    queryKey: root
-      ? [
-          'view',
-          credentials.revision,
-          rootQuery.dataUpdatedAt,
-          contentState,
-          ...viewLoadKey(root, contentState),
-        ]
-      : ['view', 'closed'],
+    queryKey:
+      root && contentScope
+        ? [
+            'view',
+            credentials.revision,
+            rootQuery.dataUpdatedAt,
+            contentScope,
+            ...viewLoadKey(root, contentScope),
+          ]
+        : ['view', 'closed'],
     enabled: enabled && Boolean(rootQuery.data),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      if (!root || !credentials.sessionToken || !rootQuery.data) {
+      if (!root || !contentScope || !credentials.sessionToken || !rootQuery.data) {
         throw new Error('Collection request is not ready.');
       }
-      return loadView(root, contentState, rootQuery.data, (node, itemLimit) =>
+      return loadView(root, contentScope, rootQuery.data, (node, itemLimit) =>
         queryClient.fetchQuery({
-          queryKey: collectionQueryKey(credentials.revision, node, contentState, itemLimit),
+          queryKey: collectionQueryKey(credentials.revision, node, contentScope, itemLimit),
           staleTime: Number.POSITIVE_INFINITY,
           queryFn: ({ signal: collectionSignal }) =>
             loadCollection(
               api,
               node,
-              contentState,
+              contentScope,
               credentials.sessionToken,
               itemLimit,
               AbortSignal.any([signal, collectionSignal]),
@@ -169,9 +174,9 @@ export function useLoadedView({
 
   const loadedView = useMemo(() => {
     if (viewQuery.data) return viewQuery.data;
-    if (!root || !rootQuery.data) return undefined;
-    return rootLoadedView(root, contentState, rootQuery.data);
-  }, [contentState, root, rootQuery.data, viewQuery.data]);
+    if (!root || !contentScope || !rootQuery.data) return undefined;
+    return rootLoadedView(root, contentScope, rootQuery.data);
+  }, [contentScope, root, rootQuery.data, viewQuery.data]);
   const rootFailure = explorerFailure(rootQuery.error);
 
   const refresh = useCallback(async () => {

@@ -82,6 +82,7 @@ function api(
     loadCollectionCatalog: () => Effect.succeed(catalog),
     loadCollectionSchema: () => Effect.succeed(schema),
     loadCollectionSnapshot: loadSnapshot,
+    loadLanguages: () => Effect.succeed([{ code: 'en-US', name: 'English (US)', isDefault: true }]),
     loadItemVersions: () => Effect.succeed([]),
     loadItemPublishings: () => Effect.succeed([]),
     loadInstanceUsers: () => Effect.succeed([]),
@@ -1196,6 +1197,50 @@ describe('confirmations and undo', () => {
     pasteUrl('https://8-abc123.manager.zesty.io/content/6-model123');
 
     await waitFor(() => expect(screen.queryByText('View reset')).not.toBeInTheDocument());
+  });
+
+  it('reads every collection in the chosen language and keeps a non-default one in the link', async () => {
+    const loadCollectionSnapshot = vi.fn<ZestyApi['loadCollectionSnapshot']>(() =>
+      Effect.succeed(snapshot),
+    );
+    openViewWithChild({
+      ...api(loadCollectionSnapshot),
+      loadLanguages: () =>
+        Effect.succeed([
+          { code: 'en-US', name: 'English (US)', isDefault: true },
+          { code: 'de-DE', name: 'German', isDefault: false },
+        ]),
+    });
+    const languagesRead = (language: string) =>
+      new Set(
+        loadCollectionSnapshot.mock.calls
+          .filter(([, scope]) => scope.language === language)
+          .map(([reference]) => reference.modelZuid),
+      );
+    const chooseLanguage = async (name: RegExp) => {
+      fireEvent.click(screen.getByRole('combobox', { name: 'Content language' }));
+      const option = await screen.findByRole('option', { name });
+      fireEvent.pointerDown(option, { pointerType: 'mouse' });
+      fireEvent.pointerUp(option, { pointerType: 'mouse' });
+      fireEvent.click(option);
+    };
+    const linkedLanguage = () => {
+      const decoded = ViewCodec.decode(window.location.hash);
+      return decoded.ok ? decoded.state.view?.language : 'undecodable';
+    };
+
+    await waitFor(() =>
+      expect(languagesRead('en-US')).toEqual(new Set(['6-model123', '6-child123'])),
+    );
+    await chooseLanguage(/German/);
+
+    await waitFor(() =>
+      expect(languagesRead('de-DE')).toEqual(new Set(['6-model123', '6-child123'])),
+    );
+    expect(linkedLanguage()).toBe('de-DE');
+
+    await chooseLanguage(/English \(US\)/);
+    await waitFor(() => expect(linkedLanguage()).toBeUndefined());
   });
 
   it('asks before replacing the root and keeps the view when cancelled', async () => {

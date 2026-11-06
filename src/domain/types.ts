@@ -17,6 +17,22 @@ export type CollectionArea = 'content' | 'blocks' | 'other';
 export type ContentState = 'latest' | 'published';
 // Independent of ContentState: Zesty calls these code statuses `dev` and `live`.
 export type CodeState = 'latest' | 'published';
+/** A language code as Zesty writes it, e.g. `en-US` or `cs`. */
+export type LanguageCode = string;
+
+/** Which version and which language of every content item a view shows. */
+export interface ContentScope {
+  readonly state: ContentState;
+  readonly language: LanguageCode;
+}
+
+/** An active language of an instance. Each language version of a content item has its own ZUID. */
+export interface ContentLanguage {
+  readonly code: LanguageCode;
+  readonly name: string;
+  /** Zesty picks one default language when the instance is created; it never changes. */
+  readonly isDefault: boolean;
+}
 export type Scalar = string | number | boolean;
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -143,7 +159,7 @@ export interface CollectionSnapshot {
   readonly instanceZuid: InstanceZuid;
   readonly modelZuid: ModelZuid;
   readonly state: ContentState;
-  readonly language: 'en-US';
+  readonly language: LanguageCode;
   readonly items: readonly ContentItem[];
   readonly itemsById: ReadonlyMap<ItemZuid, ContentItem>;
   readonly partial: boolean;
@@ -249,6 +265,8 @@ export interface PersistedView {
   readonly version: 2;
   readonly root: CollectionNode;
   readonly contentState: ContentState;
+  /** Absent means the instance's default language. */
+  readonly language?: LanguageCode;
   readonly viewFilters: readonly ViewFilter[];
 }
 
@@ -288,7 +306,8 @@ export type ExplorerRequestOperation =
   | 'load-code-files'
   | 'load-code-file-versions'
   | 'load-instance-details'
-  | 'load-instance-domains';
+  | 'load-instance-domains'
+  | 'load-languages';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };
