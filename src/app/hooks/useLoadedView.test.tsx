@@ -9,7 +9,7 @@ import {
   type ExplorerError,
   type ModelZuid,
 } from '../../domain';
-import { collectionNode, latestScope, queryClientWrapper } from '../../test/fixtures';
+import { collectionNode, queryClientWrapper } from '../../test/fixtures';
 import type { CollectionApi } from '../../zesty-api';
 import { useLoadedView } from './useLoadedView';
 
@@ -44,7 +44,8 @@ describe('loaded view query', () => {
         useLoadedView({
           api,
           root,
-          contentScope: latestScope,
+          contentState: 'latest',
+          language: 'en-US',
           sessionToken: 'session-token',
           enabled: true,
           requiresCompleteView: false,
@@ -82,7 +83,8 @@ describe('loaded view query', () => {
         useLoadedView({
           api,
           root,
-          contentScope: latestScope,
+          contentState: 'latest',
+          language: 'en-US',
           sessionToken: 'expired-token',
           enabled: true,
           requiresCompleteView: false,
@@ -93,5 +95,68 @@ describe('loaded view query', () => {
     await waitFor(() => expect(result.current.status).toEqual({ kind: 'failed', failure }));
     expect(result.current.authenticationFailed).toBe(true);
     expect(result.current.loadedView).toBeUndefined();
+  });
+  it('reads the instance default language unless the view names one', async () => {
+    const loadCollectionSnapshot = vi.fn<CollectionApi['loadCollectionSnapshot']>((reference) =>
+      Effect.succeed(collectionSnapshot(reference.modelZuid)),
+    );
+    const api: CollectionApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () =>
+        Effect.succeed([
+          { code: 'cs', name: 'Czech', isDefault: false },
+          { code: 'de-DE', name: 'German', isDefault: true },
+        ]),
+      loadCollectionSchema: () =>
+        Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
+      loadCollectionSnapshot,
+    };
+    const { result } = renderHook(
+      () =>
+        useLoadedView({
+          api,
+          root: collectionNode('node-root', '6-root'),
+          contentState: 'published',
+          language: undefined,
+          sessionToken: 'session-token',
+          enabled: true,
+          requiresCompleteView: false,
+        }),
+      { wrapper: queryClientWrapper(new QueryClient()) },
+    );
+
+    await waitFor(() => expect(result.current.status).toEqual({ kind: 'ready' }));
+    expect(result.current.contentScope).toEqual({ state: 'published', language: 'de-DE' });
+    expect(loadCollectionSnapshot.mock.calls.map(([, scope]) => scope)).toEqual([
+      { state: 'published', language: 'de-DE' },
+    ]);
+  });
+
+  it('fails the view with the language list failure while its default language is unknown', async () => {
+    const failure: ExplorerError = { kind: 'network', message: 'Unreachable' };
+    const loadCollectionSnapshot = vi.fn<CollectionApi['loadCollectionSnapshot']>();
+    const api: CollectionApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.fail(failure),
+      loadCollectionSchema: () =>
+        Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
+      loadCollectionSnapshot,
+    };
+    const { result } = renderHook(
+      () =>
+        useLoadedView({
+          api,
+          root: collectionNode('node-root', '6-root'),
+          contentState: 'latest',
+          language: undefined,
+          sessionToken: 'session-token',
+          enabled: true,
+          requiresCompleteView: false,
+        }),
+      { wrapper: queryClientWrapper(new QueryClient()) },
+    );
+
+    await waitFor(() => expect(result.current.status).toEqual({ kind: 'failed', failure }));
+    expect(loadCollectionSnapshot).not.toHaveBeenCalled();
   });
 });

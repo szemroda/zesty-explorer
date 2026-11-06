@@ -11,7 +11,6 @@ import type {
   CollectionReference,
   ContentItem,
   ContentItemReference,
-  ContentScope,
   ContentState,
   Deployment,
   InstanceReference,
@@ -62,7 +61,6 @@ import { codeStateLabels, shareableFileFilter } from './code-presentation';
 import { copyText } from './copy-text';
 import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
-import { useInstanceLanguages } from './hooks/useInstanceLanguages';
 import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
 import { useFieldProblem } from './hooks/useFieldProblem';
@@ -283,25 +281,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     [activeToken],
   );
   const code = useCodeTab(instance, initial.state);
-  const viewIsLoadable = Boolean(
-    treeRoot && activeToken && deployment === treeRoot.reference.deployment,
-  );
   const chosenLanguage: LanguageCode | undefined =
     treeRoot && languageChoice?.instance === instanceKey(treeRoot.reference)
       ? languageChoice.code
       : undefined;
-  const viewLanguages = useInstanceLanguages({
-    api,
-    instance: treeRoot ? instanceReference(treeRoot.reference) : undefined,
-    sessionToken: activeToken,
-    enabled: viewIsLoadable,
-    chosen: chosenLanguage,
-  });
-  const { languages, language: contentLanguage } = viewLanguages;
-  const contentScope = useMemo<ContentScope | undefined>(
-    () => (contentLanguage ? { state: contentState, language: contentLanguage } : undefined),
-    [contentLanguage, contentState],
-  );
 
   const onImportModelZuidChange = useCallback(
     (modelZuid: ModelZuid | undefined) =>
@@ -376,12 +359,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const loadedViewQuery = useLoadedView({
     api,
     root: treeRoot,
-    contentScope,
+    contentState,
+    language: chosenLanguage,
     sessionToken: activeToken,
-    enabled: viewIsLoadable && screen === 'view',
+    enabled: Boolean(
+      treeRoot && activeToken && deployment === treeRoot.reference.deployment && screen === 'view',
+    ),
     requiresCompleteView,
   });
   const {
+    contentScope,
+    languages,
     loadedView,
     rootSnapshot,
     rootSchema,
@@ -968,10 +956,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <ToggleGroupItem value="latest">Latest</ToggleGroupItem>
                 <ToggleGroupItem value="published">Published</ToggleGroupItem>
               </ToggleGroup>
-              {treeRoot && contentLanguage && languages && languages.length > 1 ? (
+              {treeRoot && contentScope && languages && languages.length > 1 ? (
                 <LanguagePicker
                   languages={languages}
-                  value={contentLanguage}
+                  value={contentScope.language}
                   onChange={(language) =>
                     setLanguageChoice(
                       language.isDefault

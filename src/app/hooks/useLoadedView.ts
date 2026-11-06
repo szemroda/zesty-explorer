@@ -4,11 +4,14 @@ import type {
   CollectionNode,
   CollectionSchema,
   CollectionSnapshot,
+  ContentLanguage,
   ContentScope,
+  ContentState,
   ExplorerError,
+  LanguageCode,
 } from '../../domain';
 import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
-import { ExplorerQueryError, explorerFailure } from './explorer-query';
+import { ExplorerQueryError, explorerFailure, runExplorerQuery } from './explorer-query';
 import {
   loadCollection,
   loadView,
@@ -22,8 +25,9 @@ import {
 interface LoadedViewQueryOptions {
   readonly api: CollectionApi;
   readonly root: CollectionNode | undefined;
-  /** Undefined until the view's language is known; the view then counts as loading. */
-  readonly contentScope: ContentScope | undefined;
+  readonly contentState: ContentState;
+  /** The language the view names, or undefined for the instance's default language. */
+  readonly language: LanguageCode | undefined;
   readonly sessionToken: string;
   readonly enabled: boolean;
   readonly requiresCompleteView: boolean;
@@ -37,6 +41,10 @@ export type LoadedViewQueryStatus =
   | { readonly kind: 'failed'; readonly failure: ExplorerError };
 
 export interface LoadedViewQueryResult {
+  /** The scope the view is read in; undefined until its language is known. */
+  readonly contentScope: ContentScope | undefined;
+  /** The instance's active languages, default first; undefined while loading or after a failure. */
+  readonly languages: readonly ContentLanguage[] | undefined;
   readonly loadedView: LoadedView | undefined;
   readonly rootSchema: CollectionSchema | undefined;
   readonly rootSnapshot: CollectionSnapshot | undefined;
@@ -59,6 +67,12 @@ function collectionQueryKey(
     snapshotQueryKey(node.reference, contentScope),
     itemLimit,
   ] as const;
+}
+
+// The Explorer read only en-US before languages could be chosen, so it still does for an
+// instance that reports no active language.
+function defaultLanguage(languages: readonly ContentLanguage[]): LanguageCode {
+  return (languages.find((language) => language.isDefault) ?? languages[0])?.code ?? 'en-US';
 }
 
 function hasAuthenticationFailure(
@@ -98,7 +112,8 @@ function queryStatus(
 export function useLoadedView({
   api,
   root,
-  contentScope,
+  contentState,
+  language,
   sessionToken,
   enabled,
   requiresCompleteView,
@@ -108,6 +123,30 @@ export function useLoadedView({
     () => ({ revision: crypto.randomUUID(), sessionToken }),
     [sessionToken],
   );
+  // Also feeds the language menu, so it loads even when the view names its language.
+  const languagesQuery = useQuery<readonly ContentLanguage[], Error>({
+    queryKey: [
+      'languages',
+      credentials.revision,
+      root?.reference.deployment ?? '',
+      root?.reference.instanceZuid ?? '',
+    ],
+    enabled: enabled && Boolean(root),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) => {
+      if (!root || !credentials.sessionToken) throw new Error('Language request is not ready.');
+      return runExplorerQuery(api.loadLanguages(root.reference, credentials.sessionToken), signal);
+    },
+  });
+  const resolvedLanguage =
+    language ?? (languagesQuery.data ? defaultLanguage(languagesQuery.data) : undefined);
+  const contentScope = useMemo<ContentScope | undefined>(
+    () => (resolvedLanguage ? { state: contentState, language: resolvedLanguage } : undefined),
+    [contentState, resolvedLanguage],
+  );
+  // Without a named language the view can't load until the default one is known.
+  const languagesFailure = language ? undefined : explorerFailure(languagesQuery.error);
   const rootQuery = useQuery<LoadedCollection, Error>({
     queryKey:
       root && contentScope
@@ -177,7 +216,7 @@ export function useLoadedView({
     if (!root || !contentScope || !rootQuery.data) return undefined;
     return rootLoadedView(root, contentScope, rootQuery.data);
   }, [contentScope, root, rootQuery.data, viewQuery.data]);
-  const rootFailure = explorerFailure(rootQuery.error);
+  const rootFailure = languagesFailure ?? explorerFailure(rootQuery.error);
 
   const refresh = useCallback(async () => {
     await queryClient.refetchQueries({
@@ -190,10 +229,12 @@ export function useLoadedView({
       .every((query) => query.state.status !== 'error');
   }, [credentials.revision, queryClient]);
   const retryRoot = useCallback(async () => {
-    await rootQuery.refetch();
-  }, [rootQuery]);
+    await (languagesFailure ? languagesQuery.refetch() : rootQuery.refetch());
+  }, [languagesFailure, languagesQuery, rootQuery]);
 
   return {
+    contentScope,
+    languages: languagesQuery.data,
     loadedView,
     rootSchema: rootQuery.data?.schema,
     rootSnapshot: rootQuery.data?.snapshot,
