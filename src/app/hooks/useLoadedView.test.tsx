@@ -21,15 +21,16 @@ function collectionSnapshot(modelZuid: ModelZuid): CollectionSnapshot {
 }
 
 describe('loaded view query', () => {
-  it('loads the root and descendants, then refreshes the credential-scoped cache', async () => {
+  it('loads the root and descendants, then refreshes them and the languages', async () => {
     const child = collectionNode('node-child', '6-child');
     const root = collectionNode('node-root', '6-root', [child]);
     const loadCollectionSnapshot = vi.fn<CollectionApi['loadCollectionSnapshot']>((reference) =>
       Effect.succeed(collectionSnapshot(reference.modelZuid)),
     );
+    const loadLanguages = vi.fn<CollectionApi['loadLanguages']>(() => Effect.succeed([]));
     const api: CollectionApi = {
       loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
-      loadLanguages: () => Effect.succeed([]),
+      loadLanguages,
       loadCollectionSchema: (reference) =>
         Effect.succeed({
           modelZuid: reference.modelZuid,
@@ -61,6 +62,7 @@ describe('loaded view query', () => {
 
     await act(() => result.current.refresh());
     await waitFor(() => expect(loadCollectionSnapshot.mock.calls.length).toBeGreaterThan(2));
+    expect(loadLanguages).toHaveBeenCalledTimes(2);
   });
 
   it('reports typed root authentication failures through its interface', async () => {

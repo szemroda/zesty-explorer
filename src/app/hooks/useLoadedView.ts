@@ -224,10 +224,11 @@ export function useLoadedView({
   const rootFailure = languagesFailure ?? explorerFailure(rootQuery.error);
 
   const refresh = useCallback(async () => {
-    await queryClient.refetchQueries({
-      queryKey: ['collection', credentials.revision],
-      type: 'all',
-    });
+    await Promise.all(
+      ['collection', 'languages'].map((name) =>
+        queryClient.refetchQueries({ queryKey: [name, credentials.revision], type: 'all' }),
+      ),
+    );
     return queryClient
       .getQueryCache()
       .findAll({ queryKey: ['collection', credentials.revision] })
