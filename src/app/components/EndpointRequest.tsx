@@ -32,6 +32,7 @@ import { bodyFormat, bodyTokens, formattedBody, type BodyFormat } from '../respo
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { TooltipTrigger } from './ui/tooltip';
 
 interface ParameterRow extends QueryParameter {
   readonly id: number;
@@ -54,6 +55,9 @@ interface EndpointForm {
 // Forms by deployment, instance, endpoint, and code state, kept until the page reloads.
 const forms = new Map<string, EndpointForm>();
 let nextParameterId = 0;
+
+const passwordHint =
+  "This preview is locked. Send adds the instance's preview lock password as ?zpw.";
 
 type Pane = 'source' | 'response';
 
@@ -286,50 +290,61 @@ export function EndpointRequest({
             </span>
           ))}
           {addsPassword ? (
-            <span
-              className="text-muted-foreground ml-1.5 inline-flex items-center gap-0.5 text-xs"
-              title="This preview is locked. Send adds the instance's preview lock password as ?zpw."
+            <TooltipTrigger
+              text={passwordHint}
+              render={
+                <span
+                  className="text-muted-foreground ml-1.5 inline-flex items-center gap-0.5 text-xs"
+                  tabIndex={0}
+                  aria-description={passwordHint}
+                />
+              }
             >
               <LockKeyhole size={12} aria-hidden="true" />
               zpw
-            </span>
+            </TooltipTrigger>
           ) : null}
           {suggested.map((name) => (
-            <button
+            <TooltipTrigger
               key={name}
+              text={`Found in the code. Add ?${name} to the request.`}
               type="button"
               className="text-muted-foreground hover:text-foreground ml-1.5 rounded border border-dashed border-orange-400/40 px-1 text-xs hover:border-orange-400/70"
-              title={`Found in the code. Add ?${name} to the request.`}
               aria-label={`Add ?${name}`}
+              aria-description="Found in the code"
               onClick={() => addParameter(name)}
             >
               +{name}
-            </button>
+            </TooltipTrigger>
           ))}
-          <button
+          <TooltipTrigger
+            text="Add a query parameter"
             type="button"
             className="text-muted-foreground hover:text-foreground ml-1.5 inline-flex rounded p-0.5"
-            title="Add a query parameter"
             aria-label="Add a query parameter"
             onClick={() => addParameter('')}
           >
             <Plus size={13} aria-hidden="true" />
-          </button>
+          </TooltipTrigger>
         </div>
 
-        <a
-          className={cn(
-            buttonVariants({ variant: 'ghost', size: 'icon-xs' }),
-            !url && 'pointer-events-none opacity-40',
-          )}
-          {...(url ? { href: url } : { 'aria-disabled': true })}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Open in a new tab"
-          title="Open in a new tab"
+        <TooltipTrigger
+          text="Open in a new tab"
+          render={
+            <a
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'icon-xs' }),
+                !url && 'pointer-events-none opacity-40',
+              )}
+              {...(url ? { href: url } : { 'aria-disabled': true })}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open in a new tab"
+            />
+          }
         >
           <ExternalLink aria-hidden="true" />
-        </a>
+        </TooltipTrigger>
         {/* Separate keys, so a Cancel click never ends on a reused submit button that sends again. */}
         {sendingUrl ? (
           <Button
@@ -350,7 +365,6 @@ export function EndpointRequest({
             size="sm"
             className="h-7 rounded-full"
             disabled={Boolean(blocked)}
-            {...(blocked ? { title: blocked } : {})}
           >
             <ArrowRight aria-hidden="true" />
             Send
@@ -445,9 +459,12 @@ function ResponsePane({
                 : 'No readable response'}
             </strong>
           )}
-          <code className="text-muted-foreground ml-auto truncate" title={result.url}>
+          <TooltipTrigger
+            text={result.url}
+            render={<code className="text-muted-foreground ml-auto truncate" tabIndex={0} />}
+          >
             {result.url}
-          </code>
+          </TooltipTrigger>
         </div>
       ) : null}
       {response?.rateLimit ? (

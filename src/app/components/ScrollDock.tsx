@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { createScrollDock, dockBarHeight, ScrollDockContext, type DockBar } from '../scroll-dock';
+import { TooltipTrigger } from './ui/tooltip';
 
 interface ScrollDockProviderProps {
   readonly children: ReactNode;
@@ -72,16 +73,20 @@ function DockedScrollbar({ bar }: { readonly bar: DockBar }) {
   }, [scroller, bar.width, bar.scrollWidth]);
 
   return (
-    <div
-      ref={proxy}
-      aria-hidden="true"
-      tabIndex={-1}
-      title={`Scroll ${label} sideways`}
-      data-scroll-dock-bar={label}
-      className="pointer-events-auto overflow-x-scroll overflow-y-hidden border-t border-divider-emphasis bg-panel-raised/95 shadow-[0_-6px_16px_rgb(0_0_0/0.35)] backdrop-blur-sm [scrollbar-color:var(--content-subtle)_transparent] [scrollbar-width:thin]"
-      style={{ marginLeft: bar.left, width: bar.width, height: dockBarHeight }}
+    <TooltipTrigger
+      text={`Scroll ${label} sideways`}
+      render={
+        <div
+          ref={proxy}
+          aria-hidden="true"
+          tabIndex={-1}
+          data-scroll-dock-bar={label}
+          className="pointer-events-auto overflow-x-scroll overflow-y-hidden border-t border-divider-emphasis bg-panel-raised/95 shadow-[0_-6px_16px_rgb(0_0_0/0.35)] backdrop-blur-sm [scrollbar-color:var(--content-subtle)_transparent] [scrollbar-width:thin]"
+          style={{ marginLeft: bar.left, width: bar.width, height: dockBarHeight }}
+        />
+      }
     >
       <div style={{ width: bar.scrollWidth, height: 1 }} />
-    </div>
+    </TooltipTrigger>
   );
 }

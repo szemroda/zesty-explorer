@@ -25,7 +25,7 @@ function SharedTooltip() {
             <TooltipPrimitive.Positioner className="isolate z-50" sideOffset={6}>
               <TooltipPrimitive.Popup
                 data-slot="tooltip-content"
-                className="max-w-72 rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md"
+                className="max-w-72 rounded-md wrap-break-word bg-foreground px-2 py-1 text-xs text-background shadow-md"
               >
                 {payload}
               </TooltipPrimitive.Popup>
