@@ -330,8 +330,10 @@ export function EndpointRequest({
         >
           <ExternalLink aria-hidden="true" />
         </a>
+        {/* Separate keys, so a Cancel click never ends on a reused submit button that sends again. */}
         {sendingUrl ? (
           <Button
+            key="cancel"
             type="button"
             variant="outline"
             size="sm"
@@ -343,6 +345,7 @@ export function EndpointRequest({
           </Button>
         ) : (
           <Button
+            key="send"
             type="submit"
             size="sm"
             className="h-7 rounded-full"
