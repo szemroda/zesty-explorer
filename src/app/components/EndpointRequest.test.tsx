@@ -174,6 +174,35 @@ describe('EndpointRequest', () => {
     );
   });
 
+  it('hides the previous response while the next request is pending, and restores it on cancel', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(new Response('first body'))
+        .mockReturnValueOnce(new Promise<never>(() => {})),
+    );
+    renderPanel(endpoint('11-resend', '{{get_var.limit}}'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add ?limit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('response-body')).toHaveTextContent('first body'),
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value of ?limit' }), {
+      target: { value: '6' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    const response = screen.getByRole('region', { name: 'Response' });
+    expect(response).toHaveTextContent(`Waiting for ${preview}/data/list.json?limit=6`);
+    expect(response).not.toHaveTextContent('first body');
+    expect(screen.getByRole('button', { name: /^Response/ })).not.toHaveTextContent('200');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]!);
+    expect(screen.getByTestId('response-body')).toHaveTextContent('first body');
+  });
+
   it('restores its form, and a refreshed source only adds new suggestions', () => {
     const file = endpoint('11-restore', '{{get_var.limit}}');
     const first = renderPanel(file);
