@@ -124,6 +124,8 @@ export function EndpointRequest({
         : !url
           ? 'Fill in every * segment of the path to send the request.'
           : undefined;
+  // A pending request hides the last result, so a resent request never shows stale content.
+  const result = sendingUrl ? undefined : form.result;
 
   const updateParameter = (id: number, change: Partial<QueryParameter>) =>
     setForm((current) => ({
@@ -207,9 +209,9 @@ export function EndpointRequest({
           </ToggleGroupItem>
           <ToggleGroupItem value="response">
             <Radio size={14} aria-hidden="true" /> Response
-            {form.result?.kind === 'response' ? (
-              <span className={cn('ml-1', statusTone(form.result.response.status))}>
-                {form.result.response.status}
+            {result?.kind === 'response' ? (
+              <span className={cn('ml-1', statusTone(result.response.status))}>
+                {result.response.status}
               </span>
             ) : null}
           </ToggleGroupItem>
@@ -328,8 +330,10 @@ export function EndpointRequest({
         >
           <ExternalLink aria-hidden="true" />
         </a>
+        {/* Separate keys, so a Cancel click never ends on a reused submit button that sends again. */}
         {sendingUrl ? (
           <Button
+            key="cancel"
             type="button"
             variant="outline"
             size="sm"
@@ -341,6 +345,7 @@ export function EndpointRequest({
           </Button>
         ) : (
           <Button
+            key="send"
             type="submit"
             size="sm"
             className="h-7 rounded-full"
@@ -377,7 +382,7 @@ export function EndpointRequest({
         {pane === 'source' ? (
           children
         ) : (
-          <ResponsePane result={form.result} sendingUrl={sendingUrl} onCancel={cancel} />
+          <ResponsePane result={result} sendingUrl={sendingUrl} onCancel={cancel} />
         )}
       </div>
     </div>
@@ -411,12 +416,6 @@ function ResponsePane({
     >
       {result ? (
         <div className="bg-surface-header border-border flex min-h-11 items-center gap-4 border-b px-4 py-1.5 text-xs">
-          {sendingUrl ? (
-            <span className="text-muted-foreground inline-flex items-center gap-1.5" role="status">
-              <LoaderCircle size={13} className="animate-spin" aria-hidden="true" /> Waiting for the
-              new response. Showing the previous one.
-            </span>
-          ) : null}
           {response ? (
             <>
               <strong className={statusTone(response.status)}>

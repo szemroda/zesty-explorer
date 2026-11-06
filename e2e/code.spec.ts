@@ -240,6 +240,39 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   await expect(response(page)).toContainText(sent);
 });
 
+test('hides the last response while a resent request is pending, and Cancel restores it', async ({
+  page,
+}) => {
+  await openInstance(page);
+  const sent: string[] = [];
+  // Slower than the fixture, so the pending state stays on screen long enough to cancel.
+  await page.route(`${previewOrigin}/**`, async (route) => {
+    sent.push(route.request().url());
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.fallback();
+  });
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await fileButton(page, '/data/articles.json').click();
+  await request(page).getByRole('button', { name: 'Add ?limit' }).click();
+  await page.keyboard.type('2');
+  // Send waits for the preview lock lookup.
+  await expect(request(page).getByRole('button', { name: 'Send' })).toBeEnabled();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('response-body')).toContainText('"title": "News article 2"');
+
+  await request(page).getByRole('textbox', { name: 'Value of ?limit' }).fill('5');
+  await page.keyboard.press('Enter');
+  await expect(response(page)).toContainText(
+    `Waiting for ${previewOrigin}/data/articles.json?limit=5`,
+  );
+  await expect(page.getByTestId('response-body')).toHaveCount(0);
+
+  await request(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(response(page)).toContainText(`${previewOrigin}/data/articles.json?limit=2`);
+  await expect(page.getByTestId('response-body')).toContainText('"title": "News article 2"');
+  expect(sent).toHaveLength(2);
+});
+
 test('shows a readable HTTP error and explains an unreadable response', async ({ page }) => {
   await openInstance(page);
   await page.getByRole('tab', { name: 'Code' }).click();
