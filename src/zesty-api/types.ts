@@ -5,6 +5,7 @@ import type {
   CodeFileVersionList,
   CodeFileZuid,
   CodeState,
+  PreviewLock,
   CollectionReference,
   CollectionCatalog,
   CollectionSchema,
@@ -101,6 +102,11 @@ export interface CodeFileApi {
     state: CodeState,
     sessionToken: string,
   ): Effect.Effect<readonly string[], ExplorerError>;
+  /** The preview lock of the instance's preview host, read from its settings. */
+  loadPreviewLock(
+    reference: InstanceReference,
+    sessionToken: string,
+  ): Effect.Effect<PreviewLock, ExplorerError>;
 }
 
 export interface InstanceApi {

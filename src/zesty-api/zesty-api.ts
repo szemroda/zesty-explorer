@@ -36,6 +36,7 @@ import {
   type InstanceListEntry,
   type InstanceUser,
   type ItemPublishing,
+  type PreviewLock,
 } from '../domain';
 import type {
   ZestyApi,
@@ -154,6 +155,11 @@ const RawInstanceDetailsSchema = Schema.Struct({
       }),
     ),
   }),
+});
+// Setting values are strings, or null when unset; checkboxes hold "0" or "1".
+const RawSettingSchema = Schema.Struct({
+  key: Schema.String,
+  value: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const RawDomainSchema = Schema.Struct({
   domain: Schema.String,
@@ -536,6 +542,18 @@ const previewBaseUrls: Readonly<Record<Deployment, (hash: string) => string>> = 
 };
 
 /**
+ * WebEngine locks the preview host while the password is set, unless `preview_lock` is switched
+ * off. Instances without a `preview_lock` setting are locked.
+ */
+function previewLock(settings: readonly (typeof RawSettingSchema.Type)[]): PreviewLock {
+  const value = (key: string) => settings.find((setting) => setting.key === key)?.value;
+  const password = value('preview_lock_password');
+  return password && value('preview_lock') !== '0'
+    ? { kind: 'password', password }
+    : { kind: 'off' };
+}
+
+/**
  * Domains on the live branch as origins, ordered the way Zesty Manager picks one: newest first,
  * then the first domain outside `.zesty.dev`, usually the customer's own, moved to the front.
  * Records that are not a bare host name are skipped.
@@ -626,6 +644,16 @@ function describeSitesError(error: ExplorerError): ExplorerError {
   }
   if (error.kind === 'missing-resource') {
     return { ...error, message: 'The Accounts API did not find this instance.' };
+  }
+  return error;
+}
+
+function describeSettingsError(error: ExplorerError): ExplorerError {
+  if (error.kind === 'permission') {
+    return { ...error, message: 'Your Zesty session cannot read this instance’s settings.' };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'Zesty did not find settings for this instance.' };
   }
   return error;
 }
@@ -990,6 +1018,27 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             Effect.map(({ records }) => liveBaseUrls(records)),
             Effect.mapError((error) =>
               withRequestDiagnostic(error, operation, domainsUrl, response.status),
+            ),
+          ),
+        ),
+      );
+    },
+
+    loadPreviewLock: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/env/settings`;
+      const operation = 'load-instance-settings' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.mapError(describeSettingsError),
+        // A setting that cannot be understood is skipped; only the two lock settings matter.
+        Effect.flatMap((response) =>
+          decodeRecordList(response.body, RawSettingSchema, {
+            envelope: 'Zesty returned instance settings in an unsupported shape.',
+            record: 'A setting record is invalid.',
+            omitted: 'Some settings could not be understood and were omitted.',
+          }).pipe(
+            Effect.map(({ records }) => previewLock(records)),
+            Effect.mapError((error) =>
+              withRequestDiagnostic(error, operation, requestUrl, response.status),
             ),
           ),
         ),

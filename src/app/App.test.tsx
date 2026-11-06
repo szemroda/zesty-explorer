@@ -89,6 +89,7 @@ function api(
     loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
     loadCodeFileVersions: () => Effect.succeed({ versions: [], total: 0 }),
     loadWebEngineBaseUrls: () => Effect.succeed([]),
+    loadPreviewLock: () => Effect.succeed({ kind: 'off' }),
   };
 }
 
@@ -1481,6 +1482,26 @@ describe('Code tab', () => {
       await screen.findByRole('heading', { name: 'Replace your session token' }),
     ).toBeInTheDocument();
     expect(dialog).not.toBeInTheDocument();
+  });
+
+  it('asks for a new token when reading the preview lock finds the session expired', async () => {
+    render(
+      <App
+        api={{
+          ...codeApi,
+          loadPreviewLock: () =>
+            Effect.fail({ kind: 'authentication', message: 'Expired', status: 401 }),
+        }}
+        tokenStore={memoryTokenStore()}
+      />,
+    );
+    loadCollections('https://8-abc123.manager.zesty.io/');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: /\/8-abc123\.json/ }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
   });
 
   it('resets the Code tab when another instance is selected', async () => {

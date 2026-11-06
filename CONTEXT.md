@@ -172,6 +172,10 @@ _Avoid_: Content state, environment
 A Zesty custom JSON or HTML code file served by WebEngine at a request path, including legacy endpoints and paths with wildcard segments. Snippets and model templates are separate kinds of code file.
 _Avoid_: Code file when referring specifically to a callable endpoint, collection reference
 
+**Preview lock**:
+The WebEngine setting that answers anonymous requests to an instance's preview host only when they carry its password as `?zpw=`. Zesty Explorer reads the password from the instance settings. Live domains are not locked this way.
+_Avoid_: Zesty password, auth key
+
 **Snippet**:
 A reusable named code file included by other Parsley source. Its contents may include further snippets.
 _Avoid_: Endpoint, code fragment when referring to the named file

@@ -265,6 +265,13 @@ async function fulfill(route: Route): Promise<void> {
     });
     return;
   }
+  if (url.pathname.endsWith('/env/settings')) {
+    await route.fulfill({
+      headers: cors,
+      json: { data: [{ key: 'preview_lock_password', value: previewPassword }] },
+    });
+    return;
+  }
   if (url.pathname.endsWith('/content/models')) {
     await route.fulfill({ headers: cors, json: { data: models } });
     return;
@@ -300,6 +307,8 @@ export async function installCodeFixture(page: Page): Promise<void> {
 }
 
 export const previewOrigin = 'https://fixture-dev.webengine.zesty.io';
+// The fixture's preview is locked, so it answers only requests that carry this as `?zpw=`.
+const previewPassword = 'fixture-zpw';
 export const liveOrigin = 'https://www.example.test';
 const fixtureDevDomain = 'fixture.zesty.dev';
 
@@ -339,6 +348,14 @@ async function fulfillWebEngine(route: Route): Promise<void> {
   const url = new URL(route.request().url());
   await new Promise((resolve) => setTimeout(resolve, 700));
   const anyOrigin = { 'access-control-allow-origin': '*' };
+  if (url.origin === previewOrigin && url.searchParams.get('zpw') !== previewPassword) {
+    await route.fulfill({
+      status: 401,
+      headers: { ...anyOrigin, 'content-type': 'text/html' },
+      body: '<p>Enter the password to view this preview.</p>',
+    });
+    return;
+  }
   if (url.pathname === '/data/articles.json') {
     const limit = Number(url.searchParams.get('limit') || 3);
     const category = url.searchParams.get('category') || 'news';
