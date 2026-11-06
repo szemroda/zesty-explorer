@@ -1,7 +1,7 @@
 import type {
   CollectionReference,
   CollectionSnapshot,
-  ContentState,
+  ContentScope,
   ExplorerError,
 } from '../domain';
 
@@ -17,9 +17,13 @@ export interface SnapshotLoadResult {
 
 export function snapshotQueryKey(
   reference: Omit<CollectionReference, 'itemZuid'>,
-  state: ContentState,
+  scope: ContentScope,
 ): string {
-  return [reference.instanceZuid, reference.deployment, reference.modelZuid, state, 'en-US'].join(
-    ':',
-  );
+  return [
+    reference.instanceZuid,
+    reference.deployment,
+    reference.modelZuid,
+    scope.state,
+    scope.language,
+  ].join(':');
 }

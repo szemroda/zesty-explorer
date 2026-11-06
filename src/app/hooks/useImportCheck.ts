@@ -2,7 +2,7 @@
 // Every request is a read; nothing is written to Zesty.
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
-import type { CollectionCatalogEntry, CollectionReference } from '../../domain';
+import type { CollectionCatalogEntry, CollectionReference, ContentScope } from '../../domain';
 import {
   checkImport,
   suggestMapping,
@@ -12,6 +12,7 @@ import {
 } from '../../import-check';
 import type { CollectionApi } from '../../zesty-api';
 import { explorerFailure, runExplorerQuery } from './explorer-query';
+import { defaultLanguage } from './useLoadedView';
 
 export interface CsvSource {
   readonly fileName: string;
@@ -81,14 +82,28 @@ export function useImportCheck({
     queryFn: ({ signal }) =>
       runExplorerQuery(api.loadCollectionSchema(reference!, credentials.sessionToken), signal),
   });
-  const existing = useQuery({
-    queryKey: [...scope, 'items', reference?.modelZuid],
+  const languages = useQuery({
+    queryKey: [...scope, 'languages'],
     enabled,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: ({ signal }) =>
+      runExplorerQuery(api.loadLanguages(reference!, credentials.sessionToken), signal),
+  });
+  // Zesty's Import CSV names no language, so it creates items in the instance's default one.
+  const language = languages.data ? defaultLanguage(languages.data) : undefined;
+  const importScope = useMemo<ContentScope | undefined>(
+    () => (language ? { state: 'latest', language } : undefined),
+    [language],
+  );
+  const existing = useQuery({
+    queryKey: [...scope, 'items', reference?.modelZuid, language],
+    enabled: enabled && Boolean(importScope),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) =>
       runExplorerQuery(
-        api.loadCollectionSnapshot(reference!, 'latest', credentials.sessionToken),
+        api.loadCollectionSnapshot(reference!, importScope!, credentials.sessionToken),
         signal,
       ),
   });
@@ -105,8 +120,8 @@ export function useImportCheck({
   // A related collection that can't be read completely is left out, so its ZUIDs go unchecked
   // instead of failing the whole check; `complete` tells the check so.
   const related = useQuery({
-    queryKey: [...scope, 'related', relatedModels],
-    enabled: enabled && schema.isSuccess,
+    queryKey: [...scope, 'related', relatedModels, language],
+    enabled: enabled && schema.isSuccess && Boolean(importScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
@@ -114,7 +129,7 @@ export function useImportCheck({
         relatedModels.map(async (modelZuid) => {
           const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
           const snapshot = await runExplorerQuery(
-            api.loadCollectionSnapshot(relatedReference, 'latest', credentials.sessionToken),
+            api.loadCollectionSnapshot(relatedReference, importScope!, credentials.sessionToken),
             signal,
           );
           return { modelZuid, snapshot };
@@ -158,7 +173,7 @@ export function useImportCheck({
         }),
       };
     }
-    const failure = schema.error ?? existing.error ?? related.error;
+    const failure = schema.error ?? languages.error ?? existing.error ?? related.error;
     if (failure) {
       return {
         status: 'failed',
@@ -166,12 +181,15 @@ export function useImportCheck({
       };
     }
     if (!schema.data) return { status: 'loading', step: 'Reading the content model' };
+    if (!languages.data) return { status: 'loading', step: 'Reading the instance languages' };
     if (!existing.data) return { status: 'loading', step: 'Reading existing items' };
     return { status: 'loading', step: 'Reading related collections' };
   }, [
     collection,
     existing.data,
     existing.error,
+    languages.data,
+    languages.error,
     mapping,
     related.data,
     related.error,
@@ -180,7 +198,7 @@ export function useImportCheck({
     source,
   ]);
 
-  const authenticationFailed = [schema.error, existing.error].some(
+  const authenticationFailed = [schema.error, languages.error, existing.error].some(
     (error) => explorerFailure(error)?.kind === 'authentication',
   );
   return { state, reload, authenticationFailed };

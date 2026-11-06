@@ -4,11 +4,14 @@ import type {
   CollectionNode,
   CollectionSchema,
   CollectionSnapshot,
+  ContentLanguage,
+  ContentScope,
   ContentState,
   ExplorerError,
+  LanguageCode,
 } from '../../domain';
 import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
-import { ExplorerQueryError, explorerFailure } from './explorer-query';
+import { ExplorerQueryError, explorerFailure, runExplorerQuery } from './explorer-query';
 import {
   loadCollection,
   loadView,
@@ -23,6 +26,8 @@ interface LoadedViewQueryOptions {
   readonly api: CollectionApi;
   readonly root: CollectionNode | undefined;
   readonly contentState: ContentState;
+  /** The language the view names, or undefined for the instance's default language. */
+  readonly language: LanguageCode | undefined;
   readonly sessionToken: string;
   readonly enabled: boolean;
   readonly requiresCompleteView: boolean;
@@ -36,6 +41,10 @@ export type LoadedViewQueryStatus =
   | { readonly kind: 'failed'; readonly failure: ExplorerError };
 
 export interface LoadedViewQueryResult {
+  /** The scope the view is read in; undefined until its language is known. */
+  readonly contentScope: ContentScope | undefined;
+  /** The instance's active languages, default first; undefined while loading or after a failure. */
+  readonly languages: readonly ContentLanguage[] | undefined;
   readonly loadedView: LoadedView | undefined;
   readonly rootSchema: CollectionSchema | undefined;
   readonly rootSnapshot: CollectionSnapshot | undefined;
@@ -49,15 +58,34 @@ export interface LoadedViewQueryResult {
 function collectionQueryKey(
   credentialRevision: string,
   node: CollectionNode,
-  contentState: ContentState,
+  contentScope: ContentScope,
   itemLimit: number,
 ) {
   return [
     'collection',
     credentialRevision,
-    snapshotQueryKey(node.reference, contentState),
+    snapshotQueryKey(node.reference, contentScope),
     itemLimit,
   ] as const;
+}
+
+/**
+ * The instance's default language. The app read only en-US before languages could be chosen, so
+ * it still does for an instance that reports no active language.
+ */
+export function defaultLanguage(languages: readonly ContentLanguage[]): LanguageCode {
+  return (languages.find((language) => language.isDefault) ?? languages[0])?.code ?? 'en-US';
+}
+
+// The language the view reads. A named language is trusted until the instance's languages are
+// known, then only if it is still active.
+function resolveLanguage(
+  named: LanguageCode | undefined,
+  languages: readonly ContentLanguage[] | undefined,
+): LanguageCode | undefined {
+  if (!languages) return named;
+  if (named && languages.some((language) => language.code === named)) return named;
+  return defaultLanguage(languages);
 }
 
 function hasAuthenticationFailure(
@@ -98,6 +126,7 @@ export function useLoadedView({
   api,
   root,
   contentState,
+  language,
   sessionToken,
   enabled,
   requiresCompleteView,
@@ -107,20 +136,46 @@ export function useLoadedView({
     () => ({ revision: crypto.randomUUID(), sessionToken }),
     [sessionToken],
   );
+  // Also feeds the language menu, so it loads even when the view names its language.
+  const languagesQuery = useQuery<readonly ContentLanguage[], Error>({
+    queryKey: [
+      'languages',
+      credentials.revision,
+      root?.reference.deployment ?? '',
+      root?.reference.instanceZuid ?? '',
+    ],
+    enabled: enabled && Boolean(root),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) => {
+      if (!root || !credentials.sessionToken) throw new Error('Language request is not ready.');
+      return runExplorerQuery(api.loadLanguages(root.reference, credentials.sessionToken), signal);
+    },
+  });
+  const resolvedLanguage = resolveLanguage(language, languagesQuery.data);
+  const contentScope = useMemo<ContentScope | undefined>(
+    () => (resolvedLanguage ? { state: contentState, language: resolvedLanguage } : undefined),
+    [contentState, resolvedLanguage],
+  );
+  // Without a named language the view can't load until the default one is known.
+  const languagesFailure = language ? undefined : explorerFailure(languagesQuery.error);
   const rootQuery = useQuery<LoadedCollection, Error>({
-    queryKey: root
-      ? collectionQueryKey(credentials.revision, root, contentState, 10_000)
-      : ['collection', 'closed'],
-    enabled,
+    queryKey:
+      root && contentScope
+        ? collectionQueryKey(credentials.revision, root, contentScope, 10_000)
+        : ['collection', 'closed'],
+    enabled: enabled && Boolean(contentScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      if (!root || !credentials.sessionToken) throw new Error('Collection request is not ready.');
+      if (!root || !contentScope || !credentials.sessionToken) {
+        throw new Error('Collection request is not ready.');
+      }
       try {
         return await loadCollection(
           api,
           root,
-          contentState,
+          contentScope,
           credentials.sessionToken,
           10_000,
           signal,
@@ -133,31 +188,32 @@ export function useLoadedView({
   });
 
   const viewQuery = useQuery<LoadedView, Error>({
-    queryKey: root
-      ? [
-          'view',
-          credentials.revision,
-          rootQuery.dataUpdatedAt,
-          contentState,
-          ...viewLoadKey(root, contentState),
-        ]
-      : ['view', 'closed'],
+    queryKey:
+      root && contentScope
+        ? [
+            'view',
+            credentials.revision,
+            rootQuery.dataUpdatedAt,
+            contentScope,
+            ...viewLoadKey(root, contentScope),
+          ]
+        : ['view', 'closed'],
     enabled: enabled && Boolean(rootQuery.data),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      if (!root || !credentials.sessionToken || !rootQuery.data) {
+      if (!root || !contentScope || !credentials.sessionToken || !rootQuery.data) {
         throw new Error('Collection request is not ready.');
       }
-      return loadView(root, contentState, rootQuery.data, (node, itemLimit) =>
+      return loadView(root, contentScope, rootQuery.data, (node, itemLimit) =>
         queryClient.fetchQuery({
-          queryKey: collectionQueryKey(credentials.revision, node, contentState, itemLimit),
+          queryKey: collectionQueryKey(credentials.revision, node, contentScope, itemLimit),
           staleTime: Number.POSITIVE_INFINITY,
           queryFn: ({ signal: collectionSignal }) =>
             loadCollection(
               api,
               node,
-              contentState,
+              contentScope,
               credentials.sessionToken,
               itemLimit,
               AbortSignal.any([signal, collectionSignal]),
@@ -169,26 +225,29 @@ export function useLoadedView({
 
   const loadedView = useMemo(() => {
     if (viewQuery.data) return viewQuery.data;
-    if (!root || !rootQuery.data) return undefined;
-    return rootLoadedView(root, contentState, rootQuery.data);
-  }, [contentState, root, rootQuery.data, viewQuery.data]);
-  const rootFailure = explorerFailure(rootQuery.error);
+    if (!root || !contentScope || !rootQuery.data) return undefined;
+    return rootLoadedView(root, contentScope, rootQuery.data);
+  }, [contentScope, root, rootQuery.data, viewQuery.data]);
+  const rootFailure = languagesFailure ?? explorerFailure(rootQuery.error);
 
   const refresh = useCallback(async () => {
-    await queryClient.refetchQueries({
-      queryKey: ['collection', credentials.revision],
-      type: 'all',
-    });
+    await Promise.all(
+      ['collection', 'languages'].map((name) =>
+        queryClient.refetchQueries({ queryKey: [name, credentials.revision], type: 'all' }),
+      ),
+    );
     return queryClient
       .getQueryCache()
       .findAll({ queryKey: ['collection', credentials.revision] })
       .every((query) => query.state.status !== 'error');
   }, [credentials.revision, queryClient]);
   const retryRoot = useCallback(async () => {
-    await rootQuery.refetch();
-  }, [rootQuery]);
+    await (languagesFailure ? languagesQuery.refetch() : rootQuery.refetch());
+  }, [languagesFailure, languagesQuery, rootQuery]);
 
   return {
+    contentScope,
+    languages: languagesQuery.data,
     loadedView,
     rootSchema: rootQuery.data?.schema,
     rootSnapshot: rootQuery.data?.snapshot,

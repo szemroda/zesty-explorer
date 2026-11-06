@@ -23,6 +23,10 @@ const VersionedViewSchema = Schema.Struct({
   version: Schema.Union(Schema.Literal(1), Schema.Literal(2)),
   root: Schema.Unknown,
   contentState: Schema.Union(Schema.Literal('latest'), Schema.Literal('published')),
+  // Absent in links made before languages could be chosen; those read the default language.
+  language: Schema.optional(
+    Schema.String.pipe(Schema.pattern(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/)),
+  ),
   viewFilters: Schema.Array(Schema.Unknown),
   // Older links kept a separate search of the whole view; see validateDecodedView.
   globalFreeText: Schema.optional(Schema.String),
@@ -292,6 +296,7 @@ function validateDecodedView(value: unknown): PersistedView | undefined {
       },
     },
     contentState: decoded.right.contentState,
+    ...(decoded.right.language ? { language: decoded.right.language } : {}),
     viewFilters: [...decoded.right.viewFilters, ...presentation.filters],
   };
 }

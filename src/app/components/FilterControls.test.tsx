@@ -8,7 +8,7 @@ import type {
   ItemZuid,
   ViewFilter,
 } from '../../domain';
-import { collectionNode } from '../../test/fixtures';
+import { collectionNode, latestScope } from '../../test/fixtures';
 import { buildLoadedViewGraph, rootLoadedView } from '../load-view';
 import { tableFilterControls } from './FilterControls';
 
@@ -47,7 +47,7 @@ const snapshot: CollectionSnapshot = {
   itemsById: new Map(items.map((item) => [item.id, item])),
   partial: false,
 };
-const loadedView = rootLoadedView(node, 'latest', { schema, snapshot });
+const loadedView = rootLoadedView(node, latestScope, { schema, snapshot });
 const allItemIds = items.map((item) => item.id);
 
 interface ControlsProps {
@@ -70,8 +70,8 @@ function controls({
     subject: 'Articles',
     heading: 'View filters',
     loadedView,
-    contentState: 'latest',
-    graph: buildLoadedViewGraph(node, loadedView, 'latest'),
+    contentScope: latestScope,
+    graph: buildLoadedViewGraph(node, loadedView, latestScope),
     itemIds,
     freeText,
     filters,
@@ -199,8 +199,8 @@ describe('field picker', () => {
         addLabel: 'Add view filter',
         subject: 'Articles',
         loadedView: view,
-        contentState: 'latest',
-        graph: buildLoadedViewGraph(parent, view, 'latest'),
+        contentScope: latestScope,
+        graph: buildLoadedViewGraph(parent, view, latestScope),
         itemIds: allItemIds,
         heading: 'View filters',
         filters: [],

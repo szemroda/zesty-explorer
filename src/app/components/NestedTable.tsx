@@ -11,7 +11,7 @@ import type {
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
-  ContentState,
+  ContentScope,
   ItemZuid,
   NodePresentation,
   SortState,
@@ -62,7 +62,7 @@ interface NestedTableProps {
   readonly parentItemId: ItemZuid;
   readonly graph: ExplorerGraph;
   readonly loadedView: LoadedView;
-  readonly contentState: ContentState;
+  readonly contentScope: ContentScope;
   readonly nodeStates: ReadonlyMap<CollectionNodeId, SharedNodeTableState>;
   readonly updateNodeState: (nodeId: CollectionNodeId, state: SharedNodeTableState) => void;
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
@@ -224,7 +224,7 @@ export function NestedTable(props: NestedTableProps) {
     parentItemId,
     graph,
     loadedView,
-    contentState,
+    contentScope,
     nodeStates,
     updateNodeState,
     onPresentationChange,
@@ -235,11 +235,11 @@ export function NestedTable(props: NestedTableProps) {
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [deriveSortedIds] = useState(createSortedIdsMemo);
   const [deriveItems] = useState(createItemsMemo);
-  const state = loadedView.snapshots.snapshots.get(snapshotQueryKey(node.reference, contentState));
+  const state = loadedView.snapshots.snapshots.get(snapshotQueryKey(node.reference, contentScope));
   const schema = loadedView.schemas.get(node.id);
   const parentSchema = loadedView.schemas.get(parentNode.id);
-  const parentSnapshot = loadedSnapshot(parentNode, loadedView, contentState);
-  const childSnapshot = loadedSnapshot(node, loadedView, contentState);
+  const parentSnapshot = loadedSnapshot(parentNode, loadedView, contentScope);
+  const childSnapshot = loadedSnapshot(node, loadedView, contentScope);
   const columns = schema ? cachedContentItemColumns(schema, childSnapshot) : emptyColumns;
   const sharedState = stateFor(node, nodeStates, columns);
   const relationshipIsStale = Boolean(
@@ -357,7 +357,7 @@ export function NestedTable(props: NestedTableProps) {
     heading: 'Table filters',
     hint: `Filters ${node.name} rows in every ${node.name} table; all ${root.name} items stay. To keep only ${root.name} items with a matching ${node.name} item, use Filter on the ${root.name} table.`,
     loadedView,
-    contentState,
+    contentScope,
     graph,
     itemIds: graph.relatedItemIds(node.id, parentItemId),
     freeText: sharedState.freeText,

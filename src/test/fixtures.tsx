@@ -1,6 +1,9 @@
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import type { CollectionNode, ModelZuid } from '../domain';
+import type { CollectionNode, ContentScope, ModelZuid } from '../domain';
+
+// Latest saved content in English, the scope most view tests read.
+export const latestScope: ContentScope = { state: 'latest', language: 'en-US' };
 
 // A collection node in the synthetic `8-fixture-instance` with default presentation.
 export function collectionNode(

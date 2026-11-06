@@ -5,7 +5,7 @@ import type {
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
-  ContentState,
+  ContentScope,
   ExplorerError,
 } from '../domain';
 import {
@@ -44,16 +44,16 @@ export function flattenCollectionNodes(root: CollectionNode): readonly Collectio
   return nodes;
 }
 
-export function viewLoadKey(root: CollectionNode, state: ContentState): readonly string[] {
+export function viewLoadKey(root: CollectionNode, scope: ContentScope): readonly string[] {
   return flattenCollectionNodes(root).map(
-    (node) => `${node.id}:${snapshotQueryKey(node.reference, state)}`,
+    (node) => `${node.id}:${snapshotQueryKey(node.reference, scope)}`,
   );
 }
 
 export async function loadCollection(
   api: CollectionApi,
   node: CollectionNode,
-  state: ContentState,
+  scope: ContentScope,
   sessionToken: string,
   itemLimit: number,
   signal?: AbortSignal,
@@ -61,7 +61,7 @@ export async function loadCollection(
   const program = Effect.all(
     [
       api.loadCollectionSchema(node.reference, sessionToken),
-      api.loadCollectionSnapshot(node.reference, state, sessionToken, itemLimit),
+      api.loadCollectionSnapshot(node.reference, scope, sessionToken, itemLimit),
     ] as const,
     { concurrency: 2 },
   ).pipe(Effect.either);
@@ -74,14 +74,14 @@ export async function loadCollection(
 
 export function rootLoadedView(
   root: CollectionNode,
-  state: ContentState,
+  scope: ContentScope,
   loaded: LoadedCollection,
 ): LoadedView {
   return {
     snapshots: {
       snapshots: new Map([
         [
-          snapshotQueryKey(root.reference, state),
+          snapshotQueryKey(root.reference, scope),
           loaded.snapshot.partial
             ? { status: 'partial', snapshot: loaded.snapshot }
             : { status: 'complete', snapshot: loaded.snapshot },
@@ -94,13 +94,13 @@ export function rootLoadedView(
   };
 }
 
-function emptyPartialSnapshot(node: CollectionNode, state: ContentState): CollectionSnapshot {
+function emptyPartialSnapshot(node: CollectionNode, scope: ContentScope): CollectionSnapshot {
   return {
-    id: `snapshot-${node.reference.instanceZuid}-${node.reference.modelZuid}-${state}-en-US`,
+    id: `snapshot-${node.reference.instanceZuid}-${node.reference.modelZuid}-${scope.state}-${scope.language}`,
     instanceZuid: node.reference.instanceZuid,
     modelZuid: node.reference.modelZuid,
-    state,
-    language: 'en-US',
+    state: scope.state,
+    language: scope.language,
     items: [],
     itemsById: new Map(),
     partial: true,
@@ -114,10 +114,10 @@ type CachedCollectionLoader = (
 
 const graphCache = new WeakMap<LoadedView, Map<string, ExplorerGraph>>();
 
-function relationshipGraphKey(root: CollectionNode, state: ContentState): string {
+function relationshipGraphKey(root: CollectionNode, scope: ContentScope): string {
   const describe = (node: CollectionNode): unknown => ({
     id: node.id,
-    reference: snapshotQueryKey(node.reference, state),
+    reference: snapshotQueryKey(node.reference, scope),
     relationship: node.relationship,
     children: node.children.map(describe),
   });
@@ -126,32 +126,32 @@ function relationshipGraphKey(root: CollectionNode, state: ContentState): string
 
 export async function loadView(
   root: CollectionNode,
-  state: ContentState,
+  scope: ContentScope,
   loadedRoot: LoadedCollection,
   loadCachedCollection: CachedCollectionLoader,
 ): Promise<LoadedView> {
   const nodes = flattenCollectionNodes(root);
-  const snapshots = new Map(rootLoadedView(root, state, loadedRoot).snapshots.snapshots);
+  const snapshots = new Map(rootLoadedView(root, scope, loadedRoot).snapshots.snapshots);
   const schemas = new Map<CollectionNodeId, CollectionSchema>([[root.id, loadedRoot.schema]]);
   const schemaErrors = new Map<CollectionNodeId, ExplorerError>();
   const uniqueDescendants = new Map<string, CollectionNode>();
   for (const node of nodes.slice(1)) {
-    const key = snapshotQueryKey(node.reference, state);
+    const key = snapshotQueryKey(node.reference, scope);
     if (!uniqueDescendants.has(key)) uniqueDescendants.set(key, node);
   }
 
   let totalItems = loadedRoot.snapshot.items.length;
   for (const node of uniqueDescendants.values()) {
-    const key = snapshotQueryKey(node.reference, state);
+    const key = snapshotQueryKey(node.reference, scope);
     if (totalItems >= 50_000) {
       const error: ExplorerError = {
         kind: 'data-limit',
         scope: 'view',
         message: 'The view reached its 50,000 content-item limit.',
       };
-      snapshots.set(key, { status: 'partial', snapshot: emptyPartialSnapshot(node, state) });
+      snapshots.set(key, { status: 'partial', snapshot: emptyPartialSnapshot(node, scope) });
       for (const matchingNode of nodes.filter(
-        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+        (candidate) => snapshotQueryKey(candidate.reference, scope) === key,
       )) {
         schemaErrors.set(matchingNode.id, error);
       }
@@ -168,7 +168,7 @@ export async function loadView(
           : { status: 'complete', snapshot: loaded.snapshot },
       );
       for (const matchingNode of nodes.filter(
-        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+        (candidate) => snapshotQueryKey(candidate.reference, scope) === key,
       )) {
         schemas.set(matchingNode.id, loaded.schema);
       }
@@ -179,7 +179,7 @@ export async function loadView(
           : { kind: 'network', message: 'The collection could not be loaded.' };
       snapshots.set(key, { status: 'failed', error: failure });
       for (const matchingNode of nodes.filter(
-        (candidate) => snapshotQueryKey(candidate.reference, state) === key,
+        (candidate) => snapshotQueryKey(candidate.reference, scope) === key,
       )) {
         schemaErrors.set(matchingNode.id, failure);
       }
@@ -193,9 +193,9 @@ export async function loadView(
 export function loadedSnapshot(
   node: CollectionNode,
   loaded: LoadedView,
-  state: ContentState,
+  scope: ContentScope,
 ): CollectionSnapshot | undefined {
-  const snapshotState = loaded.snapshots.snapshots.get(snapshotQueryKey(node.reference, state));
+  const snapshotState = loaded.snapshots.snapshots.get(snapshotQueryKey(node.reference, scope));
   return snapshotState?.status === 'complete' || snapshotState?.status === 'partial'
     ? snapshotState.snapshot
     : undefined;
@@ -204,9 +204,9 @@ export function loadedSnapshot(
 export function buildLoadedViewGraph(
   root: CollectionNode,
   loaded: LoadedView,
-  state: ContentState,
+  scope: ContentScope,
 ): ExplorerGraph {
-  const key = relationshipGraphKey(root, state);
+  const key = relationshipGraphKey(root, scope);
   const cached = graphCache.get(loaded)?.get(key);
   if (cached) return cached;
 
@@ -223,7 +223,7 @@ export function buildLoadedViewGraph(
       node.id,
       node.children.map((child) => child.id),
     );
-    const snapshot = loadedSnapshot(node, loaded, state);
+    const snapshot = loadedSnapshot(node, loaded, scope);
     if (snapshot) snapshots.set(node.id, snapshot);
   }
 

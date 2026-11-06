@@ -3,7 +3,7 @@ import type {
   CollectionNode,
   CollectionNodeId,
   CollectionSchema,
-  ContentState,
+  ContentScope,
   ItemZuid,
   ViewFilter,
 } from '../../domain';
@@ -46,7 +46,7 @@ export interface TableFilterOptions {
   /** Says at the top of the editor what these filters affect, e.g. in a nested table. */
   readonly hint?: string;
   readonly loadedView: LoadedView;
-  readonly contentState: ContentState;
+  readonly contentScope: ContentScope;
   readonly graph: ExplorerGraph;
   /** The table's rows before its own filters; option counts cover these and their related items. */
   readonly itemIds: readonly ItemZuid[];
@@ -66,7 +66,7 @@ export interface TableFilterControls {
 
 /** The toolbar button and chip row of one table, both editing its search and `filters`. */
 export function tableFilterControls(options: TableFilterOptions): TableFilterControls {
-  const { node, label, subject, hint, loadedView, contentState, graph, itemIds, filters } = options;
+  const { node, label, subject, hint, loadedView, contentScope, graph, itemIds, filters } = options;
   const { freeText, onChange } = options;
   // The editor and the chips see the search as the first filter; writes split it back out.
   const currentSearch = freeText.trim() ? searchFilter(freeText) : undefined;
@@ -76,7 +76,7 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
     hint,
     fields: cachedFilterFields(node, loadedView.schemas),
     itemsFor: (field) => {
-      const snapshot = loadedSnapshot(field.node, loadedView, contentState);
+      const snapshot = loadedSnapshot(field.node, loadedView, contentScope);
       if (!snapshot) return undefined;
       return relatedItemsAlong(graph, itemIds, field.nodePath).flatMap((id) => {
         const item = snapshot.itemsById.get(id);

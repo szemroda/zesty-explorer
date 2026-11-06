@@ -75,6 +75,7 @@ V1 assumes one open tab: multiple tabs can multiply the request rate, and a cool
 ## Use the explorer
 
 - `Published only` applies the same content state to every collection. Off means latest saved content.
+- The language menu next to it appears when the instance has more than one active language. The chosen language applies to every collection in the view and is kept in its link. Views open in the instance's default language.
 - `Add related collection` attaches a collection below a tree node. All nodes must belong to the root instance and deployment.
 - Native relationships use model relationship fields declared on either collection. When several fields connect the same models, choose the intended field.
 - Custom relationships compare one parent field path with one child field path using strict scalar equality. Values are not coerced.
@@ -91,7 +92,7 @@ The `Import check` tab predicts what Zesty's `Import CSV` would do with a file b
 
 The summary reconciles the file's line count with the items expected. Lines that won't import, and lines that aren't entries (blank lines and line breaks inside quoted cells), are subtracted from the total; rows that may fail are counted as imported. Pick a finding to see its lines, search by value, `line 12` or `row 12`, and select a line to see why. The `More actions` menu downloads the rows with problems or the importable rows as CSV, and copies a Markdown report.
 
-Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each.
+Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each. Zesty's `Import CSV` creates items in the instance's default language, so the check reads items in that language.
 
 ## Limits and failures
 

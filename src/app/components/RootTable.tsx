@@ -12,7 +12,7 @@ import type {
   CollectionSchema,
   CollectionSnapshot,
   ContentItem,
-  ContentState,
+  ContentScope,
   NodePresentation,
   ViewFilter,
 } from '../../domain';
@@ -69,7 +69,7 @@ interface RootTableProps {
   readonly reference: CollectionReference;
   readonly treeRoot: CollectionNode;
   readonly loadedView: LoadedView;
-  readonly contentState: ContentState;
+  readonly contentScope: ContentScope;
   /**
    * Related data the search or view filters need is still loading, so the current results may be
    * wrong. The toolbar and chips stay usable while the results wait.
@@ -90,7 +90,7 @@ export function RootTable({
   reference,
   treeRoot,
   loadedView,
-  contentState,
+  contentScope,
   resultsPending = false,
   viewFilters = [],
   onViewFiltersChange,
@@ -149,8 +149,8 @@ export function RootTable({
   }, [onPresentationChange, sorting, treeRoot.id, treeRoot.presentation]);
 
   const graph = useMemo(
-    () => buildLoadedViewGraph(treeRoot, loadedView, contentState),
-    [contentState, loadedView, treeRoot],
+    () => buildLoadedViewGraph(treeRoot, loadedView, contentScope),
+    [contentScope, loadedView, treeRoot],
   );
   const filteredItems = useMemo(() => {
     const allIds = snapshot.items.map((item) => item.id);
@@ -172,7 +172,7 @@ export function RootTable({
     subject: treeRoot.name,
     heading: 'View filters',
     loadedView,
-    contentState,
+    contentScope,
     graph,
     itemIds: snapshot.items.map((item) => item.id),
     freeText,
@@ -323,7 +323,7 @@ export function RootTable({
                         parentItemId={item.id}
                         graph={graph}
                         loadedView={loadedView}
-                        contentState={contentState}
+                        contentScope={contentScope}
                         nodeStates={nodeStates}
                         updateNodeState={updateNodeState}
                         onPresentationChange={onPresentationChange}

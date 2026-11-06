@@ -528,7 +528,7 @@ describe('ZestyApi', () => {
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
         reference,
-        'published',
+        { state: 'published', language: 'en-US' },
         'private-token',
       ),
     );
@@ -564,7 +564,11 @@ describe('ZestyApi', () => {
     });
 
     const snapshot = await Effect.runPromise(
-      createZestyApi(fake.transport).loadCollectionSnapshot(reference, 'latest', 'private-token'),
+      createZestyApi(fake.transport).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
     );
 
     expect(snapshot.items).toEqual([
@@ -581,6 +585,61 @@ describe('ZestyApi', () => {
         raw: rawItem,
       },
     ]);
+  });
+
+  it('reads the snapshot in the requested language', async () => {
+    const fake = respondWith(fixtureCollectionPage);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'de-DE' },
+        'private-token',
+      ),
+    );
+
+    expect(new URL(fake.requests[0]?.url ?? '').searchParams.get('lang')).toBe('de-DE');
+    expect(snapshot.language).toBe('de-DE');
+    expect(snapshot.id).toBe('snapshot-8-abc123-6-model123-latest-de-DE');
+  });
+
+  it('lists active languages, the default first, then by name', async () => {
+    const fake = respondWith({
+      _meta: { totalResults: 4 },
+      data: [
+        { ID: 3, code: 'fr-FR', name: 'French (France)', active: true, default: false },
+        { ID: 4, code: 'es-ES', name: 'Spanish (Spain)', active: false, default: false },
+        { ID: 2, code: 'cs', name: '', active: true, default: false },
+        { ID: 1, code: 'en-US', name: 'English (US)', active: true, default: true },
+        { ID: 5, code: '', name: 'Broken', active: true },
+      ],
+    });
+
+    const languages = await Effect.runPromise(
+      createZestyApi(fake.transport).loadLanguages(instance, 'private-token'),
+    );
+
+    expect(fake.requests).toEqual([
+      { ...authenticatedGet, url: 'https://8-abc123.api.zesty.io/v1/env/langs?type=active' },
+    ]);
+    expect(languages).toEqual([
+      { code: 'en-US', name: 'English (US)', isDefault: true },
+      { code: 'cs', name: 'cs', isDefault: false },
+      { code: 'fr-FR', name: 'French (France)', isDefault: false },
+    ]);
+  });
+
+  it('fails to list languages from a malformed response', async () => {
+    const fake = respondWith({ data: 'wrong' });
+
+    const error = await Effect.runPromise(
+      Effect.flip(createZestyApi(fake.transport).loadLanguages(instance, 'private-token')),
+    );
+
+    expect(error).toMatchObject({
+      kind: 'decoding',
+      diagnostic: { operation: 'load-languages', responseStatus: 200 },
+    });
   });
 
   it('loads complete content item versions with save metadata', async () => {
@@ -929,7 +988,7 @@ describe('ZestyApi', () => {
     await Effect.runPromise(
       createZestyApi(transient.transport, { retryDelaysMs: [0] }).loadCollectionSnapshot(
         reference,
-        'latest',
+        { state: 'latest', language: 'en-US' },
         'private-token',
       ),
     );
@@ -940,7 +999,7 @@ describe('ZestyApi', () => {
       Effect.flip(
         createZestyApi(forbidden.transport, { retryDelaysMs: [0, 0] }).loadCollectionSnapshot(
           reference,
-          'latest',
+          { state: 'latest', language: 'en-US' },
           'private-token',
         ),
       ),
@@ -964,7 +1023,7 @@ describe('ZestyApi', () => {
         Effect.flip(
           createZestyApi(fake.transport).loadCollectionSnapshot(
             reference,
-            'latest',
+            { state: 'latest', language: 'en-US' },
             'private-token',
           ),
         ),
@@ -990,7 +1049,7 @@ describe('ZestyApi', () => {
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { collectionLimit: 3, pageSize: 5 }).loadCollectionSnapshot(
         reference,
-        'latest',
+        { state: 'latest', language: 'en-US' },
         'private-token',
       ),
     );
@@ -1008,7 +1067,7 @@ describe('ZestyApi', () => {
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
         reference,
-        'latest',
+        { state: 'latest', language: 'en-US' },
         'private-token',
         3,
       ),
@@ -1024,7 +1083,7 @@ describe('ZestyApi', () => {
       Effect.flip(
         createZestyApi(fake.transport, { timeoutMs: 5 }).loadCollectionSnapshot(
           reference,
-          'latest',
+          { state: 'latest', language: 'en-US' },
           'private-token',
         ),
       ),
@@ -1034,7 +1093,7 @@ describe('ZestyApi', () => {
     const fiber = Effect.runFork(
       createZestyApi(fake.transport, { timeoutMs: 60_000 }).loadCollectionSnapshot(
         reference,
-        'latest',
+        { state: 'latest', language: 'en-US' },
         'private-token',
       ),
     );

@@ -11,7 +11,7 @@ import {
   type ExplorerError,
   type ViewFilter,
 } from '../../domain';
-import { collectionNode } from '../../test/fixtures';
+import { collectionNode, latestScope } from '../../test/fixtures';
 import { snapshotQueryKey } from '../../zesty-api';
 import type { ItemVersionApi } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
@@ -48,11 +48,11 @@ const loadedView: LoadedView = {
   snapshots: {
     snapshots: new Map([
       [
-        snapshotQueryKey(root.reference, 'latest'),
+        snapshotQueryKey(root.reference, latestScope),
         { status: 'complete', snapshot: generated.parents },
       ],
       [
-        snapshotQueryKey(child.reference, 'latest'),
+        snapshotQueryKey(child.reference, latestScope),
         { status: 'complete', snapshot: generated.children },
       ],
     ]),
@@ -74,7 +74,7 @@ function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
       reference={root.reference}
       treeRoot={root}
       loadedView={loadedView}
-      contentState="latest"
+      contentScope={latestScope}
       onOpenDetails={vi.fn()}
       onRetry={vi.fn()}
       onPresentationChange={vi.fn()}
@@ -368,7 +368,7 @@ describe('recursive collection tables', () => {
           ...loadedView,
           snapshots: {
             snapshots: new Map([
-              [snapshotQueryKey(root.reference, 'latest'), { status: 'complete', snapshot }],
+              [snapshotQueryKey(root.reference, latestScope), { status: 'complete', snapshot }],
             ]),
             totalItems: items.length,
           },
@@ -499,10 +499,13 @@ describe('recursive collection tables', () => {
             ...loadedView.snapshots,
             snapshots: new Map([
               [
-                snapshotQueryKey(root.reference, 'latest'),
+                snapshotQueryKey(root.reference, latestScope),
                 { status: 'complete', snapshot: generated.parents },
               ],
-              [snapshotQueryKey(child.reference, 'latest'), { status: 'failed', error: failure }],
+              [
+                snapshotQueryKey(child.reference, latestScope),
+                { status: 'failed', error: failure },
+              ],
             ]),
           },
           schemas: new Map([[root.id, rootSchema]]),
@@ -618,7 +621,7 @@ describe('recursive collection tables', () => {
             snapshots: new Map([
               ...loadedView.snapshots.snapshots,
               [
-                snapshotQueryKey(metadataChild.reference, 'latest'),
+                snapshotQueryKey(metadataChild.reference, latestScope),
                 { status: 'complete', snapshot },
               ],
             ]),
