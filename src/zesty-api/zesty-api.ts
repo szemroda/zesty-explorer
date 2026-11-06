@@ -36,6 +36,7 @@ import {
   type InstanceListEntry,
   type InstanceUser,
   type ItemPublishing,
+  type PreviewLock,
 } from '../domain';
 import type {
   ZestyApi,
@@ -154,6 +155,12 @@ const RawInstanceDetailsSchema = Schema.Struct({
       }),
     ),
   }),
+});
+// Every setting value is a string; checkboxes hold "0" or "1".
+const RawSettingsSchema = Schema.Struct({
+  data: Schema.Array(
+    Schema.Struct({ key: Schema.String, value: Schema.optional(Schema.NullOr(Schema.String)) }),
+  ),
 });
 const RawDomainSchema = Schema.Struct({
   domain: Schema.String,
@@ -540,6 +547,18 @@ const previewBaseUrls: Readonly<Record<Deployment, (hash: string) => string>> = 
  * then the first domain outside `.zesty.dev`, usually the customer's own, moved to the front.
  * Records that are not a bare host name are skipped.
  */
+/**
+ * WebEngine locks the preview host while the password is set, unless `preview_lock` is switched
+ * off. Instances without a `preview_lock` setting are locked.
+ */
+function previewLock(settings: typeof RawSettingsSchema.Type): PreviewLock {
+  const value = (key: string) => settings.data.find((setting) => setting.key === key)?.value;
+  const password = value('preview_lock_password');
+  return password && value('preview_lock') !== '0'
+    ? { kind: 'password', password }
+    : { kind: 'off' };
+}
+
 function liveBaseUrls(domains: readonly (typeof RawDomainSchema.Type)[]): string[] {
   const origins = [...domains]
     .filter((record) => record.branch === 'live')
@@ -626,6 +645,16 @@ function describeSitesError(error: ExplorerError): ExplorerError {
   }
   if (error.kind === 'missing-resource') {
     return { ...error, message: 'The Accounts API did not find this instance.' };
+  }
+  return error;
+}
+
+function describeSettingsError(error: ExplorerError): ExplorerError {
+  if (error.kind === 'permission') {
+    return { ...error, message: 'Your Zesty session cannot read this instance’s settings.' };
+  }
+  if (error.kind === 'missing-resource') {
+    return { ...error, message: 'Zesty did not find settings for this instance.' };
   }
   return error;
 }
@@ -993,6 +1022,32 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             ),
           ),
         ),
+      );
+    },
+
+    loadPreviewLock: (reference, sessionToken) => {
+      const requestUrl = `${reference.apiBaseUrl}/env/settings`;
+      const operation = 'load-instance-settings' as const;
+      return request(authenticatedRequest(requestUrl, sessionToken), operation).pipe(
+        Effect.mapError(describeSettingsError),
+        Effect.flatMap((response) => {
+          const decoded = Schema.decodeUnknownEither(RawSettingsSchema, { errors: 'all' })(
+            response.body,
+          );
+          return Either.isLeft(decoded)
+            ? Effect.fail(
+                withRequestDiagnostic(
+                  unsupportedShapeError(
+                    'Zesty returned instance settings in an unsupported shape.',
+                    decoded.left,
+                  ),
+                  operation,
+                  requestUrl,
+                  response.status,
+                ),
+              )
+            : Effect.succeed(previewLock(decoded.right));
+        }),
       );
     },
 

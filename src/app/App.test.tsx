@@ -89,6 +89,7 @@ function api(
     loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
     loadCodeFileVersions: () => Effect.succeed({ versions: [], total: 0 }),
     loadWebEngineBaseUrls: () => Effect.succeed([]),
+    loadPreviewLock: () => Effect.succeed({ kind: 'off' }),
   };
 }
 

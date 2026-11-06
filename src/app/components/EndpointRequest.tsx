@@ -1,12 +1,14 @@
 // The request panel of an endpoint in the Code tab: a one-row address bar builds the URL from the
 // instance, the endpoint, and the code state, and Send shows the response in place of the source.
-// Requests are anonymous GETs (ADR 0011). Forms and last responses live only in memory.
+// Requests are anonymous GETs (ADR 0011) that carry a locked preview's password (ADR 0016).
+// Forms and last responses live only in memory.
 import { Effect, Either } from 'effect';
 import {
   ArrowRight,
   ExternalLink,
   FileCode2,
   LoaderCircle,
+  LockKeyhole,
   Plus,
   Radio,
   RotateCw,
@@ -101,9 +103,21 @@ export function EndpointRequest({
   const baseUrls = hosts.error ? undefined : hosts.baseUrls;
   const baseUrl = form.baseUrl && baseUrls?.includes(form.baseUrl) ? form.baseUrl : baseUrls?.[0];
   const url = baseUrl ? endpointUrl(baseUrl, path, form.segments, form.parameters) : undefined;
+  // A locked preview gets its password only when sent, so it never shows in the address bar or
+  // the browser history. A `zpw` the user adds wins.
+  const lock = hosts.previewLock;
+  const addsPassword =
+    lock?.kind === 'password' && !form.parameters.some((parameter) => parameter.name === 'zpw');
+  const sentUrl =
+    baseUrl && addsPassword
+      ? endpointUrl(baseUrl, path, form.segments, [
+          ...form.parameters,
+          { name: 'zpw', value: lock.password },
+        ])
+      : url;
   const blocked = hosts.error
     ? `Zesty Explorer could not look up ${state === 'latest' ? 'the preview host' : 'the live domains'} of this instance.`
-    : !baseUrls
+    : !baseUrls || (!lock && !hosts.previewLockError)
       ? 'Looking up where WebEngine serves this instance…'
       : !baseUrl
         ? 'This instance has no live domain, so its published endpoints have no address.'
@@ -142,12 +156,12 @@ export function EndpointRequest({
     });
 
   const send = () => {
-    if (!url || sendingUrl) return;
+    if (!url || !sentUrl || blocked || sendingUrl) return;
     setPane('response');
     setSendingUrl(url);
     const request = new AbortController();
     controller.current = request;
-    Effect.runPromise(Effect.either(requestEndpoint(url)), { signal: request.signal }).then(
+    Effect.runPromise(Effect.either(requestEndpoint(sentUrl)), { signal: request.signal }).then(
       (outcome) => {
         if (request.signal.aborted) return;
         setSendingUrl(undefined);
@@ -269,6 +283,15 @@ export function EndpointRequest({
               </button>
             </span>
           ))}
+          {addsPassword ? (
+            <span
+              className="text-muted-foreground ml-1.5 inline-flex items-center gap-0.5 text-xs"
+              title="This preview is locked. Send adds the instance's preview lock password as ?zpw."
+            >
+              <LockKeyhole size={12} aria-hidden="true" />
+              zpw
+            </span>
+          ) : null}
           {suggested.map((name) => (
             <button
               key={name}
@@ -321,7 +344,7 @@ export function EndpointRequest({
             type="submit"
             size="sm"
             className="h-7 rounded-full"
-            disabled={!url}
+            disabled={!url || Boolean(blocked)}
             {...(blocked ? { title: blocked } : {})}
           >
             <ArrowRight aria-hidden="true" />
@@ -338,6 +361,15 @@ export function EndpointRequest({
               <RotateCw aria-hidden="true" /> Retry
             </Button>
           ) : null}
+        </p>
+      ) : null}
+      {!blocked && hosts.previewLockError ? (
+        <p className="text-muted-foreground flex items-center gap-2 px-4 text-xs" role="status">
+          Zesty Explorer could not read the preview lock password. If the preview answers 401, add
+          ?zpw with the password.
+          <Button variant="ghost" size="sm" className="h-6" onClick={hosts.refresh}>
+            <RotateCw aria-hidden="true" /> Retry
+          </Button>
         </p>
       ) : null}
 

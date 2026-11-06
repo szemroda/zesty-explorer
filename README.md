@@ -102,6 +102,8 @@ Item history remains usable when publishing status or author information fails t
 
 Code history, opened with `History` beside a Code tab file, previews and compares the file's saved versions. Zesty returns at most the newest 1,000 versions of a file; when older ones exist, code history says so.
 
+Endpoint requests are anonymous `GET` requests. When an instance's preview is locked, `Send` adds the preview lock password from the instance settings as `?zpw`, shown as a lock beside the parameters. The password never appears in the address bar, the response, or a shared link. A `zpw` parameter you add is sent instead. If the settings cannot be read, add `zpw` yourself.
+
 The app loads at most 10,000 items per collection and 50,000 items across a view. Affected collections remain usable and show persistent incomplete-data warnings. A failed root blocks the table area and offers retry. A failed descendant leaves the rest of the view usable and provides recovery at that node.
 
 ## Share, replace, and reset

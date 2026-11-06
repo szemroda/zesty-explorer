@@ -33,6 +33,13 @@ export interface ContentLanguage {
   /** Zesty picks one default language when the instance is created; it never changes. */
   readonly isDefault: boolean;
 }
+
+/**
+ * Whether WebEngine answers anonymous requests to the instance's preview host only when they
+ * carry the preview lock password as `?zpw=`. Live domains are never locked this way.
+ */
+export type PreviewLock =
+  { readonly kind: 'off' } | { readonly kind: 'password'; readonly password: string };
 export type Scalar = string | number | boolean;
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -307,7 +314,8 @@ export type ExplorerRequestOperation =
   | 'load-code-file-versions'
   | 'load-instance-details'
   | 'load-instance-domains'
-  | 'load-languages';
+  | 'load-languages'
+  | 'load-instance-settings';
 
 declare const safeRequestUrlBrand: unique symbol;
 export type SafeRequestUrl = string & { readonly [safeRequestUrlBrand]: true };

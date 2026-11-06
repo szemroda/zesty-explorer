@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CodeFile, CodeFileZuid, CodeState, InstanceReference } from '../../domain';
+import type {
+  CodeFile,
+  CodeFileZuid,
+  CodeState,
+  InstanceReference,
+  PreviewLock,
+} from '../../domain';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
 import type * as EndpointRequests from '../../zesty-api/webengine-request';
 import { EndpointRequest } from './EndpointRequest';
@@ -24,9 +30,14 @@ const instance: InstanceReference = {
 };
 const preview = 'https://h4sh-dev.webengine.zesty.io';
 // The preview host for latest code; published code has no live domain.
-const hosts = (state: CodeState): WebEngineBaseUrlsResult => ({
+const hosts = (
+  state: CodeState,
+  previewLock: PreviewLock = { kind: 'off' },
+): WebEngineBaseUrlsResult => ({
   baseUrls: state === 'latest' ? [preview] : [],
   error: undefined,
+  previewLock,
+  previewLockError: undefined,
   refresh: () => {},
 });
 const helpers: CodeFile = {
@@ -42,14 +53,14 @@ function endpoint(id: CodeFileZuid, code: string): CodeFile {
   return { id, fileName: '/data/list.json', type: 'ajax-json', code, version: 1 };
 }
 
-function renderPanel(file: CodeFile, state: CodeState = 'latest') {
+function renderPanel(file: CodeFile, state: CodeState = 'latest', previewLock?: PreviewLock) {
   const panel = (current: CodeFile) => (
     <EndpointRequest
       instance={instance}
       state={state}
       file={current}
       files={[current, helpers]}
-      hosts={hosts(state)}
+      hosts={hosts(state, previewLock)}
     >
       <p>Source view</p>
     </EndpointRequest>
@@ -96,6 +107,45 @@ describe('EndpointRequest', () => {
     expect(screen.queryByText('Source view')).not.toBeInTheDocument();
   });
 
+  it('sends a locked preview its password without showing it, unless the form sets zpw', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response('[]')));
+    vi.stubGlobal('fetch', fetch);
+    renderPanel(endpoint('11-locked', '{{get_var.limit}}'), 'latest', {
+      kind: 'password',
+      password: 'pa ss&1',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add ?limit' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value of ?limit' }), {
+      target: { value: '5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const response = screen.getByRole('region', { name: 'Response' });
+    await waitFor(() => expect(response).toHaveTextContent('200'));
+    expect(fetch).toHaveBeenLastCalledWith(
+      `${preview}/data/list.json?limit=5&zpw=pa+ss%261`,
+      expect.anything(),
+    );
+    expect(newTabLink()).toHaveAttribute('href', `${preview}/data/list.json?limit=5`);
+    expect(response).toHaveTextContent(`${preview}/data/list.json?limit=5`);
+    expect(response).not.toHaveTextContent('zpw');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a query parameter' }));
+    fireEvent.change(screen.getAllByRole('textbox', { name: 'Parameter name' })[1]!, {
+      target: { value: 'zpw' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value of ?zpw' }), {
+      target: { value: 'mine' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenLastCalledWith(
+        `${preview}/data/list.json?limit=5&zpw=mine`,
+        expect.anything(),
+      ),
+    );
+  });
+
   it('restores its form, and a refreshed source only adds new suggestions', () => {
     const file = endpoint('11-restore', '{{get_var.limit}}');
     const first = renderPanel(file);
@@ -132,6 +182,8 @@ describe('EndpointRequest', () => {
         hosts={{
           baseUrls: [preview],
           error: { kind: 'network', message: 'Zesty could not be reached.' },
+          previewLock: { kind: 'off' },
+          previewLockError: undefined,
           refresh: () => {},
         }}
       >

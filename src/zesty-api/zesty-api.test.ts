@@ -780,6 +780,40 @@ describe('ZestyApi', () => {
     });
   });
 
+  // Observed on production instances: the password locks the preview unless preview_lock is "0".
+  it.each([
+    ['a password without preview_lock', [{ key: 'preview_lock_password', value: 'pw' }], 'pw'],
+    [
+      'a password with preview_lock on',
+      [
+        { key: 'preview_lock', value: '1' },
+        { key: 'preview_lock_password', value: 'pw' },
+      ],
+      'pw',
+    ],
+    [
+      'a password with preview_lock off',
+      [
+        { key: 'preview_lock', value: '0' },
+        { key: 'preview_lock_password', value: 'pw' },
+      ],
+      undefined,
+    ],
+    ['an empty password', [{ key: 'preview_lock_password', value: '' }], undefined],
+    ['no password setting', [{ key: 'x_frame_options', value: null }], undefined],
+  ])('reads the preview lock of %s from the instance settings', async (_, data, password) => {
+    const fake = respondWith({ data });
+
+    const lock = await Effect.runPromise(
+      createZestyApi(fake.transport).loadPreviewLock(instance, 'private-token'),
+    );
+
+    expect(lock).toEqual(password ? { kind: 'password', password } : { kind: 'off' });
+    expect(fake.requests).toEqual([
+      { ...authenticatedGet, url: 'https://8-abc123.api.zesty.io/v1/env/settings' },
+    ]);
+  });
+
   it('lists live domains of published code, preferring the newest customer domain', async () => {
     const fake = respondWith({
       data: [

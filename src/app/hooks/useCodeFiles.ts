@@ -11,6 +11,7 @@ import type {
   InstanceReference,
   InstanceUser,
   ModelZuid,
+  PreviewLock,
 } from '../../domain';
 import type { CodeFileApi, CollectionApi, ItemVersionApi } from '../../zesty-api';
 import { buildCodeVersionOptions, type CodeVersionOption } from '../code-file-history';
@@ -23,7 +24,7 @@ export interface CodeCredentials {
   readonly sessionToken: string;
 }
 
-/** Reloads the code files the Code tab shows, and the hosts serving its endpoints. */
+/** Reloads the code files the Code tab shows, and the hosts serving its endpoints with their lock. */
 export async function refreshCodeFiles(queryClient: QueryClient): Promise<void> {
   await Promise.all(
     ['code-files', 'code-sites'].map((key) =>
@@ -107,10 +108,19 @@ export interface WebEngineBaseUrlsResult {
   /** The preferred origin first; empty when published code has no live domain. */
   readonly baseUrls: readonly string[] | undefined;
   readonly error: ExplorerError | undefined;
+  /** Undefined until read. Only the preview host of latest code can be locked. */
+  readonly previewLock: PreviewLock | undefined;
+  /** Failing to read the lock leaves endpoints callable without its password. */
+  readonly previewLockError: ExplorerError | undefined;
   readonly refresh: () => void;
 }
 
-/** Where WebEngine serves the instance's endpoints in a code state, cached until refreshed. */
+const unlocked: PreviewLock = { kind: 'off' };
+
+/**
+ * Where WebEngine serves the instance's endpoints in a code state, and the preview lock of latest
+ * code, cached until refreshed.
+ */
 export function useWebEngineBaseUrls({
   api,
   instance,
@@ -135,11 +145,32 @@ export function useWebEngineBaseUrls({
         signal,
       ),
   });
+  const latest = state === 'latest';
+  const lockQuery = useQuery<PreviewLock, Error>({
+    queryKey: [
+      'code-sites',
+      credentials.revision,
+      instance.deployment,
+      instance.instanceZuid,
+      'preview-lock',
+    ],
+    enabled: enabled && latest && Boolean(credentials.sessionToken),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: ({ signal }) =>
+      runExplorerQuery(api.loadPreviewLock(instance, credentials.sessionToken), signal),
+  });
   const { refetch } = query;
+  const { refetch: refetchLock } = lockQuery;
   return {
     baseUrls: query.data,
     error: explorerFailure(query.error),
-    refresh: useCallback(() => void refetch(), [refetch]),
+    previewLock: latest ? lockQuery.data : unlocked,
+    previewLockError: latest ? explorerFailure(lockQuery.error) : undefined,
+    refresh: useCallback(() => {
+      void refetch();
+      if (latest) void refetchLock();
+    }, [refetch, refetchLock, latest]),
   };
 }
 

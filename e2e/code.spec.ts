@@ -218,9 +218,11 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   await page.keyboard.type('guides');
   await page.keyboard.press('Enter');
 
+  // The locked preview answers because Send adds its password, which stays out of sight.
   const sent = `${previewOrigin}/data/articles.json?limit=2&category=guides`;
   await expect(response(page)).toContainText('200');
   await expect(response(page)).toContainText(sent);
+  await expect(page.getByText('fixture-zpw')).toHaveCount(0);
   await expect(page.getByTestId('response-body')).toContainText('"title": "Guide article 2"');
   await toggle(page, 'Workspace pane', 'Source').click();
   await expect(page.getByRole('region', { name: 'Source' })).toBeVisible();
