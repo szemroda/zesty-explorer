@@ -284,6 +284,7 @@ describe('root collection browser', () => {
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
     fireEvent.click(screen.getByRole('button', { name: 'Production' }));
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('');
+    expect(screen.getByRole('list')).toHaveTextContent('Type APP_SID in the filter box');
     fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
     fireEvent.click(screen.getByRole('button', { name: 'How to find the token' }));
