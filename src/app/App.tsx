@@ -1334,7 +1334,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           if (pendingRootReplacement) replaceRoot(pendingRootReplacement);
         }}
       >
-        <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm">
+        <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm [overflow-wrap:anywhere]">
           {pendingRootReplacement?.removedNodeNames.map((name, index) => (
             <li key={`${index}:${name}`}>{name}</li>
           ))}

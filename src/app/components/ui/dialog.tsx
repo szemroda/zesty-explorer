@@ -41,7 +41,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-[min(560px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl outline-none',
+          'fixed top-1/2 left-1/2 z-50 grid grid-cols-[minmax(0,1fr)] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl outline-none',
           className,
         )}
         {...props}
@@ -61,8 +61,9 @@ function DialogContent({
   );
 }
 
+// Breaks long unbroken names in the title or description instead of overflowing the dialog.
 function DialogHeader({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('grid gap-1.5', className)} {...props} />;
+  return <div className={cn('grid gap-1.5 [overflow-wrap:anywhere]', className)} {...props} />;
 }
 
 function DialogFooter({ className, ...props }: ComponentProps<'div'>) {
