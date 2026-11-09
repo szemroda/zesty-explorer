@@ -39,7 +39,8 @@ const rootItems = Array.from({ length: 105 }, (_, index) =>
       : `Story ${index} with a deliberately long title used to exercise the full-value popover`,
     {
       rootKey: `root-${index}`,
-      primaryChild: index === 0 ? childItems.map((item) => item.meta.ZUID) : [],
+      // Zesty returns one_to_many values as one comma-separated ZUID string.
+      primaryChild: index === 0 ? childItems.map((item) => item.meta.ZUID).join(',') : null,
       secondaryChild: index === 0 ? childItems[0]?.meta.ZUID : null,
       category: index % 2 ? 'news' : 'guide',
       score: index,
