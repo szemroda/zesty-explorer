@@ -286,12 +286,9 @@ describe('root collection browser', () => {
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
-    fireEvent.click(screen.getByRole('button', { name: 'How to find the token' }));
-    expect(
-      screen.getByText(
-        'Copy STAGE_APP_SID from your Stage Zesty Manager cookies. It carries your permissions. Do not share it.',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('list')).toHaveTextContent(
+      'Type STAGE_APP_SID in the filter box and select its row.',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(loadInstances).toHaveBeenCalledWith('stage', 'saved-stage-token'));
     expect(save).toHaveBeenCalledWith('stage', 'saved-stage-token');
@@ -300,6 +297,21 @@ describe('root collection browser', () => {
         'Zesty lists no Stage instances for this session token. If you work in Production or Development, choose Back and pick that deployment. Or paste a Zesty URL below.',
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows token steps without a saved token, linking the deployment's Zesty sign-in page", () => {
+    render(<App api={api()} tokenStore={memoryTokenStore()} />);
+    expect(
+      screen.getByRole('link', { name: 'Open your Production Zesty instances' }),
+    ).toHaveAttribute('href', 'https://www.zesty.io/instances/');
+    fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+    const link = screen.getByRole('link', { name: 'Open your Stage Zesty instances' });
+    expect(link).toHaveAttribute('href', 'https://accounts.stage.zesty.io/instances');
+
+    link.focus();
+    fireEvent.click(link);
+    fireEvent.focus(window);
+    expect(screen.getByLabelText('Zesty session token')).toHaveFocus();
   });
 
   it('clears only the rejected deployment token when the instance list answers 401 and retries with a replacement', async () => {

@@ -45,18 +45,18 @@ The development server starts on port 5173 or the next available port without op
 
 ## Start a view
 
-1. Sign in to the matching Zesty Manager deployment.
-2. In Chrome or Edge Developer Tools, open Application → Storage → Cookies and select the Manager origin.
-3. Copy the cookie value for the deployment you intend to browse:
+1. In Zesty Explorer, under **Zesty deployment**, keep **Production** or choose the deployment you intend to browse.
+2. Under **How to find the token**, select the link to your Zesty instances. It opens Zesty in a new tab, which asks you to sign in first if needed:
 
-   | Deployment  | Cookie          |
-   | ----------- | --------------- |
-   | Production  | `APP_SID`       |
-   | Stage       | `STAGE_APP_SID` |
-   | Development | `DEV_APP_SID`   |
+   | Deployment  | Page                                        | Cookie          |
+   | ----------- | ------------------------------------------- | --------------- |
+   | Production  | `https://www.zesty.io/instances/`           | `APP_SID`       |
+   | Stage       | `https://accounts.stage.zesty.io/instances` | `STAGE_APP_SID` |
+   | Development | `https://accounts.dev.zesty.io/instances`   | `DEV_APP_SID`   |
 
-4. In Zesty Explorer, under **Zesty deployment**, keep **Production** or choose the deployment whose cookie you copied.
-5. Paste that value into **Zesty session token** and select **Continue**. Treat the token like a password. Do not put it in chat, an issue, a screenshot, or a shared link.
+3. On the Zesty page, open Developer Tools in Chrome or Edge. Go to Application → Cookies, select the Zesty site, filter by the deployment's cookie name, and copy the whole value under **Cookie Value**.
+4. Return to Zesty Explorer. The **Zesty session token** field has focus again.
+5. Paste the value and select **Continue**. Treat the token like a password. Do not put it in chat, an issue, a screenshot, or a shared link.
 6. Choose an **Instance**. The list shows the instances your session can access in that deployment. Search by name or instance ZUID.
 7. Choose the **Root collection** and select **Open root collection**.
 

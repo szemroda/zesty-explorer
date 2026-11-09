@@ -1,4 +1,4 @@
-import { Eye, EyeOff } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { deploymentLabels, type Deployment, type InstanceZuid } from '../../domain';
 import { useFieldProblem } from '../hooks/useFieldProblem';
@@ -9,10 +9,16 @@ import { Field, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
-const sessionCookies: Readonly<Record<Deployment, string>> = {
-  production: 'APP_SID',
-  stage: 'STAGE_APP_SID',
-  development: 'DEV_APP_SID',
+/**
+ * Each deployment's session cookie, and a Zesty page that sends signed-out users to sign in first.
+ * Every page sees the cookie because Zesty sets it on `.zesty.io`.
+ */
+const tokenSources: Readonly<
+  Record<Deployment, { readonly cookie: string; readonly signInUrl: string }>
+> = {
+  production: { cookie: 'APP_SID', signInUrl: 'https://www.zesty.io/instances/' },
+  stage: { cookie: 'STAGE_APP_SID', signInUrl: 'https://accounts.stage.zesty.io/instances' },
+  development: { cookie: 'DEV_APP_SID', signInUrl: 'https://accounts.dev.zesty.io/instances' },
 };
 const deployments: readonly Deployment[] = ['production', 'stage', 'development'];
 
@@ -47,7 +53,7 @@ export function SessionTokenForm({
     problem.clear();
   }
   const label = deploymentLabels[deployment];
-  const cookie = sessionCookies[deployment];
+  const { cookie, signInUrl } = tokenSources[deployment];
 
   return (
     <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
@@ -137,13 +143,40 @@ export function SessionTokenForm({
             </Button>
           </div>
         </Field>
-        <Collapsible>
+        <Collapsible defaultOpen={!savedToken}>
           <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
             How to find the token
           </CollapsibleTrigger>
           <CollapsibleContent className="text-muted-foreground pt-2 text-xs leading-relaxed">
-            Copy {cookie} from your {label} Zesty Manager cookies. It carries your permissions. Do
-            not share it.
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>
+                <a
+                  className="text-foreground inline-flex items-center gap-1 font-medium underline underline-offset-4"
+                  href={signInUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    // Coming back from Zesty lands in the token field, ready to paste.
+                    window.addEventListener('focus', () => tokenInput.current?.focus(), {
+                      once: true,
+                    });
+                  }}
+                >
+                  Open your {label} Zesty instances
+                  <ExternalLink size={12} aria-hidden />
+                </a>{' '}
+                in a new tab and sign in if Zesty asks.
+              </li>
+              <li>Open Developer Tools with F12, or Cmd+Option+I on macOS.</li>
+              <li>Go to Application → Cookies and select the Zesty site.</li>
+              <li>
+                Type <code className="text-foreground">{cookie}</code> in the filter box and select
+                its row.
+              </li>
+              <li>Copy the whole value under Cookie Value. The table can cut it short.</li>
+              <li>Come back here and paste it above.</li>
+            </ol>
+            <p className="pt-2">The token carries your Zesty permissions. Do not share it.</p>
           </CollapsibleContent>
         </Collapsible>
         <div className="flex flex-wrap justify-end gap-2">
