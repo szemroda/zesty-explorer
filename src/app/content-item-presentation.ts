@@ -21,8 +21,14 @@ interface ColumnDefinition {
 }
 
 export type ContentItemColumn =
-  | (ColumnDefinition & { readonly kind: 'value'; read(item: ContentItem): unknown })
-  | (ColumnDefinition & { readonly kind: 'status' });
+  ContentValueColumn | (ColumnDefinition & { readonly kind: 'status' });
+
+export type ContentValueColumn = ColumnDefinition & {
+  readonly kind: 'value';
+  /** The value is WYSIWYG HTML, shown formatted rather than as text. */
+  readonly richText: boolean;
+  read(item: ContentItem): unknown;
+};
 
 export function contentItemColumns(
   schema: Pick<CollectionSchema, 'fields'>,
@@ -53,6 +59,7 @@ export function contentItemColumns(
       technical: false,
       sortable: true,
       defaultWidth: defaultContentColumnWidth,
+      richText: field.datatype?.startsWith('wysiwyg') ?? false,
       read: (item: ContentItem) => item.fields[field.name],
     })),
     technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
@@ -72,7 +79,16 @@ function technicalColumn(
   read: (item: ContentItem) => unknown,
   sortable = true,
 ): ContentItemColumn {
-  return { kind: 'value', id, label, technical: true, sortable, defaultWidth, read };
+  return {
+    kind: 'value',
+    id,
+    label,
+    technical: true,
+    sortable,
+    defaultWidth,
+    richText: false,
+    read,
+  };
 }
 
 export function columnIdForSort(sort: SortState): string {

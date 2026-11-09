@@ -88,6 +88,7 @@ import { Field, FieldDescription, FieldLabel } from './components/ui/field';
 import { Input } from './components/ui/input';
 import { Toaster } from './components/ui/sonner';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
+import { SharedRichTextPreview } from './components/RichText';
 import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
 
@@ -1378,6 +1379,7 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
       <TooltipProvider delay={300}>
         <Explorer api={api} tokenStore={resolvedTokenStore} />
         <SharedTooltip />
+        <SharedRichTextPreview />
       </TooltipProvider>
       <Toaster />
     </QueryClientProvider>

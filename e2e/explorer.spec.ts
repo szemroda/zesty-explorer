@@ -44,6 +44,11 @@ const rootItems = Array.from({ length: 105 }, (_, index) =>
       secondaryChild: index === 0 ? childItems[0]?.meta.ZUID : null,
       category: index % 2 ? 'news' : 'guide',
       score: index,
+      body:
+        index === 0
+          ? '<p><strong>Banana on a</strong> <span style="text-decoration: underline;">tree</span>. ' +
+            'This <em>is</em> a not-too-long text.</p><ul><li>First point</li><li>Second point</li></ul>'
+          : null,
     },
   ),
 );
@@ -51,6 +56,7 @@ const rootItems = Array.from({ length: 105 }, (_, index) =>
 const fieldsByModel: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>> = {
   '6-rootmodel': [
     { ZUID: '12-title-root', name: 'title', label: 'Title', datatype: 'text' },
+    { ZUID: '12-body-root', name: 'body', label: 'Body', datatype: 'wysiwyg_basic' },
     { ZUID: '12-root-key', name: 'rootKey', label: 'Root key', datatype: 'text' },
     {
       ZUID: '12-primary',
@@ -359,6 +365,22 @@ test('requests Zesty using only headers accepted by its CORS preflight', async (
   expect(state.requests.some((request) => request.includes('evil.example'))).toBe(false);
   expect(requestHeaders.length).toBeGreaterThan(0);
   for (const headers of requestHeaders) expect(headers).toEqual(['authorization']);
+});
+
+test('formats rich text cells and previews their whole text and HTML', async ({ page }) => {
+  await installFakeApi(page);
+  await openRoot(page);
+
+  const cell = page.getByRole('button', { name: /^Banana on a tree\. This is/ });
+  await expect(cell.locator('strong')).toHaveText('Banana on a');
+  await expect(cell.locator('u')).toHaveText('tree');
+  await expect(cell.locator('li')).toHaveCount(0);
+
+  await cell.hover();
+  const preview = page.getByRole('dialog', { name: 'Rich text preview' });
+  await expect(preview.getByRole('listitem')).toHaveText(['First point', 'Second point']);
+  await preview.getByRole('button', { name: 'HTML' }).click();
+  await expect(preview).toContainText('<li>Second point</li>');
 });
 
 test('reads the view in a language chosen from the instance languages', async ({ page }) => {

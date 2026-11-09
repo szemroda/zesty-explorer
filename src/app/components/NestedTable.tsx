@@ -270,7 +270,7 @@ export function NestedTable(props: NestedTableProps) {
   const tableColumns = createContentTableColumns({
     definitions: columns,
     actionColumnWidth,
-    renderValue: (value) => <CellValue value={value} />,
+    renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
     renderStatus: (item) => (
       <PublicationStatusCell item={item} reference={{ ...node.reference, itemZuid: item.id }} />
     ),
