@@ -111,6 +111,26 @@ describe('relationship indexes', () => {
     ).toEqual([graph.children.items[0]!.id, graph.children.items[1]!.id]);
   });
 
+  it('splits a one_to_many value stored as comma-separated ZUIDs', () => {
+    const [first, second] = graph.children.items;
+    const parent = {
+      ...graph.parents,
+      items: [{ ...graph.parents.items[0]!, fields: { highlights: `${first!.id},${second!.id}` } }],
+    };
+    const relationship = {
+      kind: 'native',
+      fieldSide: 'parent',
+      field: ['highlights'],
+      relatedModelZuid: '6-fixture-children',
+    } as const;
+
+    const index = buildRelationshipIndex(graph.children, relationship);
+    expect(joinRelatedItems(parent, index, relationship).get(parent.items[0]!.id)).toEqual([
+      '7-child-000000',
+      '7-child-000001',
+    ]);
+  });
+
   it('proposes a native relationship declared by the child collection', () => {
     const parentSchema: CollectionSchema = {
       modelZuid: '6-articles123',
