@@ -71,7 +71,12 @@ export function buildRelationshipIndex(
 // one_to_many values as one comma-separated string, e.g. "7-a,7-b".
 function nativeReferences(value: unknown): readonly Scalar[] {
   if (Array.isArray(value)) return value.flatMap(nativeReferences);
-  if (typeof value === 'string') return value.split(',').filter((zuid) => zuid !== '');
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((zuid) => zuid.trim())
+      .filter((zuid) => zuid !== '');
+  }
   if (isScalar(value)) return [value];
   if (typeof value === 'object' && value !== null && 'zuid' in value) {
     const zuid = (value as { readonly zuid?: unknown }).zuid;
