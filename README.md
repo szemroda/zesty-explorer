@@ -55,7 +55,7 @@ The development server starts on port 5173 or the next available port without op
    | Development | `https://accounts.dev.zesty.io/instances`   | `DEV_APP_SID`   |
 
 3. On the Zesty page, open Developer Tools in Chrome or Edge. Go to Application → Cookies, select the Zesty site, filter by the deployment's cookie name, and copy the whole value under **Cookie Value**.
-4. Return to Zesty Explorer. The **Zesty session token** field has focus again.
+4. Return to Zesty Explorer. If you opened Zesty with the link, the **Zesty session token** field has focus again.
 5. Paste the value and select **Continue**. Treat the token like a password. Do not put it in chat, an issue, a screenshot, or a shared link.
 6. Choose an **Instance**. The list shows the instances your session can access in that deployment. Search by name or instance ZUID.
 7. Choose the **Root collection** and select **Open root collection**.

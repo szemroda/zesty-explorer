@@ -86,8 +86,8 @@ export function SessionTokenForm({
             role="alert"
             className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
           >
-            Zesty rejected the {label} session token. Copy a fresh {cookie} cookie from Zesty
-            Manager.
+            Zesty rejected the {label} session token. Copy a fresh {cookie} cookie using the steps
+            below.
             {onDeploymentChange
               ? " If you copied another deployment's cookie, choose that deployment."
               : ''}
@@ -143,7 +143,8 @@ export function SessionTokenForm({
             </Button>
           </div>
         </Field>
-        <Collapsible defaultOpen={!savedToken}>
+        {/* Keyed so each deployment opens the steps exactly when it has no saved token. */}
+        <Collapsible key={deployment} defaultOpen={!savedToken}>
           <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
             How to find the token
           </CollapsibleTrigger>
@@ -167,7 +168,7 @@ export function SessionTokenForm({
                 </a>{' '}
                 in a new tab and sign in if Zesty asks.
               </li>
-              <li>Open Developer Tools with F12, or Cmd+Option+I on macOS.</li>
+              <li>Open Chrome or Edge Developer Tools with F12, or Cmd+Option+I on macOS.</li>
               <li>Go to Application → Cookies and select the Zesty site.</li>
               <li>
                 Type <code className="text-foreground">{cookie}</code> in the filter box and select

@@ -286,6 +286,7 @@ describe('root collection browser', () => {
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('saved-stage-token');
+    fireEvent.click(screen.getByRole('button', { name: 'How to find the token' }));
     expect(screen.getByRole('list')).toHaveTextContent(
       'Type STAGE_APP_SID in the filter box and select its row.',
     );
@@ -307,6 +308,7 @@ describe('root collection browser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
     const link = screen.getByRole('link', { name: 'Open your Stage Zesty instances' });
     expect(link).toHaveAttribute('href', 'https://accounts.stage.zesty.io/instances');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
 
     link.focus();
     fireEvent.click(link);
@@ -329,7 +331,7 @@ describe('root collection browser', () => {
     expect(store.read('production')).toBeNull();
     expect(store.read('stage')).toBe('saved-stage-token');
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Zesty rejected the Production session token. Copy a fresh APP_SID cookie from Zesty Manager.',
+      'Zesty rejected the Production session token. Copy a fresh APP_SID cookie using the steps below.',
     );
     expect(screen.getByRole('button', { name: 'Stage' })).toBeInTheDocument();
     startSession('replacement-token');
