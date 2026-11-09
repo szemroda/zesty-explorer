@@ -150,7 +150,7 @@ export function RichTextCell({
       payload={html}
       openOnHover
       delay={400}
-      className="block w-full cursor-pointer overflow-hidden text-left text-xs text-ellipsis whitespace-nowrap text-foreground outline-none hover:text-content-hover focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/45"
+      className="block w-full overflow-hidden text-left text-xs text-ellipsis whitespace-nowrap text-foreground outline-none hover:text-content-hover focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/45"
     >
       <RichText body={body} layout="inline" />
     </PopoverPrimitive.Trigger>
