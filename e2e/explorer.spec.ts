@@ -917,19 +917,48 @@ test('keeps pinned columns in place while the table scrolls sideways', async ({
   await expect(table.getByRole('button', { name: 'Category pinned', exact: true })).toBeVisible();
 });
 
+// Pixels a dialog's content sticks out past its sides; focus can scroll a clipped dialog sideways.
+function horizontalOverflow(dialog: Locator) {
+  return dialog.evaluate((element) => element.scrollWidth - element.clientWidth);
+}
+
 test('truncates a long item title inside the history header', async ({ page }) => {
   await installFakeApi(page);
   await openRoot(page);
-  const title =
-    'Story 1 with a deliberately long title used to exercise the full-value popover and to overflow the item history header on a wide screen';
+  const title = String(rootItems[1]?.data.title);
   await page.getByRole('button', { name: `Open details for ${title}` }).click();
   const dialog = page.getByRole('dialog', { name: title });
-  await dialog.getByRole('button', { name: /Version 2/ }).click();
-  await expect(dialog.getByRole('heading', { name: 'Version 2' })).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Open in Zesty Manager' })).toBeVisible();
 
-  // A header wider than the dialog lets focus scroll the whole dialog sideways.
-  const overflow = await dialog.evaluate((element) => element.scrollWidth - element.clientWidth);
-  expect(overflow).toBe(0);
+  expect(await horizontalOverflow(dialog)).toBe(0);
   const heading = dialog.getByRole('heading', { name: title, exact: true });
   expect(await heading.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+});
+
+test('wraps a long unbroken node name inside dialogs', async ({ page }) => {
+  const name = 'homepage_hero_carousel_items_with_localized_content_and_regional_fallbacks_v2';
+  await installFakeApi(page);
+  await openRoot(page);
+  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await page.getByLabel('Related collection URL').fill(childUrl);
+  await page.getByLabel('Node name').fill(name);
+  await chooseSelectOption(page, 'Native field', 'Primary child');
+  await page.getByRole('button', { name: 'Add collection node' }).click();
+
+  // The new node offers its own Add relationship once its schema loads.
+  const addButtons = page.getByRole('button', { name: 'Add relationship' });
+  await expect(addButtons).toHaveCount(2);
+  await addButtons.last().click();
+  const add = page.getByRole('dialog', { name: `Add below ${name}` });
+  await expect(add).toBeVisible();
+  expect(await horizontalOverflow(add)).toBe(0);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
+  await page.getByRole('menuitem', { name: 'Change root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill(childUrl);
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+  const replace = page.getByRole('alertdialog', { name: 'Replace root collection?' });
+  await expect(replace.getByRole('listitem')).toHaveText(['6-rootmodel', name]);
+  expect(await horizontalOverflow(replace)).toBe(0);
 });
