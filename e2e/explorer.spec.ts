@@ -36,7 +36,7 @@ const rootItems = Array.from({ length: 105 }, (_, index) =>
     `7-root-${String(index).padStart(6, '0')}`,
     index === 0
       ? '<strong>First story</strong>'
-      : `Story ${index} with a deliberately long title used to exercise the full-value popover`,
+      : `Story ${index} with a deliberately long title used to exercise the full-value popover and to overflow the item history header on a wide screen`,
     {
       rootKey: `root-${index}`,
       primaryChild: index === 0 ? childItems.map((item) => item.meta.ZUID) : [],
@@ -915,4 +915,21 @@ test('keeps pinned columns in place while the table scrolls sideways', async ({
 
   await page.reload();
   await expect(table.getByRole('button', { name: 'Category pinned', exact: true })).toBeVisible();
+});
+
+test('truncates a long item title inside the history header', async ({ page }) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  const title =
+    'Story 1 with a deliberately long title used to exercise the full-value popover and to overflow the item history header on a wide screen';
+  await page.getByRole('button', { name: `Open details for ${title}` }).click();
+  const dialog = page.getByRole('dialog', { name: title });
+  await dialog.getByRole('button', { name: /Version 2/ }).click();
+  await expect(dialog.getByRole('heading', { name: 'Version 2' })).toBeVisible();
+
+  // A header wider than the dialog lets focus scroll the whole dialog sideways.
+  const overflow = await dialog.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow).toBe(0);
+  const heading = dialog.getByRole('heading', { name: title, exact: true });
+  expect(await heading.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
 });
