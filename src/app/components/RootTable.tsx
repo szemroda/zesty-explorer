@@ -191,7 +191,7 @@ export function RootTable({
       createContentTableColumns({
         definitions: itemColumnDefinitions,
         actionColumnWidth,
-        renderValue: (value) => <CellValue value={value} />,
+        renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
         renderStatus: (item) => (
           <PublicationStatusCell item={item} reference={{ ...reference, itemZuid: item.id }} />
         ),

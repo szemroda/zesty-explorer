@@ -18,7 +18,7 @@ import {
 } from '@tanstack/react-table';
 import type { ReactNode } from 'react';
 import type { ContentItem } from '../domain';
-import type { ContentItemColumn } from './content-item-presentation';
+import type { ContentItemColumn, ContentValueColumn } from './content-item-presentation';
 import { columnWidthLimits, defaultContentColumnWidth } from './content-item-presentation';
 
 const contentTableFeatures = tableFeatures({
@@ -39,7 +39,7 @@ export const actionsColumnId = 'actions';
 interface CreateContentTableColumnsOptions {
   readonly definitions: readonly ContentItemColumn[];
   readonly actionColumnWidth: number;
-  readonly renderValue: (value: unknown) => ReactNode;
+  readonly renderValue: (value: unknown, column: ContentValueColumn) => ReactNode;
   readonly renderStatus: (item: ContentItem) => ReactNode;
 }
 
@@ -72,7 +72,7 @@ export function createContentTableColumns({
             header: column.label,
             size: column.defaultWidth,
             enableSorting: column.sortable,
-            cell: ({ getValue }) => renderValue(getValue()),
+            cell: ({ getValue }) => renderValue(getValue(), column),
           }),
     ),
   ]);
