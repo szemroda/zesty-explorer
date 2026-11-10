@@ -293,11 +293,10 @@ async function installFakeApi(page: Page): Promise<FakeApiState> {
 
 async function openRoot(page: Page) {
   await page.goto('/');
-  await expect(page.getByText('How to find the token')).toBeVisible();
-  await page.getByText('How to find the token').click();
   await expect(
-    page.getByText(/Copy APP_SID from your Production Zesty Manager cookies/),
-  ).toBeVisible();
+    page.getByRole('link', { name: 'Open your Production Zesty instances' }),
+  ).toHaveAttribute('href', 'https://www.zesty.io/instances/');
+  await expect(page.getByText(/Type APP_SID in the filter box/)).toBeVisible();
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('combobox', { name: 'Instance' }).fill('Fixture');
