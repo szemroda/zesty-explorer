@@ -91,11 +91,7 @@ export function indexRelatedCollections(
   return { contains, referencedBy, labels };
 }
 
-/**
- * The links from one collection: those it contains, then, when `referencedBy` is set, the fields
- * of other collections pointing at it. A collection it contains already shows the pairs its own
- * field pointing back would show, so that mirror is left out.
- */
+/** The links from one collection: those it contains, then, when `referencedBy` is set, the rest. */
 export function relatedLinks(
   modelZuid: ModelZuid,
   collections: RelatedCollections,
@@ -103,16 +99,13 @@ export function relatedLinks(
 ): readonly RelatedLink[] {
   const contains = collections.contains.get(modelZuid) ?? [];
   if (!referencedBy) return contains;
-  const contained = new Set(contains.map((link) => link.modelZuid));
-  const referencing = (collections.referencedBy.get(modelZuid) ?? []).filter(
-    (link) => !contained.has(link.modelZuid),
-  );
-  return [...contains, ...referencing];
+  return [...contains, ...(collections.referencedBy.get(modelZuid) ?? [])];
 }
 
 /**
- * Names a new node after its collection, or after its field when the parent has another link to
- * the same collection: "Optional coverages", or "Offers (Product)" for a link the child owns.
+ * Names a new node after its collection, or after its field when another link on the same side
+ * reaches the same collection: "Optional coverages", or "Offers (Product)" for a link the child
+ * owns. Each side has its own section in the "+" menu, so the name does not depend on the other.
  */
 export function relatedLinkName(
   link: RelatedLink,
@@ -120,7 +113,12 @@ export function relatedLinkName(
   { labels }: RelatedCollections,
 ): string {
   const label = labels.get(link.modelZuid) ?? link.modelZuid;
-  const ambiguous = siblings.filter((sibling) => sibling.modelZuid === link.modelZuid).length > 1;
+  const ambiguous =
+    siblings.filter(
+      (sibling) =>
+        sibling.modelZuid === link.modelZuid &&
+        sibling.relationship.fieldSide === link.relationship.fieldSide,
+    ).length > 1;
   if (!ambiguous) return label;
   return link.relationship.fieldSide === 'parent'
     ? link.field.label
@@ -146,16 +144,18 @@ export function buildRelatedTree(
     const { node, depth } = queue[index]!;
     if (depth >= autoTreeLimits.depth) continue;
     const links = relatedLinks(node.reference.modelZuid, collections, depth === 0);
-    // Further fields of this parent may link the same collection again in another role.
-    const addedHere = new Set<ModelZuid>();
+    // Further links on the same side may reach the same collection again in another role. A link
+    // on the other side often mirrors one already added, so the build leaves it to the "+" menu.
+    const addedHere = new Map<ModelZuid, RelatedLink['relationship']['fieldSide']>();
     const children: CollectionNode[] = [];
     for (const link of links) {
       if (count >= autoTreeLimits.nodes) break;
-      if (shown.has(link.modelZuid) && !addedHere.has(link.modelZuid)) continue;
+      const side = link.relationship.fieldSide;
+      if (shown.has(link.modelZuid) && addedHere.get(link.modelZuid) !== side) continue;
       const child = createNode(link, relatedLinkName(link, links, collections));
       if (!child) continue;
       shown.add(link.modelZuid);
-      addedHere.add(link.modelZuid);
+      addedHere.set(link.modelZuid, side);
       children.push(child);
       queue.push({ node: child, depth: depth + 1 });
       count += 1;

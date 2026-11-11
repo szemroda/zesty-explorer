@@ -135,7 +135,7 @@ describe('related tree', () => {
     });
   });
 
-  it('adds one node for a relationship both collections declare', () => {
+  it('builds one node for collections linked both ways and offers the other field', () => {
     const twoWay = indexRelatedCollections(
       [
         collection('teams', 'Teams', [link('members', 'Members', 'people')]),
@@ -152,7 +152,14 @@ describe('related tree', () => {
       }),
     );
 
-    expect(relatedSuggestions(tree, tree.id, twoWay, true)).toEqual([]);
+    // People.team may pair other items than Teams.members, so it stays one click away.
+    expect(
+      relatedSuggestions(tree, tree.id, twoWay, true).map(({ name, link }) => [
+        name,
+        link.relationship.fieldSide,
+        link.field.name,
+      ]),
+    ).toEqual([['People', 'child', 'team']]);
     expect(tree.children.map((child) => child.relationship)).toEqual([
       {
         kind: 'native',

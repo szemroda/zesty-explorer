@@ -92,14 +92,15 @@ export interface SchemaIndexState {
   readonly done: boolean;
 }
 
-// A schema kept from before a Refresh still lists links. While the index is in use, such a schema
-// reloads and the index is not done until it has; an idle index reports what it has.
-function combineSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
+// Read from this render's results, which already reflect `enabled`: a cached summary could report
+// schemas a Refresh made stale as done in the render that enables the index. A schema whose
+// reload failed is left out, so a view's current copy can take its place.
+function summarizeSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
   const schemas = new Map<ModelZuid, CollectionSchema>();
   let settled = 0;
   let failed = 0;
   for (const result of results) {
-    if (result.data) schemas.set(result.data.modelZuid, result.data);
+    if (result.data && !result.isError) schemas.set(result.data.modelZuid, result.data);
     if (result.isFetching) continue;
     if (result.isError) failed += 1;
     if (result.isError || (result.data && !result.isStale)) settled += 1;
@@ -125,17 +126,15 @@ export function useSchemaIndex({
   // When nothing uses the index any more, loads still waiting for a permit are not needed.
   useEffect(() => {
     if (enabled) return;
-    void queryClient.cancelQueries({
-      queryKey: [relationshipSchemaQueryRoot, 'index'],
-      predicate: (query) => query.state.data === undefined,
-    });
+    // A cancelled reload keeps its previous schema, still marked stale.
+    void queryClient.cancelQueries({ queryKey: [relationshipSchemaQueryRoot, 'index'] });
   }, [enabled, queryClient]);
-  const index = useQueries({
+  const results = useQueries({
     queries: (catalog ?? []).map((entry) => ({
       ...relationshipSchemaQuery(entry.reference, loadSchema, 'index'),
       enabled,
     })),
-    combine: combineSchemas,
   });
+  const index = summarizeSchemas(results);
   return catalog ? index : { ...index, done: false };
 }
