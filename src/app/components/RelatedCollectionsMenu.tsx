@@ -4,6 +4,7 @@ import type {
   CollectionCatalogEntry,
   CollectionNode,
   CollectionReference,
+  ExplorerError,
   ModelZuid,
   RelationshipDefinition,
 } from '../../domain';
@@ -26,6 +27,7 @@ interface RelatedCollectionsMenuProps {
   readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
   /** Finding the collections that reference this one needs every schema in the catalog. */
   readonly schemaIndex: SchemaIndexState;
+  readonly catalogError: ExplorerError | undefined;
   readonly onFindReferences: () => void;
   readonly onAdd: (
     parentId: CollectionNode['id'],
@@ -43,6 +45,7 @@ export function RelatedCollectionsMenu({
   collections,
   catalogByModel,
   schemaIndex,
+  catalogError,
   onFindReferences,
   onAdd,
   onChooseOther,
@@ -152,9 +155,12 @@ export function RelatedCollectionsMenu({
                   )
                 : null}
             </>
+          ) : catalogError ? (
+            note(`The collection catalog did not load: ${catalogError.message}`)
           ) : (
             <p className="text-muted-foreground px-2 pb-1 text-xs" role="status">
-              Checking collections… {schemaIndex.settled} of {schemaIndex.total}
+              Checking collections…
+              {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
             </p>
           ),
         )}

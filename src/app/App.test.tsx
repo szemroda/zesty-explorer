@@ -188,13 +188,19 @@ async function openAddRelationshipDialog(nodeName = 'Stories') {
   );
 }
 
-async function submitStartForm(collectionUrl: string, token = 'fixture-session-token') {
+async function submitStartForm(
+  collectionUrl: string,
+  { token = 'fixture-session-token', addRelated = false } = {},
+) {
   loadCollections(collectionUrl, token);
   await waitFor(() =>
     expect(
       screen.queryByRole('status', { name: 'Loading collection catalog' }),
     ).not.toBeInTheDocument(),
   );
+  if (addRelated) {
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
+  }
   fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
 }
 
@@ -814,83 +820,74 @@ describe('root collection browser', () => {
     expect(replaceState).toHaveBeenCalled();
   });
 
-  it('offers related collections only once the catalog they come from has loaded', async () => {
-    const catalogReady = Effect.runSync(Deferred.make<CollectionCatalog, ExplorerError>());
-    render(
-      <App
-        api={{ ...api(), loadCollectionCatalog: () => Deferred.await(catalogReady) }}
-        tokenStore={memoryTokenStore()}
-      />,
-    );
-    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-
-    const addRelated = await screen.findByRole('checkbox', { name: /Add related collections/ });
-    expect(addRelated).toHaveAttribute('aria-disabled', 'true');
-    await act(() => Effect.runPromise(Deferred.succeed(catalogReady, catalog)));
-    await waitFor(() => expect(addRelated).not.toHaveAttribute('aria-disabled', 'true'));
-  });
+  // Stories contains Tags, and Authors references Stories.
+  const relatedCatalog: CollectionCatalog = {
+    incomplete: false,
+    collections: [
+      catalog.collections[0]!,
+      ...(
+        [
+          ['6-tags123', 'Tags'],
+          ['6-authors123', 'Authors'],
+        ] as const
+      ).map(([modelZuid, label]): CollectionCatalogEntry => ({
+        ...catalog.collections[0]!,
+        label,
+        name: label.toLowerCase(),
+        reference: { ...catalog.collections[0]!.reference, modelZuid },
+      })),
+    ],
+  };
+  const relatedSchemas = new Map<ModelZuid, CollectionSchema>([
+    [
+      schema.modelZuid,
+      {
+        ...schema,
+        fields: [
+          ...schema.fields,
+          {
+            id: '12-tags123',
+            name: 'tags',
+            label: 'Tags',
+            kind: 'relationship',
+            relatedModelZuid: '6-tags123',
+          },
+        ],
+      },
+    ],
+    ['6-tags123', { modelZuid: '6-tags123', label: '6-tags123', fields: [] }],
+    [
+      '6-authors123',
+      {
+        modelZuid: '6-authors123',
+        label: '6-authors123',
+        fields: [
+          {
+            id: '12-story123',
+            name: 'story',
+            label: 'Story',
+            kind: 'relationship',
+            relatedModelZuid: schema.modelZuid,
+          },
+        ],
+      },
+    ],
+  ]);
+  function relatedCollectionsApi(
+    loadCatalog: Effect.Effect<CollectionCatalog, ExplorerError> = Effect.succeed(relatedCatalog),
+  ): ZestyApi {
+    return {
+      ...api(),
+      loadCollectionCatalog: () => loadCatalog,
+      loadCollectionSchema: (reference) => Effect.succeed(relatedSchemas.get(reference.modelZuid)!),
+    };
+  }
 
   it('adds the collections a new root contains and is referenced by, with undo', async () => {
-    const entry = (modelZuid: ModelZuid, label: string): CollectionCatalogEntry => ({
-      ...catalog.collections[0]!,
-      label,
-      name: label.toLowerCase(),
-      reference: { ...catalog.collections[0]!.reference, modelZuid },
+    render(<App api={relatedCollectionsApi()} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
     });
-    const schemas = new Map<ModelZuid, CollectionSchema>([
-      [
-        schema.modelZuid,
-        {
-          ...schema,
-          fields: [
-            ...schema.fields,
-            {
-              id: '12-tags123',
-              name: 'tags',
-              label: 'Tags',
-              kind: 'relationship',
-              relatedModelZuid: '6-tags123',
-            },
-          ],
-        },
-      ],
-      ['6-tags123', { modelZuid: '6-tags123', label: '6-tags123', fields: [] }],
-      [
-        '6-authors123',
-        {
-          modelZuid: '6-authors123',
-          label: '6-authors123',
-          fields: [
-            {
-              id: '12-story123',
-              name: 'story',
-              label: 'Story',
-              kind: 'relationship',
-              relatedModelZuid: schema.modelZuid,
-            },
-          ],
-        },
-      ],
-    ]);
-    const testApi: ZestyApi = {
-      ...api(),
-      loadCollectionCatalog: () =>
-        Effect.succeed({
-          incomplete: false,
-          collections: [
-            catalog.collections[0]!,
-            entry('6-tags123', 'Tags'),
-            entry('6-authors123', 'Authors'),
-          ],
-        }),
-      loadCollectionSchema: (reference) => Effect.succeed(schemas.get(reference.modelZuid)!),
-    };
-    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
-    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-    const addRelated = await screen.findByRole('checkbox', { name: /Add related collections/ });
-    await waitFor(() => expect(addRelated).not.toHaveAttribute('aria-disabled', 'true'));
-    fireEvent.click(addRelated);
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
 
     expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();
     const tree = screen.getByRole('complementary', { name: 'Collection tree' });
@@ -902,6 +899,83 @@ describe('root collection browser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(within(tree).getAllByRole('listitem')).toHaveLength(1));
+  });
+
+  it('reloads the collections that reference a node after Refresh', async () => {
+    render(<App api={relatedCollectionsApi()} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+    const openReferences = async () => {
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Add related collections to Stories' }),
+      );
+      return within(await screen.findByRole('region', { name: 'Referenced by' }));
+    };
+    expect((await openReferences()).getByRole('button', { name: /^Authors/ })).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Referenced by' })).not.toBeInTheDocument(),
+    );
+    expect(
+      await (await openReferences()).findByRole('button', { name: /^Authors/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('adds related collections once the catalog of a root opened before it loads', async () => {
+    const catalogReady = Effect.runSync(Deferred.make<CollectionCatalog, ExplorerError>());
+    render(
+      <App
+        api={relatedCollectionsApi(Deferred.await(catalogReady))}
+        tokenStore={memoryTokenStore()}
+      />,
+    );
+    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+
+    expect(await screen.findByText(/Finding related collections/)).toBeInTheDocument();
+    await act(() => Effect.runPromise(Deferred.succeed(catalogReady, relatedCatalog)));
+    expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();
+  });
+
+  it('leaves a tree changed by hand while related collections load as it is', async () => {
+    const authorsReady = Effect.runSync(Deferred.make<CollectionSchema, ExplorerError>());
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSchema: (reference) =>
+        reference.modelZuid === '6-authors123'
+          ? Deferred.await(authorsReady)
+          : Effect.succeed(relatedSchemas.get(reference.modelZuid)!),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+    await screen.findByText(/Finding related collections/);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Add related collections to Stories' }),
+    );
+    fireEvent.click(
+      within(await screen.findByRole('region', { name: 'Contains' })).getByRole('button', {
+        name: /^Tags/,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Finding related collections/)).not.toBeInTheDocument(),
+    );
+    await act(() =>
+      Effect.runPromise(Deferred.succeed(authorsReady, relatedSchemas.get('6-authors123')!)),
+    );
+
+    const tree = screen.getByRole('complementary', { name: 'Collection tree' });
+    expect(
+      within(tree)
+        .getAllByRole('button', { name: /^Actions for / })
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(['Actions for Stories', 'Actions for Tags']);
+    expect(screen.queryByText(/Added \d+ related/)).not.toBeInTheDocument();
   });
 
   it('uses the catalog label for a pasted related collection URL', async () => {
@@ -1166,7 +1240,9 @@ describe('root collection browser', () => {
       return Effect.succeed(snapshot);
     });
     render(<App api={testApi} tokenStore={memoryTokenStore()} />);
-    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', 'first-token');
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      token: 'first-token',
+    });
     await screen.findByRole('heading', { name: 'Stories' });
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Clear saved token' }));

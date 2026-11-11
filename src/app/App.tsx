@@ -18,6 +18,7 @@ import type {
   CollectionNode,
   CollectionNodeId,
   CollectionReference,
+  CollectionSchema,
   ContentItem,
   ContentItemReference,
   ContentState,
@@ -118,6 +119,7 @@ interface ExplorerProps {
 const defaultApi = createZestyApi(fetchZestyTransport);
 // Toasts with an action stay long enough to reach the button.
 const actionToastDuration = 8_000;
+const noNodeSchemas: ReadonlyMap<CollectionNodeId, CollectionSchema> = new Map();
 
 type ExplorerStep = 'credentials' | 'picker' | 'view';
 
@@ -443,8 +445,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
-      // Relationship schemas reload in the background; a failure shows where they are listed.
-      void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
+      // Relationship schemas reload when they are next listed, not all at once here.
+      void queryClient.invalidateQueries({
+        queryKey: [relationshipSchemaQueryRoot],
+        refetchType: 'none',
+      });
       try {
         const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
           await Promise.all([
@@ -568,6 +573,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     treeRoot,
     setTreeRoot,
     catalog: treeCatalogLoaded ? catalogQuery.catalog?.collections : undefined,
+    catalogFailed: treeCatalogLoaded && catalogQuery.error !== undefined,
+    nodeSchemas: loadedView?.schemas ?? noNodeSchemas,
     loadSchema: loadIndexedSchema,
     offerUndo,
   });
@@ -716,9 +723,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         : createRootNode(selectedReference, label);
     setReference(selectedReference);
     setTreeRoot(next);
-    // Related collections come from the catalog this root was chosen from.
-    const catalog = catalogQuery.catalog?.collections;
-    relatedBuild.start(addRelated && catalog ? next : undefined, catalog ?? []);
+    relatedBuild.start(addRelated ? next : undefined);
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
     setStep('view');
@@ -1105,8 +1110,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             >
               <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
               <span className="min-w-0 flex-1">
-                Finding related collections…
-                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
+                {catalogQuery.error
+                  ? 'Related collections wait for the collection catalog, which did not load.'
+                  : `Finding related collections…${schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}`}
               </span>
               <Button
                 variant="ghost"
@@ -1230,7 +1236,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       <Checkbox
                         className="mt-0.5"
                         checked={addRelatedOnOpen && !keepsOpenTree}
-                        disabled={keepsOpenTree || !catalogQuery.catalog}
+                        disabled={keepsOpenTree}
                         onCheckedChange={setAddRelatedOnOpen}
                       />
                       <span className="grid gap-0.5">

@@ -535,15 +535,15 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByLabel('Child field path').fill('parentKey');
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Custom children', { exact: true })).toBeVisible();
-  // Both dialogs share one schema request; both nodes share one schema and one items load.
+  // Both nodes show one collection, so its items load once.
   await expect
     .poll(
       () =>
         state.requests.filter(
-          (request) => request.startsWith('GET ') && request.includes('6-childmodel'),
+          (request) => request.startsWith('GET ') && request.includes('6-childmodel/items'),
         ).length,
     )
-    .toBe(3);
+    .toBe(1);
 
   await page.getByText('Columns', { exact: true }).first().click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'ZUID' }).first()).toBeChecked();

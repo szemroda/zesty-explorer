@@ -1,7 +1,6 @@
 import { queryOptions, useQueries, type UseQueryResult } from '@tanstack/react-query';
 import type {
   CollectionCatalogEntry,
-  CollectionNode,
   CollectionNodeId,
   CollectionReference,
   CollectionSchema,
@@ -20,16 +19,19 @@ export type SchemaLoader = (
 export const relationshipSchemaQueryRoot = 'relationship-schema';
 
 /**
- * One collection's schema, shared by the add-relationship dialog and the schema index so each
- * loads once. A schema rarely changes, so a loaded one is kept until Refresh invalidates it.
+ * One collection's schema. The add-relationship dialog and the catalog-wide index keep separate
+ * entries, so the dialog never waits behind the index's queue; it starts from the index's copy
+ * when there is one. A schema rarely changes, so a loaded one is kept until Refresh.
  */
 export function relationshipSchemaQuery(
   reference: CollectionReference | undefined,
   loadSchema: SchemaLoader,
+  consumer: 'dialog' | 'index',
 ) {
   return queryOptions({
     queryKey: [
       relationshipSchemaQueryRoot,
+      consumer,
       reference?.instanceZuid ?? '',
       reference?.deployment ?? '',
       reference?.modelZuid ?? '',
@@ -46,12 +48,12 @@ export function relationshipSchemaQuery(
 }
 
 /**
- * The collections a view's tree can attach, from the catalog of its instance, and their links:
- * from the catalog-wide index and the view's own node schemas. Those load with the view and
- * refresh with it, so they win; they also cover each node before the index loads.
+ * The collections one instance's tree can attach, from its catalog, and their links: from the
+ * catalog-wide index and the view's own node schemas. Those load and refresh with the view, so
+ * they win; they also cover each node before the index loads.
  */
 export function relatedCollectionsFor(
-  root: CollectionNode,
+  instance: Pick<CollectionReference, 'instanceZuid' | 'deployment'>,
   catalog: readonly CollectionCatalogEntry[],
   indexSchemas: ReadonlyMap<ModelZuid, CollectionSchema>,
   nodeSchemas: ReadonlyMap<CollectionNodeId, CollectionSchema>,
@@ -60,18 +62,13 @@ export function relatedCollectionsFor(
   readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
 } {
   const schemas = new Map(indexSchemas);
-  const visit = (node: CollectionNode) => {
-    const schema = nodeSchemas.get(node.id);
-    if (schema) schemas.set(node.reference.modelZuid, schema);
-    node.children.forEach(visit);
-  };
-  visit(root);
+  for (const schema of nodeSchemas.values()) schemas.set(schema.modelZuid, schema);
   const catalogByModel = new Map(
     catalog
       .filter(
         (entry) =>
-          entry.reference.instanceZuid === root.reference.instanceZuid &&
-          entry.reference.deployment === root.reference.deployment,
+          entry.reference.instanceZuid === instance.instanceZuid &&
+          entry.reference.deployment === instance.deployment,
       )
       .map((entry) => [entry.reference.modelZuid, entry]),
   );
@@ -87,14 +84,18 @@ export interface SchemaIndexState {
   readonly done: boolean;
 }
 
+// A schema kept from before a Refresh still lists links, but the index is done only once every
+// schema is current or has failed.
 function combineSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
   const schemas = new Map<ModelZuid, CollectionSchema>();
+  let settled = 0;
   let failed = 0;
   for (const result of results) {
     if (result.data) schemas.set(result.data.modelZuid, result.data);
-    else if (result.isError) failed += 1;
+    if (result.isFetching) continue;
+    if (result.isError) failed += 1;
+    if (result.isError || (result.data && !result.isStale)) settled += 1;
   }
-  const settled = schemas.size + failed;
   return { schemas, settled, failed, total: results.length, done: settled === results.length };
 }
 
@@ -114,7 +115,7 @@ export function useSchemaIndex({
 }): SchemaIndexState {
   const index = useQueries({
     queries: (catalog ?? []).map((entry) => ({
-      ...relationshipSchemaQuery(entry.reference, loadSchema),
+      ...relationshipSchemaQuery(entry.reference, loadSchema, 'index'),
       enabled,
     })),
     combine: combineSchemas,

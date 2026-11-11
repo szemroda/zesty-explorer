@@ -147,19 +147,16 @@ function AddRelationship({
     selectedReference.instanceZuid === parent.reference.instanceZuid &&
     selectedReference.deployment === parent.reference.deployment;
   const queryClient = useQueryClient();
-  const schemaQueryOptions = relationshipSchemaQuery(selectedReference, loadSchema);
-  const schemaQuery = useQuery({ ...schemaQueryOptions, enabled: open && referenceAllowed });
-
-  // Stops an inspection nobody else is waiting for, such as the schema index.
-  function stopInspection() {
-    const query = queryClient
-      .getQueryCache()
-      .find({ queryKey: schemaQueryOptions.queryKey, exact: true });
-    const waiting = query?.observers.filter((observer) => observer.options.enabled !== false);
-    if (query && (waiting?.length ?? 0) <= 1) {
-      void queryClient.cancelQueries({ queryKey: schemaQueryOptions.queryKey, exact: true });
-    }
-  }
+  const schemaQueryOptions = relationshipSchemaQuery(selectedReference, loadSchema, 'dialog');
+  const schemaQueryKey = schemaQueryOptions.queryKey;
+  const schemaQuery = useQuery({
+    ...schemaQueryOptions,
+    enabled: open && referenceAllowed,
+    initialData: () =>
+      queryClient.getQueryData(
+        relationshipSchemaQuery(selectedReference, loadSchema, 'index').queryKey,
+      ),
+  });
   const loadedChildSchema = schemaQuery.data;
   const nativeCandidates = loadedChildSchema
     ? findNativeRelationshipCandidates(schema, loadedChildSchema)
@@ -240,7 +237,7 @@ function AddRelationship({
       open={open}
       onOpenChange={(nextOpen) => {
         onOpenChange(nextOpen);
-        if (!nextOpen) stopInspection();
+        if (!nextOpen) void queryClient.cancelQueries({ queryKey: schemaQueryKey, exact: true });
       }}
     >
       <DialogContent
@@ -660,6 +657,7 @@ interface RelatedContext {
   readonly collections: RelatedCollections;
   readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
   readonly schemaIndex: SchemaIndexState;
+  readonly catalogError: ExplorerError | undefined;
   readonly onFindReferences: () => void;
 }
 
@@ -736,6 +734,7 @@ function TreeNodeRow({
             collections={related.collections}
             catalogByModel={related.catalogByModel}
             schemaIndex={related.schemaIndex}
+            catalogError={related.catalogError}
             onFindReferences={related.onFindReferences}
             onAdd={onAdd}
             onChooseOther={() => setAddingOther(true)}
@@ -838,12 +837,15 @@ export function TreeEditor({
   onRemove,
   onRelationshipChange,
 }: TreeEditorProps) {
-  const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
-  const related: RelatedContext = {
-    ...relatedCollectionsFor(root, catalog, schemaIndex.schemas, availableSchemas),
-    schemaIndex,
-    onFindReferences,
-  };
+  const availableSchemas = useMemo(
+    () => (schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]])),
+    [root.id, rootSchema, schemas],
+  );
+  const linked = useMemo(
+    () => relatedCollectionsFor(root.reference, catalog, schemaIndex.schemas, availableSchemas),
+    [availableSchemas, catalog, root.reference, schemaIndex.schemas],
+  );
+  const related: RelatedContext = { ...linked, schemaIndex, catalogError, onFindReferences };
   return (
     <div className="flex h-full flex-col">
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
