@@ -991,6 +991,64 @@ describe('root collection browser', () => {
     expect(await screen.findByText('Added 1 related collection')).toBeInTheDocument();
   });
 
+  it('waits for a catalog that Refresh is reloading before adding related collections', async () => {
+    const notes: CollectionCatalogEntry = {
+      ...relatedCatalog.collections[2]!,
+      label: 'Notes',
+      name: 'notes',
+      reference: { ...relatedCatalog.collections[2]!.reference, modelZuid: '6-notes123' },
+    };
+    const notesSchema: CollectionSchema = {
+      modelZuid: '6-notes123',
+      label: '6-notes123',
+      fields: [
+        {
+          id: '12-notestory',
+          name: 'story',
+          label: 'Story',
+          kind: 'relationship',
+          relatedModelZuid: schema.modelZuid,
+        },
+      ],
+    };
+    const authorsReady = Effect.runSync(Deferred.make<CollectionSchema, ExplorerError>());
+    const refreshedCatalog = Effect.runSync(Deferred.make<CollectionCatalog, ExplorerError>());
+    let catalogLoads = 0;
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionCatalog: () => {
+        catalogLoads += 1;
+        return catalogLoads === 1
+          ? Effect.succeed(relatedCatalog)
+          : Deferred.await(refreshedCatalog);
+      },
+      loadCollectionSchema: (reference) => {
+        if (reference.modelZuid === '6-authors123') return Deferred.await(authorsReady);
+        if (reference.modelZuid === '6-notes123') return Effect.succeed(notesSchema);
+        return Effect.succeed(relatedSchemas.get(reference.modelZuid)!);
+      },
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+    await screen.findByText(/Finding related collections/);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+    await act(() =>
+      Effect.runPromise(Deferred.succeed(authorsReady, relatedSchemas.get('6-authors123')!)),
+    );
+    await act(() =>
+      Effect.runPromise(
+        Deferred.succeed(refreshedCatalog, {
+          ...relatedCatalog,
+          collections: [...relatedCatalog.collections, notes],
+        }),
+      ),
+    );
+    expect(await screen.findByText('Added 3 related collections')).toBeInTheDocument();
+  });
+
   it('finishes adding related collections after a Refresh while they load', async () => {
     const authorsReady = Effect.runSync(Deferred.make<CollectionSchema, ExplorerError>());
     const testApi: ZestyApi = {

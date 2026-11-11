@@ -316,6 +316,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     else instancePickerInput.current?.focus();
   }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
+  // When Refresh last made every relationship schema stale.
+  const [schemasRefreshedAt, setSchemasRefreshedAt] = useState(0);
   const [schemaIndexSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
@@ -465,6 +467,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setIsRefreshing(true);
       let succeeded: boolean;
       // Schemas shown right now reload; the rest reload when they are next shown.
+      setSchemasRefreshedAt(Date.now());
       void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
         const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
@@ -569,6 +572,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     treeRoot,
     setTreeRoot,
     catalog: treeCatalogLoaded ? catalogQuery.catalog?.collections : undefined,
+    catalogRefreshing: treeCatalogLoaded && catalogQuery.isFetching,
+    schemasRefreshedAt,
     catalogFailed: treeCatalogLoaded && !catalogQuery.catalog && catalogQuery.error !== undefined,
     rootFailed: rootFailure !== undefined,
     nodeSchemas: loadedView?.schemas ?? noNodeSchemas,

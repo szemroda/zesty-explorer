@@ -4,7 +4,7 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type {
   CollectionCatalogEntry,
   CollectionNodeId,
@@ -54,23 +54,22 @@ export function relationshipSchemaQuery(
 }
 
 /**
- * The collections one instance's tree can attach, from its catalog, and their links: from the
- * catalog-wide index, which Refresh reloads while it is in use, and the view's own node schemas,
- * which cover each node before the index loads and an uncatalogued root.
+ * The collections one instance's tree can attach, from its catalog, and their links. Each schema
+ * comes from the freshest copy: one the index loaded since the last Refresh, else the view's own,
+ * which covers each node before the index loads and an uncatalogued root, else an older index one.
  */
 export function relatedCollectionsFor(
   instance: Pick<CollectionReference, 'instanceZuid' | 'deployment'>,
   catalog: readonly CollectionCatalogEntry[],
-  indexSchemas: ReadonlyMap<ModelZuid, CollectionSchema>,
+  index: Pick<SchemaIndexState, 'schemas' | 'staleSchemas'>,
   nodeSchemas: ReadonlyMap<CollectionNodeId, CollectionSchema>,
 ): {
   readonly collections: RelatedCollections;
   readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
 } {
-  const schemas = new Map(indexSchemas);
-  for (const schema of nodeSchemas.values()) {
-    if (!schemas.has(schema.modelZuid)) schemas.set(schema.modelZuid, schema);
-  }
+  const schemas = new Map(index.staleSchemas);
+  for (const schema of nodeSchemas.values()) schemas.set(schema.modelZuid, schema);
+  for (const schema of index.schemas.values()) schemas.set(schema.modelZuid, schema);
   const catalogByModel = new Map(
     catalog
       .filter(
@@ -85,42 +84,73 @@ export function relatedCollectionsFor(
 }
 
 export interface SchemaIndexState {
+  /** Schemas loaded since the last Refresh. */
   readonly schemas: ReadonlyMap<ModelZuid, CollectionSchema>;
+  /** Schemas from before the last Refresh that have not reloaded yet, or failed to. */
+  readonly staleSchemas: ReadonlyMap<ModelZuid, CollectionSchema>;
   readonly settled: number;
   readonly failed: number;
   readonly total: number;
+  /** Every schema loaded or failed since the last Refresh. */
   readonly done: boolean;
 }
 
-// Read from this render's results, which already reflect `enabled`: a cached summary could report
-// schemas a Refresh made stale as done in the render that enables the index. A schema whose
-// reload failed is left out, so a view's current copy can take its place.
-function summarizeSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
+interface IndexEntry {
+  readonly schema: CollectionSchema | undefined;
+  readonly loadedAt: number;
+  readonly failedAt: number;
+  readonly loading: boolean;
+}
+
+function indexEntries(results: readonly UseQueryResult<CollectionSchema>[]): readonly IndexEntry[] {
+  return results.map((result) => ({
+    schema: result.data,
+    loadedAt: result.dataUpdatedAt,
+    failedAt: result.errorUpdatedAt,
+    loading: result.isFetching,
+  }));
+}
+
+// Judged by load times, not by TanStack's stale flag, which a disabled query never sets.
+function summarizeSchemas(entries: readonly IndexEntry[], refreshedAt: number): SchemaIndexState {
   const schemas = new Map<ModelZuid, CollectionSchema>();
+  const staleSchemas = new Map<ModelZuid, CollectionSchema>();
   let settled = 0;
   let failed = 0;
-  for (const result of results) {
-    if (result.data && !result.isError) schemas.set(result.data.modelZuid, result.data);
-    if (result.isFetching) continue;
-    if (result.isError) failed += 1;
-    if (result.isError || (result.data && !result.isStale)) settled += 1;
+  for (const { schema, loadedAt, failedAt, loading } of entries) {
+    const current = schema !== undefined && loadedAt >= refreshedAt && loadedAt >= failedAt;
+    const failedSinceRefresh = failedAt >= refreshedAt && failedAt > loadedAt;
+    if (schema) (current ? schemas : staleSchemas).set(schema.modelZuid, schema);
+    if (loading) continue;
+    if (failedSinceRefresh) failed += 1;
+    if (current || failedSinceRefresh) settled += 1;
   }
-  return { schemas, settled, failed, total: results.length, done: settled === results.length };
+  return {
+    schemas,
+    staleSchemas,
+    settled,
+    failed,
+    total: entries.length,
+    done: settled === entries.length,
+  };
 }
 
 /**
  * Loads the schema of every catalog collection. Zesty has no endpoint that lists the fields of
  * every model, and finding the collections that reference one needs all of them. It is never done
- * without a catalog: undefined means the catalog has not loaded.
+ * without a catalog: undefined means the catalog has not loaded. `refreshedAt` is when Refresh
+ * last made every schema stale.
  */
 export function useSchemaIndex({
   catalog,
   loadSchema,
   enabled,
+  refreshedAt,
 }: {
   readonly catalog: readonly CollectionCatalogEntry[] | undefined;
   readonly loadSchema: SchemaLoader;
   readonly enabled: boolean;
+  readonly refreshedAt: number;
 }): SchemaIndexState {
   const queryClient = useQueryClient();
   // When nothing uses the index any more, loads still waiting for a permit are not needed.
@@ -129,12 +159,13 @@ export function useSchemaIndex({
     // A cancelled reload keeps its previous schema, still marked stale.
     void queryClient.cancelQueries({ queryKey: [relationshipSchemaQueryRoot, 'index'] });
   }, [enabled, queryClient]);
-  const results = useQueries({
+  const entries = useQueries({
     queries: (catalog ?? []).map((entry) => ({
       ...relationshipSchemaQuery(entry.reference, loadSchema, 'index'),
       enabled,
     })),
+    combine: indexEntries,
   });
-  const index = summarizeSchemas(results);
+  const index = useMemo(() => summarizeSchemas(entries, refreshedAt), [entries, refreshedAt]);
   return catalog ? index : { ...index, done: false };
 }

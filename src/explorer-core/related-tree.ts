@@ -103,26 +103,28 @@ export function relatedLinks(
 }
 
 /**
- * Names a new node after its collection, or after its field when another link on the same side
- * reaches the same collection: "Optional coverages", or "Offers (Product)" for a link the child
- * owns. Each side has its own section in the "+" menu, so the name does not depend on the other.
+ * Names a new node after its collection, or after its field when `shared`, i.e. when the parent
+ * has or may get another node of the same collection: "Optional coverages", or "Offers (Product)"
+ * for a link the child owns.
  */
-export function relatedLinkName(
+function relatedLinkName(
   link: RelatedLink,
-  siblings: readonly RelatedLink[],
+  shared: boolean,
   { labels }: RelatedCollections,
 ): string {
   const label = labels.get(link.modelZuid) ?? link.modelZuid;
-  const ambiguous =
-    siblings.filter(
-      (sibling) =>
-        sibling.modelZuid === link.modelZuid &&
-        sibling.relationship.fieldSide === link.relationship.fieldSide,
-    ).length > 1;
-  if (!ambiguous) return label;
+  if (!shared) return label;
   return link.relationship.fieldSide === 'parent'
     ? link.field.label
     : `${label} (${link.field.label})`;
+}
+
+function linksTo(links: readonly RelatedLink[], link: RelatedLink, sameSide: boolean): number {
+  return links.filter(
+    (other) =>
+      other.modelZuid === link.modelZuid &&
+      (!sameSide || other.relationship.fieldSide === link.relationship.fieldSide),
+  ).length;
 }
 
 /**
@@ -152,7 +154,9 @@ export function buildRelatedTree(
       if (count >= autoTreeLimits.nodes) break;
       const side = link.relationship.fieldSide;
       if (shown.has(link.modelZuid) && addedHere.get(link.modelZuid) !== side) continue;
-      const child = createNode(link, relatedLinkName(link, links, collections));
+      // The build adds one side per collection, so only that side can share a name.
+      const name = relatedLinkName(link, linksTo(links, link, true) > 1, collections);
+      const child = createNode(link, name);
       if (!child) continue;
       shown.add(link.modelZuid);
       addedHere.set(link.modelZuid, side);
@@ -195,7 +199,12 @@ export function relatedSuggestions(
             sameNativeRelationship(child.relationship, link.relationship),
         ),
     )
-    .map((link) => ({ link, name: relatedLinkName(link, links, collections) }));
+    .map((link) => {
+      const shared =
+        linksTo(links, link, false) > 1 ||
+        node.children.some((child) => child.reference.modelZuid === link.modelZuid);
+      return { link, name: relatedLinkName(link, shared, collections) };
+    });
 }
 
 function nodePath(root: CollectionNode, nodeId: CollectionNodeId): readonly CollectionNode[] {

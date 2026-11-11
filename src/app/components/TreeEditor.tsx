@@ -16,6 +16,7 @@ import {
   findNativeRelationshipCandidates,
   findNativeRelationships,
   sameNativeRelationship,
+  viewTreeLimits,
   type RelatedCollections,
 } from '../../explorer-core';
 import { useFieldProblem } from '../hooks/useFieldProblem';
@@ -680,6 +681,7 @@ function TreeNodeRow({
   parent,
   onRelationshipChange,
   related,
+  level,
 }: {
   readonly node: CollectionNode;
   readonly root: CollectionNode;
@@ -696,6 +698,8 @@ function TreeNodeRow({
   readonly parent?: CollectionNode;
   readonly onRelationshipChange: TreeEditorProps['onRelationshipChange'];
   readonly related: RelatedContext;
+  /** 1 for the root. Nothing can be added below the deepest level a view allows. */
+  readonly level: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [addingOther, setAddingOther] = useState(false);
@@ -730,7 +734,7 @@ function TreeNodeRow({
         ) : (
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
         )}
-        {schemas.get(node.id) ? (
+        {schemas.get(node.id) && level < viewTreeLimits.levels ? (
           <RelatedCollectionsMenu
             root={root}
             node={node}
@@ -816,6 +820,7 @@ function TreeNodeRow({
               parent={node}
               onRelationshipChange={onRelationshipChange}
               related={related}
+              level={level + 1}
             />
           ))}
         </ul>
@@ -846,8 +851,8 @@ export function TreeEditor({
     [root.id, rootSchema, schemas],
   );
   const linked = useMemo(
-    () => relatedCollectionsFor(root.reference, catalog, schemaIndex.schemas, availableSchemas),
-    [availableSchemas, catalog, root.reference, schemaIndex.schemas],
+    () => relatedCollectionsFor(root.reference, catalog, schemaIndex, availableSchemas),
+    [availableSchemas, catalog, root.reference, schemaIndex],
   );
   const related: RelatedContext = { ...linked, schemaIndex, catalogError, onFindReferences };
   return (
@@ -872,6 +877,7 @@ export function TreeEditor({
           onAdd={onAdd}
           onRelationshipChange={onRelationshipChange}
           related={related}
+          level={1}
         />
       </ul>
     </div>

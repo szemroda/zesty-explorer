@@ -21,6 +21,10 @@ interface RelatedBuildOptions {
   readonly setTreeRoot: Dispatch<SetStateAction<CollectionNode | undefined>>;
   /** The catalog of the tree root's instance, or undefined while it is not loaded. */
   readonly catalog: readonly CollectionCatalogEntry[] | undefined;
+  /** True while the catalog reloads, e.g. after Refresh; the build waits for its entries. */
+  readonly catalogRefreshing: boolean;
+  /** When Refresh last made every schema stale. */
+  readonly schemasRefreshedAt: number;
   /** True when the catalog failed and none is cached. */
   readonly catalogFailed: boolean;
   /** True when the root collection failed to load, so its schema may never arrive. */
@@ -60,6 +64,8 @@ export function useRelatedBuild({
   treeRoot,
   setTreeRoot,
   catalog,
+  catalogRefreshing,
+  schemasRefreshedAt,
   catalogFailed,
   rootFailed,
   nodeSchemas,
@@ -77,6 +83,7 @@ export function useRelatedBuild({
     catalog,
     loadSchema,
     enabled: pendingRoot !== undefined || referencesRequested,
+    refreshedAt: schemasRefreshedAt,
   });
 
   // The build settles while rendering, as soon as what it waits for is known.
@@ -95,6 +102,7 @@ export function useRelatedBuild({
   } else if (
     waitingRoot &&
     catalog &&
+    !catalogRefreshing &&
     schemaIndex.done &&
     // The root's own links need its schema, from the index or the view, unless the view failed.
     (schemaIndex.schemas.has(waitingRoot.reference.modelZuid) ||
@@ -105,7 +113,7 @@ export function useRelatedBuild({
     const { collections, catalogByModel } = relatedCollectionsFor(
       waitingRoot.reference,
       catalog,
-      schemaIndex.schemas,
+      schemaIndex,
       nodeSchemas,
     );
     const tree = buildRelatedTree(waitingRoot, collections, (link, name) => {

@@ -159,7 +159,7 @@ describe('related tree', () => {
         link.relationship.fieldSide,
         link.field.name,
       ]),
-    ).toEqual([['People', 'child', 'team']]);
+    ).toEqual([['People (Team)', 'child', 'team']]);
     expect(tree.children.map((child) => child.relationship)).toEqual([
       {
         kind: 'native',
