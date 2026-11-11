@@ -23,7 +23,10 @@ interface RelatedBuildOptions {
   readonly setTreeRoot: Dispatch<SetStateAction<CollectionNode | undefined>>;
   /** The catalog of the tree root's instance, or undefined while it is not loaded. */
   readonly catalog: readonly CollectionCatalogEntry[] | undefined;
+  /** True when the catalog failed and none is cached. */
   readonly catalogFailed: boolean;
+  /** True when the root collection failed to load, so its schema may never arrive. */
+  readonly rootFailed: boolean;
   readonly nodeSchemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
   readonly loadSchema: SchemaLoader;
   readonly offerUndo: (
@@ -60,6 +63,7 @@ export function useRelatedBuild({
   setTreeRoot,
   catalog,
   catalogFailed,
+  rootFailed,
   nodeSchemas,
   loadSchema,
   offerUndo,
@@ -95,7 +99,11 @@ export function useRelatedBuild({
     waitingRoot &&
     catalog &&
     schemaIndex.done &&
-    (nodeSchemas.has(waitingRoot.id) || schemaIndex.schemas.has(waitingRoot.reference.modelZuid))
+    // The root's own links need its schema: from the index when it is catalogued, which is done,
+    // or from the view, unless the view failed to load it.
+    (nodeSchemas.has(waitingRoot.id) ||
+      rootFailed ||
+      catalog.some((entry) => sameCollection(entry.reference, waitingRoot.reference)))
   ) {
     setPendingRoot(undefined);
     const { collections, catalogByModel } = relatedCollectionsFor(
@@ -142,22 +150,11 @@ export function useRelatedBuild({
     if (outcome) announce(outcome);
   }, [outcome]);
 
-  // Refresh only marks schemas stale. Enabling the index loads them; this covers an index that
-  // is enabled already.
-  const reloadStaleSchemas = () =>
-    void queryClient.refetchQueries({
-      queryKey: [relationshipSchemaQueryRoot, 'index'],
-      stale: true,
-    });
-
   return {
     pending: waitingRoot !== undefined,
     schemaIndex,
-    start: (root) => {
-      const builds = root !== undefined && root.children.length === 0;
-      setPendingRoot(builds ? { ...root.reference } : undefined);
-      if (builds) reloadStaleSchemas();
-    },
+    start: (root) =>
+      setPendingRoot(root && root.children.length === 0 ? { ...root.reference } : undefined),
     cancel: () => {
       setPendingRoot(undefined);
       // Schemas still loading are no longer needed, unless nodes list the references.
@@ -167,10 +164,7 @@ export function useRelatedBuild({
         predicate: (query) => query.state.data === undefined,
       });
     },
-    requestReferences: () => {
-      setReferencesFor(rootInstance);
-      reloadStaleSchemas();
-    },
+    requestReferences: () => setReferencesFor(rootInstance),
   };
 }
 

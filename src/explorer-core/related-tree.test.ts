@@ -21,7 +21,7 @@ const collection = (
   fields: [{ id: `12-title-${name}`, name: 'title', label: 'Title', kind: 'text' }, ...fields],
 });
 
-// Products and Coverages link both ways, and Products also links to itself.
+// Products links to Coverages twice and to itself; Offers, FAQ and Promotions link to Products.
 const schemas = new Map(
   [
     collection('products', 'Products', [
@@ -133,6 +133,33 @@ describe('related tree', () => {
       field: ['optional_coverages'],
       relatedModelZuid: model('coverages'),
     });
+  });
+
+  it('adds one node for a relationship both collections declare', () => {
+    const twoWay = indexRelatedCollections(
+      [
+        collection('teams', 'Teams', [link('members', 'Members', 'people')]),
+        collection('people', 'People', [link('team', 'Team', 'teams')]),
+      ],
+      new Map(),
+    );
+    const tree = buildRelatedTree(
+      collectionNode('node-root', model('teams')),
+      twoWay,
+      (related) => ({
+        ...collectionNode('node-people', related.modelZuid),
+        relationship: related.relationship,
+      }),
+    );
+
+    expect(tree.children.map((child) => child.relationship)).toEqual([
+      {
+        kind: 'native',
+        fieldSide: 'parent',
+        field: ['members'],
+        relatedModelZuid: model('people'),
+      },
+    ]);
   });
 
   it('suggests unused links that do not lead back up the path', () => {

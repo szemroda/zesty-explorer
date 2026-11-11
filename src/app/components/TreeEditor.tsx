@@ -152,10 +152,13 @@ function AddRelationship({
   const schemaQuery = useQuery({
     ...schemaQueryOptions,
     enabled: open && referenceAllowed,
-    initialData: () =>
-      queryClient.getQueryData(
+    // Starts from the index's copy unless a Refresh has made it stale.
+    initialData: () => {
+      const indexed = queryClient.getQueryState(
         relationshipSchemaQuery(selectedReference, loadSchema, 'index').queryKey,
-      ),
+      );
+      return indexed && !indexed.isInvalidated ? indexed.data : undefined;
+    },
   });
   const loadedChildSchema = schemaQuery.data;
   const nativeCandidates = loadedChildSchema

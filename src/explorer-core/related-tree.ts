@@ -138,16 +138,18 @@ export function buildRelatedTree(
     const { node, depth } = queue[index]!;
     if (depth >= autoTreeLimits.depth) continue;
     const links = relatedLinks(node.reference.modelZuid, collections, depth === 0);
-    // Further fields of this parent may link the same collection again in another role.
-    const addedHere = new Set<ModelZuid>();
+    // Further fields on the same side may link the same collection again in another role. The
+    // other side of a two-way relationship shows the same pairs, so it is not added again.
+    const addedHere = new Map<ModelZuid, RelatedLink['relationship']['fieldSide']>();
     const children: CollectionNode[] = [];
     for (const link of links) {
       if (count >= autoTreeLimits.nodes) break;
-      if (shown.has(link.modelZuid) && !addedHere.has(link.modelZuid)) continue;
+      const side = link.relationship.fieldSide;
+      if (shown.has(link.modelZuid) && addedHere.get(link.modelZuid) !== side) continue;
       const child = createNode(link, relatedLinkName(link, links, collections));
       if (!child) continue;
       shown.add(link.modelZuid);
-      addedHere.add(link.modelZuid);
+      addedHere.set(link.modelZuid, side);
       children.push(child);
       queue.push({ node: child, depth: depth + 1 });
       count += 1;

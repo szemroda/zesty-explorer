@@ -110,7 +110,8 @@ export function RelatedCollectionsMenu({
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         setRejection(undefined);
-        if (nextOpen && !schemaIndex.done) onFindReferences();
+        // Enabling the index also reloads schemas a Refresh left stale while it was idle.
+        if (nextOpen) onFindReferences();
       }}
     >
       <PopoverTrigger

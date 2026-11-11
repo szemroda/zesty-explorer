@@ -922,6 +922,45 @@ describe('root collection browser', () => {
     ).toBeInTheDocument();
   });
 
+  it('finishes adding related collections after a Refresh while they load', async () => {
+    const authorsReady = Effect.runSync(Deferred.make<CollectionSchema, ExplorerError>());
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSchema: (reference) =>
+        reference.modelZuid === '6-authors123'
+          ? Deferred.await(authorsReady)
+          : Effect.succeed(relatedSchemas.get(reference.modelZuid)!),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+    await screen.findByText(/Finding related collections/);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+    await act(() =>
+      Effect.runPromise(Deferred.succeed(authorsReady, relatedSchemas.get('6-authors123')!)),
+    );
+    expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();
+  });
+
+  it('adds what it can when the root schema does not load', async () => {
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSchema: (reference) =>
+        reference.modelZuid === schema.modelZuid
+          ? Effect.fail({ kind: 'network', message: 'Offline' })
+          : Effect.succeed(relatedSchemas.get(reference.modelZuid)!),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+
+    expect(await screen.findByText('Added 1 related collection')).toBeInTheDocument();
+    expect(screen.queryByText(/Finding related collections/)).not.toBeInTheDocument();
+  });
+
   it('adds related collections once the catalog of a root opened before it loads', async () => {
     const catalogReady = Effect.runSync(Deferred.make<CollectionCatalog, ExplorerError>());
     render(

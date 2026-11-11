@@ -75,7 +75,7 @@ import { useLoadedView } from './hooks/useLoadedView';
 import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
 import { useRelatedBuild } from './hooks/useRelatedBuild';
-import { relationshipSchemaQueryRoot } from './hooks/useSchemaIndex';
+import { relationshipSchemaQueryRoot, type SchemaLoader } from './hooks/useSchemaIndex';
 import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
@@ -161,6 +161,25 @@ function initialSharedView(): {
   if (!window.location.hash.startsWith('#view=')) return {};
   const decoded = ViewCodec.decode(window.location.hash);
   return decoded.ok ? { state: decoded.state } : { error: decoded };
+}
+
+/** Loads one collection's schema through `semaphore`, which caps how many load at once. */
+function schemaLoader(
+  api: ZestyApi,
+  sessionToken: string,
+  semaphore: Effect.Semaphore,
+): SchemaLoader {
+  return async (reference, signal) => {
+    const result = await Effect.runPromise(
+      api
+        .loadCollectionSchema(reference, sessionToken)
+        .pipe(semaphore.withPermits(1), Effect.either),
+      { signal },
+    );
+    return Either.isRight(result)
+      ? { ok: true, schema: result.right }
+      : { ok: false, message: result.left.message };
+  };
 }
 
 /** Identifies an instance's deployment, e.g. to key per-instance state. */
@@ -445,11 +464,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
-      // Relationship schemas reload when they are next listed, not all at once here.
-      void queryClient.invalidateQueries({
-        queryKey: [relationshipSchemaQueryRoot],
-        refetchType: 'none',
-      });
+      // Schemas shown right now reload; the rest reload when they are next shown.
+      void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
         const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
           await Promise.all([
@@ -535,35 +551,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [contentScope, loadedView, selectedItemId, treeRoot]);
 
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
-  const loadRelationshipSchema = useCallback(
-    async (collectionReference: CollectionReference, signal: AbortSignal) => {
-      const result = await Effect.runPromise(
-        api
-          .loadCollectionSchema(collectionReference, activeToken)
-          .pipe(relationshipSchemaSemaphore.withPermits(1), Effect.either),
-        { signal },
-      );
-      return Either.isRight(result)
-        ? ({ ok: true, schema: result.right } as const)
-        : ({ ok: false, message: result.left.message } as const);
-    },
+  const loadRelationshipSchema = useMemo(
+    () => schemaLoader(api, activeToken, relationshipSchemaSemaphore),
     [activeToken, api, relationshipSchemaSemaphore],
   );
   // Catalog-wide schema loads take their own permits, so the add-relationship dialog waits behind
   // at most two of them. They stay interactive: the background lane is full of publication-status
   // requests, and someone is waiting for these.
-  const loadIndexedSchema = useCallback(
-    async (collectionReference: CollectionReference, signal: AbortSignal) => {
-      const result = await Effect.runPromise(
-        api
-          .loadCollectionSchema(collectionReference, activeToken)
-          .pipe(schemaIndexSemaphore.withPermits(1), Effect.either),
-        { signal },
-      );
-      return Either.isRight(result)
-        ? ({ ok: true, schema: result.right } as const)
-        : ({ ok: false, message: result.left.message } as const);
-    },
+  const loadIndexedSchema = useMemo(
+    () => schemaLoader(api, activeToken, schemaIndexSemaphore),
     [activeToken, api, schemaIndexSemaphore],
   );
   const treeCatalogLoaded = Boolean(
@@ -573,7 +569,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     treeRoot,
     setTreeRoot,
     catalog: treeCatalogLoaded ? catalogQuery.catalog?.collections : undefined,
-    catalogFailed: treeCatalogLoaded && catalogQuery.error !== undefined,
+    catalogFailed: treeCatalogLoaded && !catalogQuery.catalog && catalogQuery.error !== undefined,
+    rootFailed: rootFailure !== undefined,
     nodeSchemas: loadedView?.schemas ?? noNodeSchemas,
     loadSchema: loadIndexedSchema,
     offerUndo,
@@ -1110,9 +1107,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             >
               <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
               <span className="min-w-0 flex-1">
-                {catalogQuery.error
-                  ? 'Related collections wait for the collection catalog, which did not load.'
-                  : `Finding related collections…${schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}`}
+                Finding related collections…
+                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
               </span>
               <Button
                 variant="ghost"

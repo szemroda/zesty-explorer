@@ -481,7 +481,7 @@ test('reports the browser origin without claiming that CORS caused a network fai
   await expect(alert).toContainText('CORS may be the cause');
 });
 
-test('adds the collections a new root contains and is referenced by', async ({ page }) => {
+test('adds the related collections of a new root', async ({ page }) => {
   await installFakeApi(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
@@ -493,11 +493,12 @@ test('adds the collections a new root contains and is referenced by', async ({ p
   await page.getByRole('checkbox', { name: /Add related collections/ }).click();
   await page.getByRole('button', { name: 'Open root collection' }).click();
 
-  await expect(page.getByText('Added 3 related collections')).toBeVisible();
-  // The root links to the child twice and the child links back once: three roles, named apart.
+  await expect(page.getByText('Added 2 related collections')).toBeVisible();
+  // Two root fields link the child: two roles, named apart. The child's link back to the root
+  // shows the same pairs from the other side, so it adds no third node.
   await expect(
     page.getByRole('complementary', { name: 'Collection tree' }).locator('li li span.truncate'),
-  ).toHaveText(['Primary child', 'Secondary child', '6-childmodel (Parent)']);
+  ).toHaveText(['Primary child', 'Secondary child']);
   await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
   await expect(page.getByRole('region', { name: 'Primary child related items' })).toContainText(
     'Child 0',
