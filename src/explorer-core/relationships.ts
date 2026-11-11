@@ -103,6 +103,22 @@ export function joinRelatedItems(
   return result;
 }
 
+function sameFieldPath(left: FieldPath, right: FieldPath): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+}
+
+/** True when both relationships use the same field on the same side. */
+export function sameNativeRelationship(
+  left: NativeRelationshipCandidate['relationship'],
+  right: NativeRelationshipCandidate['relationship'],
+): boolean {
+  return (
+    left.fieldSide === right.fieldSide &&
+    left.relatedModelZuid === right.relatedModelZuid &&
+    sameFieldPath(left.field, right.field)
+  );
+}
+
 export function findNativeRelationships(
   parentSchema: CollectionSchema,
   childModelZuid: ModelZuid,

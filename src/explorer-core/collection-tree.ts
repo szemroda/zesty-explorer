@@ -5,6 +5,9 @@ import type {
   RelationshipDefinition,
 } from '../domain';
 
+/** How large a view's collection tree may grow. The root counts as one node and one level. */
+export const viewTreeLimits = { nodes: 20, levels: 5 } as const;
+
 export type TreeOperationResult =
   | { readonly ok: true; readonly root: CollectionNode }
   | { readonly ok: false; readonly reason: string };
@@ -30,11 +33,11 @@ export function validateCollectionTree(root: CollectionNode): TreeValidationResu
     ids.add(node.id);
     nodeCount += 1;
     maximumDepth = Math.max(maximumDepth, depth);
-    if (nodeCount > 10) {
-      problem = 'A view may contain at most ten nodes.';
+    if (nodeCount > viewTreeLimits.nodes) {
+      problem = `A view may contain at most ${viewTreeLimits.nodes} nodes.`;
       return;
     }
-    if (depth > 5) {
+    if (depth > viewTreeLimits.levels) {
       problem = 'A view may contain at most five levels.';
       return;
     }

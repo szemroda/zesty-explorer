@@ -7,10 +7,12 @@ import {
   fixtureCollectionPage,
   safeRequestUrl,
   type CollectionCatalog,
+  type CollectionCatalogEntry,
   type CollectionSchema,
   type CollectionSnapshot,
   type Deployment,
   type ExplorerError,
+  type ModelZuid,
   type PersistedView,
 } from '../domain';
 import type { SessionTokenStore } from '../view-codec';
@@ -176,6 +178,14 @@ function pasteUrl(value: string) {
 function loadCollections(collectionUrl: string, token = 'fixture-session-token') {
   if (screen.queryByLabelText('Zesty session token')) startSession(token);
   pasteUrl(collectionUrl);
+}
+
+// The dialog for any collection or a custom relationship opens from the node's + menu.
+async function openAddRelationshipDialog(nodeName = 'Stories') {
+  fireEvent.click(screen.getByRole('button', { name: `Add related collections to ${nodeName}` }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Other collection or custom relationship…' }),
+  );
 }
 
 async function submitStartForm(collectionUrl: string, token = 'fixture-session-token') {
@@ -804,6 +814,78 @@ describe('root collection browser', () => {
     expect(replaceState).toHaveBeenCalled();
   });
 
+  it('adds the collections a new root contains and is referenced by, with undo', async () => {
+    const entry = (modelZuid: ModelZuid, label: string): CollectionCatalogEntry => ({
+      ...catalog.collections[0]!,
+      label,
+      name: label.toLowerCase(),
+      reference: { ...catalog.collections[0]!.reference, modelZuid },
+    });
+    const schemas = new Map<ModelZuid, CollectionSchema>([
+      [
+        schema.modelZuid,
+        {
+          ...schema,
+          fields: [
+            ...schema.fields,
+            {
+              id: '12-tags123',
+              name: 'tags',
+              label: 'Tags',
+              kind: 'relationship',
+              relatedModelZuid: '6-tags123',
+            },
+          ],
+        },
+      ],
+      ['6-tags123', { modelZuid: '6-tags123', label: '6-tags123', fields: [] }],
+      [
+        '6-authors123',
+        {
+          modelZuid: '6-authors123',
+          label: '6-authors123',
+          fields: [
+            {
+              id: '12-story123',
+              name: 'story',
+              label: 'Story',
+              kind: 'relationship',
+              relatedModelZuid: schema.modelZuid,
+            },
+          ],
+        },
+      ],
+    ]);
+    const testApi: ZestyApi = {
+      ...api(),
+      loadCollectionCatalog: () =>
+        Effect.succeed({
+          incomplete: false,
+          collections: [
+            catalog.collections[0]!,
+            entry('6-tags123', 'Tags'),
+            entry('6-authors123', 'Authors'),
+          ],
+        }),
+      loadCollectionSchema: (reference) => Effect.succeed(schemas.get(reference.modelZuid)!),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+
+    expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();
+    const tree = screen.getByRole('complementary', { name: 'Collection tree' });
+    expect(
+      within(tree)
+        .getAllByRole('listitem')
+        .map((item) => item.firstChild?.textContent),
+    ).toEqual(['Stories', 'Tags', 'Authors']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(within(tree).getAllByRole('listitem')).toHaveLength(1));
+  });
+
   it('uses the catalog label for a pasted related collection URL', async () => {
     const relatedCatalogEntry: CollectionCatalog['collections'][number] = {
       ...catalog.collections[0]!,
@@ -841,7 +923,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.change(screen.getByLabelText('Related collection URL'), {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-authors123' },
     });
@@ -885,7 +967,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.change(screen.getByLabelText('Related collection URL'), {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-uncatalogued123' },
     });
@@ -933,7 +1015,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.click(screen.getByRole('button', { name: 'Show collections' }));
     fireEvent.click(await screen.findByRole('option', { name: /Authors.*6-authors123/ }));
 
@@ -972,7 +1054,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.change(screen.getByLabelText('Related collection URL'), {
       target: { value: 'https://8-foreign.manager.zesty.io/content/6-foreign123' },
     });
@@ -1002,7 +1084,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.change(screen.getByLabelText('Related collection URL'), {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-related123' },
     });
@@ -1048,7 +1130,7 @@ describe('root collection browser', () => {
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add relationship' }));
+    await openAddRelationshipDialog();
     fireEvent.change(screen.getByLabelText('Related collection URL'), {
       target: { value: 'https://8-abc123.manager.zesty.io/content/6-related123' },
     });

@@ -260,7 +260,7 @@ describe('collection tree operations', () => {
     expect(second.root.children.map((child) => child.id)).toEqual(['node-author', 'node-reviewer']);
   });
 
-  it('rejects cross-instance nodes, cycles, depth over five, and more than ten nodes', () => {
+  it('rejects cross-instance nodes, cycles, depth over five, and more than 20 nodes', () => {
     const root = node('node-root', '6-root');
     const foreign = {
       ...node('node-foreign', '6-foreign'),
@@ -289,9 +289,12 @@ describe('collection tree operations', () => {
     const tooWide = node(
       'node-wide',
       '6-wide',
-      Array.from({ length: 10 }, (_, index) => node(`node-${index}`, `6-${index}model`)),
+      Array.from({ length: 20 }, (_, index) => node(`node-${index}`, `6-${index}model`)),
     );
-    expect(validateCollectionTree(tooWide)).toMatchObject({ ok: false, reason: /ten nodes/i });
+    expect(validateCollectionTree(tooWide)).toMatchObject({
+      ok: false,
+      reason: 'A view may contain at most 20 nodes.',
+    });
   });
 
   it('renames a role and removes its complete subtree', () => {

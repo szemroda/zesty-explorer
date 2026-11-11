@@ -1,7 +1,16 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
-import { Code2, Copy, Database, FileCheck2, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Code2,
+  Copy,
+  Database,
+  FileCheck2,
+  LoaderCircle,
+  MoreHorizontal,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { instanceReferenceFor, parseInstanceReference } from '../collection-reference';
 import type {
@@ -26,6 +35,7 @@ import type {
 import { deploymentLabels } from '../domain';
 import {
   addCollectionNode,
+  buildRelatedTree,
   removeCollectionNode,
   renameCollectionNode,
   subtreeNodeNames,
@@ -63,6 +73,7 @@ import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
+import { relatedCollectionsFor, useSchemaIndex } from './hooks/useSchemaIndex';
 import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
@@ -74,6 +85,7 @@ import {
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
+import { Checkbox } from './components/ui/checkbox';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
@@ -119,8 +131,16 @@ interface PendingRootReplacement extends RootChoice {
 
 interface PendingUndo {
   readonly toastId: string | number;
-  // The tree the action left behind; any other tree makes the undo stale.
-  readonly treeRoot: CollectionNode | undefined;
+  // The tree the action left behind; any other structure makes the undo stale.
+  readonly structure: string;
+}
+
+// A tree without its presentation. Tables save sorting and columns into the tree on their own, so
+// a presentation change is not a change the user made to the tree.
+function treeStructure(root: CollectionNode | undefined): string {
+  return JSON.stringify(root ?? null, (key, value: unknown) =>
+    key === 'presentation' ? undefined : value,
+  );
 }
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
@@ -137,6 +157,16 @@ function initialSharedView(): {
 
 /** This page's address with another URL fragment, e.g. a view link. */
 /** Identifies an instance's deployment, e.g. to key per-instance state. */
+type CollectionIdentity = Pick<CollectionReference, 'instanceZuid' | 'modelZuid' | 'deployment'>;
+
+function sameCollection(left: CollectionIdentity, right: CollectionIdentity): boolean {
+  return (
+    left.instanceZuid === right.instanceZuid &&
+    left.modelZuid === right.modelZuid &&
+    left.deployment === right.deployment
+  );
+}
+
 function instanceKey(instance: {
   readonly instanceZuid: string;
   readonly deployment: string;
@@ -249,6 +279,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
+  // Off by default. While on, opening a root fills its tree with related collections.
+  const [addRelatedOnOpen, setAddRelatedOnOpen] = useState(false);
+  // The root collection waiting for every catalog schema before related collections are added.
+  // Opening another root or adding a collection by hand cancels it.
+  const [relatedBuild, setRelatedBuild] = useState<CollectionIdentity>();
+  const [referencesRequestedFor, setReferencesRequestedFor] = useState<string>();
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
   const instancePickerInput = useRef<HTMLInputElement>(null);
   const rootCollectionInput = useRef<HTMLInputElement>(null);
@@ -349,7 +385,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [encodedView, viewDecodeError]);
 
   useEffect(() => {
-    if (pendingUndo.current?.treeRoot === treeRoot) return;
+    if (pendingUndo.current?.structure === treeStructure(treeRoot)) return;
     withdrawUndo();
   }, [treeRoot]);
 
@@ -513,6 +549,54 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     },
     [activeToken, api, relationshipSchemaSemaphore],
   );
+  const catalogCollections = catalogQuery.catalog?.collections ?? [];
+  const schemaIndex = useSchemaIndex({
+    catalog: catalogCollections,
+    loadSchema: loadRelationshipSchema,
+    enabled: Boolean(
+      activeToken &&
+      (relatedBuild ||
+        (instance !== undefined && referencesRequestedFor === instanceKey(instance))),
+    ),
+  });
+
+  // Fills the waiting root-only tree once every schema has loaded. The undo toast restores it.
+  const settleRelatedBuild = useEffectEvent((pending: CollectionIdentity) => {
+    const waiting =
+      treeRoot && treeRoot.children.length === 0 && sameCollection(treeRoot.reference, pending);
+    if (waiting && !schemaIndex.done) return;
+    setRelatedBuild(undefined);
+    if (!waiting) return;
+    const { collections, catalogByModel } = relatedCollectionsFor(
+      treeRoot,
+      catalogCollections,
+      schemaIndex.schemas,
+      loadedView?.schemas ?? new Map(),
+    );
+    const built = buildRelatedTree(treeRoot, collections, (link, name) => {
+      const entry = catalogByModel.get(link.modelZuid);
+      return entry ? createChildNode(entry.reference, name, link.relationship) : undefined;
+    });
+    const added = flattenCollectionNodes(built).length - 1;
+    const unchecked =
+      schemaIndex.failed > 0 ? ` ${schemaIndex.failed} collections could not be checked.` : '';
+    if (added === 0) {
+      toast('No related collections found', {
+        description: `No native relationship links ${treeRoot.name} to another collection.${unchecked}`,
+      });
+      return;
+    }
+    setTreeRoot(built);
+    offerUndo(
+      `Added ${added} related collections`,
+      `Remove the ones you don't need, or add more with + beside a collection.${unchecked}`,
+      built,
+      () => setTreeRoot((current) => current && { ...current, children: [] }),
+    );
+  });
+  useEffect(() => {
+    if (relatedBuild) settleRelatedBuild(relatedBuild);
+  }, [relatedBuild, schemaIndex.done, treeRoot]);
 
   function saveSessionToken(token: string) {
     sessionTokens.save(deployment, token);
@@ -588,6 +672,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return collections;
   }, [catalogInstance, catalogQuery.catalog?.collections]);
 
+  // Opening the root that is already open keeps its tree, so there is nothing to add to.
+  const keepsOpenTree = Boolean(
+    treeRoot?.children.length &&
+    catalogInstance &&
+    selectedRootZuid === treeRoot.reference.modelZuid &&
+    instanceKey(treeRoot.reference) === instanceKey(catalogInstance),
+  );
+
   function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedUrl = pastedUrl.trim();
@@ -623,12 +715,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         ? { itemZuid: targetInstance.suggestedItemZuid }
         : {}),
     };
-    if (
-      treeRoot &&
-      (treeRoot.reference.instanceZuid !== selectedReference.instanceZuid ||
-        treeRoot.reference.modelZuid !== selectedReference.modelZuid ||
-        treeRoot.reference.deployment !== selectedReference.deployment)
-    ) {
+    if (treeRoot && !sameCollection(treeRoot.reference, selectedReference)) {
       setPendingRootReplacement({
         label: selected.label,
         reference: selectedReference,
@@ -636,28 +723,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       });
       return;
     }
-    openRoot({ label: selected.label, reference: selectedReference });
+    openRoot({ label: selected.label, reference: selectedReference }, addRelatedOnOpen);
   }
 
-  function replaceRoot(replacement: RootChoice) {
+  function replaceRoot(replacement: RootChoice, addRelated = false) {
     setViewFilters([]);
     setContentState('latest');
-    openRoot(replacement);
+    openRoot(replacement, addRelated);
   }
 
-  // Keeps the current tree when the selected root is the one already open.
-  function openRoot({ label, reference: selectedReference }: RootChoice) {
+  // Keeps the current tree when the selected root is the one already open. `addRelated` fills a
+  // root-only tree with related collections once every catalog schema has loaded.
+  function openRoot({ label, reference: selectedReference }: RootChoice, addRelated = false) {
+    const next =
+      treeRoot && sameCollection(treeRoot.reference, selectedReference)
+        ? treeRoot
+        : createRootNode(selectedReference, label);
     setReference(selectedReference);
-    setTreeRoot((current) => {
-      if (
-        current?.reference.instanceZuid === selectedReference.instanceZuid &&
-        current.reference.modelZuid === selectedReference.modelZuid &&
-        current.reference.deployment === selectedReference.deployment
-      ) {
-        return current;
-      }
-      return createRootNode(selectedReference, label);
-    });
+    setTreeRoot(next);
+    setRelatedBuild(addRelated && next.children.length === 0 ? next.reference : undefined);
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
     setStep('view');
@@ -857,7 +941,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         },
       },
     });
-    pendingUndo.current = { toastId, treeRoot: nextTreeRoot };
+    pendingUndo.current = { toastId, structure: treeStructure(nextTreeRoot) };
   }
 
   function addRelatedCollection(
@@ -1006,6 +1090,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               catalogWarning={catalogQuery.catalog?.warning}
               onRetryCatalog={() => void catalogQuery.refresh()}
               loadSchema={loadRelationshipSchema}
+              schemaIndex={schemaIndex}
+              onFindReferences={() => {
+                if (instance) setReferencesRequestedFor(instanceKey(instance));
+              }}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
@@ -1034,6 +1122,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               <p>Your collections will appear here.</p>
             </div>
           )}
+          {relatedBuild ? (
+            <div
+              className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
+              role="status"
+            >
+              <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                Finding related collections… {schemaIndex.settled} of {schemaIndex.total}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs"
+                onClick={() => setRelatedBuild(undefined)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
         </aside>
 
         <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
@@ -1141,6 +1248,22 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       error={startFormProblem.messageFor('root-collection')}
                       inputRef={rootCollectionInput}
                     />
+                    {/* Always rendered: the form must not shift while a pasted URL applies. */}
+                    <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={addRelatedOnOpen && !keepsOpenTree}
+                        disabled={keepsOpenTree}
+                        onCheckedChange={setAddRelatedOnOpen}
+                      />
+                      <span className="grid gap-0.5">
+                        <span className="font-medium">Add related collections</span>
+                        <span className="text-muted-foreground text-xs">
+                          Builds the collection tree from Zesty relationships. You can remove or add
+                          collections afterwards.
+                        </span>
+                      </span>
+                    </label>
                     {catalogQuery.catalog?.warning ? (
                       <div
                         className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
@@ -1332,7 +1455,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         description="These collection nodes will be removed:"
         confirmLabel="Replace root"
         onConfirm={() => {
-          if (pendingRootReplacement) replaceRoot(pendingRootReplacement);
+          if (pendingRootReplacement) replaceRoot(pendingRootReplacement, addRelatedOnOpen);
         }}
       >
         <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm [overflow-wrap:anywhere]">

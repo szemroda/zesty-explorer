@@ -321,8 +321,27 @@ async function chooseSelectOption(page: Page, label: string, option: string) {
   await page.getByRole('option', { name: option, exact: true }).click();
 }
 
+// The dialog for any collection or a custom relationship opens from a node's + menu, the root's
+// unless a node is named.
+async function openAddRelationshipDialog(page: Page, nodeName?: string) {
+  // Below the root, the + menu appears when its row is hovered.
+  if (nodeName) {
+    await page
+      .getByRole('complementary', { name: 'Collection tree' })
+      .getByText(nodeName, { exact: true })
+      .hover();
+  }
+  await page
+    .getByRole('button', {
+      name: nodeName ? `Add related collections to ${nodeName}` : /^Add related collections to /,
+    })
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Other collection or custom relationship…' }).click();
+}
+
 async function addNativeChild(page: Page) {
-  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await openAddRelationshipDialog(page);
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Children');
   await chooseSelectOption(page, 'Native field', 'Primary child');
@@ -462,11 +481,34 @@ test('reports the browser origin without claiming that CORS caused a network fai
   await expect(alert).toContainText('CORS may be the cause');
 });
 
+test('adds the collections a new root contains and is referenced by', async ({ page }) => {
+  await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('combobox', { name: 'Instance' }).fill('Fixture');
+  await page.getByRole('option', { name: /Fixture site.*8-fixture/ }).click();
+  await page.getByRole('combobox', { name: 'Root collection' }).fill('6-rootmodel');
+  await page.getByRole('option', { name: /6-rootmodel.*root/ }).click();
+  await page.getByRole('checkbox', { name: /Add related collections/ }).click();
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+
+  await expect(page.getByText('Added 3 related collections')).toBeVisible();
+  // The root links to the child twice and the child links back once: three roles, named apart.
+  await expect(
+    page.getByRole('complementary', { name: 'Collection tree' }).locator('li li span.truncate'),
+  ).toHaveText(['Primary child', 'Secondary child', '6-childmodel (Parent)']);
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  await expect(page.getByRole('region', { name: 'Primary child related items' })).toContainText(
+    'Child 0',
+  );
+});
+
 test('detects a native relationship declared by the nested collection', async ({ page }) => {
   await installFakeApi(page);
   await openRoot(page);
 
-  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await openAddRelationshipDialog(page);
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Inverse children');
   await chooseSelectOption(page, 'Native field', 'Parent');
@@ -485,7 +527,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await openRoot(page);
   await addNativeChild(page);
 
-  await page.getByRole('button', { name: 'Add relationship' }).first().click();
+  await openAddRelationshipDialog(page);
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Custom children');
   await chooseSelectOption(page, 'Relationship type', 'Custom equality');
@@ -493,6 +535,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await page.getByLabel('Child field path').fill('parentKey');
   await page.getByRole('button', { name: 'Add collection node' }).click();
   await expect(page.getByText('Custom children', { exact: true })).toBeVisible();
+  // Both dialogs share one schema request; both nodes share one schema and one items load.
   await expect
     .poll(
       () =>
@@ -500,7 +543,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
           (request) => request.startsWith('GET ') && request.includes('6-childmodel'),
         ).length,
     )
-    .toBe(4);
+    .toBe(3);
 
   await page.getByText('Columns', { exact: true }).first().click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'ZUID' }).first()).toBeChecked();
@@ -840,8 +883,7 @@ test('stacks expanded rows three tables deep through sorting, paging, and collap
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
-  await expect(page.getByRole('button', { name: 'Add relationship' })).toHaveCount(2);
-  await page.getByRole('button', { name: 'Add relationship' }).last().click();
+  await openAddRelationshipDialog(page, 'Children');
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill('Grandchildren');
   await page.getByLabel('Parent field path').fill('parentKey');
@@ -961,16 +1003,14 @@ test('wraps a long unbroken node name inside dialogs', async ({ page }) => {
   const name = 'homepage_hero_carousel_items_with_localized_content_and_regional_fallbacks_v2';
   await installFakeApi(page);
   await openRoot(page);
-  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await openAddRelationshipDialog(page);
   await page.getByLabel('Related collection URL').fill(childUrl);
   await page.getByLabel('Node name').fill(name);
   await chooseSelectOption(page, 'Native field', 'Primary child');
   await page.getByRole('button', { name: 'Add collection node' }).click();
 
-  // The new node offers its own Add relationship once its schema loads.
-  const addButtons = page.getByRole('button', { name: 'Add relationship' });
-  await expect(addButtons).toHaveCount(2);
-  await addButtons.last().click();
+  // The new node offers its own + menu once its schema loads.
+  await openAddRelationshipDialog(page, name);
   const add = page.getByRole('dialog', { name: `Add below ${name}` });
   await expect(add).toBeVisible();
   expect(await horizontalOverflow(add)).toBe(0);
