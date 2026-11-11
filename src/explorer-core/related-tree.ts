@@ -32,57 +32,74 @@ export interface RelatedSuggestion {
   readonly name: string;
 }
 
-/** What is known about an instance's collections: loaded schemas and catalog labels. */
+/** The relationship links between an instance's collections, indexed by collection. */
 export interface RelatedCollections {
-  readonly schemas: ReadonlyMap<ModelZuid, CollectionSchema>;
+  /** Relationship fields each collection owns, in field order. */
+  readonly contains: ReadonlyMap<ModelZuid, readonly RelatedLink[]>;
+  /** Fields of other collections that point at each collection, by collection label. */
+  readonly referencedBy: ReadonlyMap<ModelZuid, readonly RelatedLink[]>;
   readonly labels: ReadonlyMap<ModelZuid, string>;
 }
 
-/**
- * The links from one collection: the relationship fields it owns, in field order, then, when
- * `referencedBy` is set, the fields of other collections that point at it, by collection label.
- */
+/** Indexes the links of every schema once. `labels` override schema labels, e.g. catalog ones. */
+export function indexRelatedCollections(
+  schemas: Iterable<CollectionSchema>,
+  catalogLabels: ReadonlyMap<ModelZuid, string>,
+): RelatedCollections {
+  const labels = new Map(catalogLabels);
+  const sorted = [...schemas];
+  for (const schema of sorted) {
+    if (!labels.has(schema.modelZuid)) labels.set(schema.modelZuid, schema.label);
+  }
+  sorted.sort((left, right) =>
+    labels.get(left.modelZuid)!.localeCompare(labels.get(right.modelZuid)!),
+  );
+  const contains = new Map<ModelZuid, RelatedLink[]>();
+  const referencedBy = new Map<ModelZuid, RelatedLink[]>();
+  const append = (index: Map<ModelZuid, RelatedLink[]>, key: ModelZuid, link: RelatedLink) => {
+    const links = index.get(key);
+    if (links) links.push(link);
+    else index.set(key, [link]);
+  };
+  for (const schema of sorted) {
+    for (const field of schema.fields) {
+      const target = field.relatedModelZuid;
+      if (field.kind !== 'relationship' || !target) continue;
+      append(contains, schema.modelZuid, {
+        modelZuid: target,
+        field,
+        relationship: {
+          kind: 'native',
+          fieldSide: 'parent',
+          field: [field.name],
+          relatedModelZuid: target,
+        },
+      });
+      if (target === schema.modelZuid) continue;
+      append(referencedBy, target, {
+        modelZuid: schema.modelZuid,
+        field,
+        relationship: {
+          kind: 'native',
+          fieldSide: 'child',
+          field: [field.name],
+          relatedModelZuid: target,
+        },
+      });
+    }
+  }
+  return { contains, referencedBy, labels };
+}
+
+/** The links from one collection: those it contains, then, when `referencedBy` is set, the rest. */
 export function relatedLinks(
   modelZuid: ModelZuid,
-  { schemas, labels }: RelatedCollections,
+  collections: RelatedCollections,
   referencedBy: boolean,
 ): readonly RelatedLink[] {
-  const labelOf = (schema: CollectionSchema) => labels.get(schema.modelZuid) ?? schema.label;
-  const contains = (schemas.get(modelZuid)?.fields ?? []).flatMap((field): RelatedLink[] =>
-    field.kind === 'relationship' && field.relatedModelZuid
-      ? [
-          {
-            modelZuid: field.relatedModelZuid,
-            field,
-            relationship: {
-              kind: 'native',
-              fieldSide: 'parent',
-              field: [field.name],
-              relatedModelZuid: field.relatedModelZuid,
-            },
-          },
-        ]
-      : [],
-  );
+  const contains = collections.contains.get(modelZuid) ?? [];
   if (!referencedBy) return contains;
-  const referencing = [...schemas.values()]
-    .filter((schema) => schema.modelZuid !== modelZuid)
-    .toSorted((left, right) => labelOf(left).localeCompare(labelOf(right)))
-    .flatMap((schema) =>
-      schema.fields
-        .filter((field) => field.kind === 'relationship' && field.relatedModelZuid === modelZuid)
-        .map((field): RelatedLink => ({
-          modelZuid: schema.modelZuid,
-          field,
-          relationship: {
-            kind: 'native',
-            fieldSide: 'child',
-            field: [field.name],
-            relatedModelZuid: modelZuid,
-          },
-        })),
-    );
-  return [...contains, ...referencing];
+  return [...contains, ...(collections.referencedBy.get(modelZuid) ?? [])];
 }
 
 /**
@@ -92,9 +109,9 @@ export function relatedLinks(
 export function relatedLinkName(
   link: RelatedLink,
   siblings: readonly RelatedLink[],
-  { schemas, labels }: RelatedCollections,
+  { labels }: RelatedCollections,
 ): string {
-  const label = labels.get(link.modelZuid) ?? schemas.get(link.modelZuid)?.label ?? link.modelZuid;
+  const label = labels.get(link.modelZuid) ?? link.modelZuid;
   const ambiguous = siblings.filter((sibling) => sibling.modelZuid === link.modelZuid).length > 1;
   if (!ambiguous) return label;
   return link.relationship.fieldSide === 'parent'

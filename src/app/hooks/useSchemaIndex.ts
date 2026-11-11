@@ -1,4 +1,4 @@
-import { queryOptions, useQueries } from '@tanstack/react-query';
+import { queryOptions, useQueries, type UseQueryResult } from '@tanstack/react-query';
 import type {
   CollectionCatalogEntry,
   CollectionNode,
@@ -7,7 +7,7 @@ import type {
   CollectionSchema,
   ModelZuid,
 } from '../../domain';
-import type { RelatedCollections } from '../../explorer-core';
+import { indexRelatedCollections, type RelatedCollections } from '../../explorer-core';
 
 export type SchemaLoader = (
   reference: CollectionReference,
@@ -17,9 +17,11 @@ export type SchemaLoader = (
   | { readonly ok: false; readonly message: string }
 >;
 
+export const relationshipSchemaQueryRoot = 'relationship-schema';
+
 /**
  * One collection's schema, shared by the add-relationship dialog and the schema index so each
- * loads once. A schema rarely changes, so a loaded one is kept for the session.
+ * loads once. A schema rarely changes, so a loaded one is kept until Refresh invalidates it.
  */
 export function relationshipSchemaQuery(
   reference: CollectionReference | undefined,
@@ -27,7 +29,7 @@ export function relationshipSchemaQuery(
 ) {
   return queryOptions({
     queryKey: [
-      'relationship-schema',
+      relationshipSchemaQueryRoot,
       reference?.instanceZuid ?? '',
       reference?.deployment ?? '',
       reference?.modelZuid ?? '',
@@ -44,9 +46,9 @@ export function relationshipSchemaQuery(
 }
 
 /**
- * The collections a view's tree can attach, from the catalog of its instance, and their schemas:
- * the catalog-wide index plus the view's own node schemas, which cover each node's links before
- * the index loads and an uncatalogued root.
+ * The collections a view's tree can attach, from the catalog of its instance, and their links:
+ * from the catalog-wide index and the view's own node schemas. Those load with the view and
+ * refresh with it, so they win; they also cover each node before the index loads.
  */
 export function relatedCollectionsFor(
   root: CollectionNode,
@@ -60,9 +62,7 @@ export function relatedCollectionsFor(
   const schemas = new Map(indexSchemas);
   const visit = (node: CollectionNode) => {
     const schema = nodeSchemas.get(node.id);
-    if (schema && !schemas.has(node.reference.modelZuid)) {
-      schemas.set(node.reference.modelZuid, schema);
-    }
+    if (schema) schemas.set(node.reference.modelZuid, schema);
     node.children.forEach(visit);
   };
   visit(root);
@@ -76,7 +76,7 @@ export function relatedCollectionsFor(
       .map((entry) => [entry.reference.modelZuid, entry]),
   );
   const labels = new Map([...catalogByModel].map(([modelZuid, entry]) => [modelZuid, entry.label]));
-  return { collections: { schemas, labels }, catalogByModel };
+  return { collections: indexRelatedCollections(schemas.values(), labels), catalogByModel };
 }
 
 export interface SchemaIndexState {
@@ -87,33 +87,37 @@ export interface SchemaIndexState {
   readonly done: boolean;
 }
 
+function combineSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
+  const schemas = new Map<ModelZuid, CollectionSchema>();
+  let failed = 0;
+  for (const result of results) {
+    if (result.data) schemas.set(result.data.modelZuid, result.data);
+    else if (result.isError) failed += 1;
+  }
+  const settled = schemas.size + failed;
+  return { schemas, settled, failed, total: results.length, done: settled === results.length };
+}
+
 /**
  * Loads the schema of every catalog collection. Zesty has no endpoint that lists the fields of
- * every model, and finding the collections that reference one needs all of them.
+ * every model, and finding the collections that reference one needs all of them. It is never done
+ * without a catalog: undefined means the catalog has not loaded.
  */
 export function useSchemaIndex({
   catalog,
   loadSchema,
   enabled,
 }: {
-  readonly catalog: readonly CollectionCatalogEntry[];
+  readonly catalog: readonly CollectionCatalogEntry[] | undefined;
   readonly loadSchema: SchemaLoader;
   readonly enabled: boolean;
 }): SchemaIndexState {
-  return useQueries({
-    queries: catalog.map((entry) => ({
+  const index = useQueries({
+    queries: (catalog ?? []).map((entry) => ({
       ...relationshipSchemaQuery(entry.reference, loadSchema),
       enabled,
     })),
-    combine: (results) => {
-      const schemas = new Map<ModelZuid, CollectionSchema>();
-      let failed = 0;
-      for (const result of results) {
-        if (result.data) schemas.set(result.data.modelZuid, result.data);
-        else if (result.isError) failed += 1;
-      }
-      const settled = schemas.size + failed;
-      return { schemas, settled, failed, total: results.length, done: settled === results.length };
-    },
+    combine: combineSchemas,
   });
+  return catalog ? index : { ...index, done: false };
 }

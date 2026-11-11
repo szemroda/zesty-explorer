@@ -38,7 +38,7 @@ export function validateCollectionTree(root: CollectionNode): TreeValidationResu
       return;
     }
     if (depth > viewTreeLimits.levels) {
-      problem = 'A view may contain at most five levels.';
+      problem = `A view may contain at most ${viewTreeLimits.levels} levels.`;
       return;
     }
     if (
@@ -132,6 +132,25 @@ export function updateCollectionRelationship(
         : updateCollectionRelationship(child, nodeId, relationship),
     ),
   };
+}
+
+/** `target` with the presentation that each node it shares with `source` has there. */
+export function withPresentationsOf(
+  target: CollectionNode,
+  source: CollectionNode,
+): CollectionNode {
+  const presentations = new Map<CollectionNodeId, NodePresentation>();
+  const collect = (node: CollectionNode) => {
+    presentations.set(node.id, node.presentation);
+    node.children.forEach(collect);
+  };
+  collect(source);
+  const apply = (node: CollectionNode): CollectionNode => ({
+    ...node,
+    presentation: presentations.get(node.id) ?? node.presentation,
+    children: node.children.map(apply),
+  });
+  return apply(target);
 }
 
 export function removeCollectionNode(

@@ -814,6 +814,22 @@ describe('root collection browser', () => {
     expect(replaceState).toHaveBeenCalled();
   });
 
+  it('offers related collections only once the catalog they come from has loaded', async () => {
+    const catalogReady = Effect.runSync(Deferred.make<CollectionCatalog, ExplorerError>());
+    render(
+      <App
+        api={{ ...api(), loadCollectionCatalog: () => Deferred.await(catalogReady) }}
+        tokenStore={memoryTokenStore()}
+      />,
+    );
+    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
+
+    const addRelated = await screen.findByRole('checkbox', { name: /Add related collections/ });
+    expect(addRelated).toHaveAttribute('aria-disabled', 'true');
+    await act(() => Effect.runPromise(Deferred.succeed(catalogReady, catalog)));
+    await waitFor(() => expect(addRelated).not.toHaveAttribute('aria-disabled', 'true'));
+  });
+
   it('adds the collections a new root contains and is referenced by, with undo', async () => {
     const entry = (modelZuid: ModelZuid, label: string): CollectionCatalogEntry => ({
       ...catalog.collections[0]!,
@@ -871,7 +887,9 @@ describe('root collection browser', () => {
     };
     render(<App api={testApi} tokenStore={memoryTokenStore()} />);
     loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-    fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
+    const addRelated = await screen.findByRole('checkbox', { name: /Add related collections/ });
+    await waitFor(() => expect(addRelated).not.toHaveAttribute('aria-disabled', 'true'));
+    fireEvent.click(addRelated);
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
 
     expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();

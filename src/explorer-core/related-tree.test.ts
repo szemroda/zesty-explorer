@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CollectionField, CollectionNode, CollectionSchema, ModelZuid } from '../domain';
 import { collectionNode } from '../test/fixtures';
-import { buildRelatedTree, relatedSuggestions, type RelatedCollections } from './index';
+import { buildRelatedTree, indexRelatedCollections, relatedSuggestions } from './index';
 
 const model = (name: string): ModelZuid => `6-${name}`;
 const link = (name: string, label: string, target: string): CollectionField => ({
@@ -62,10 +62,7 @@ const schemas = new Map(
     collection('claim_guides', 'Claim guides', [link('coverage', 'Coverage', 'coverages')]),
   ].map((schema) => [schema.modelZuid, schema]),
 );
-const collections: RelatedCollections = {
-  schemas,
-  labels: new Map([...schemas.values()].map((schema) => [schema.modelZuid, schema.label])),
-};
+const collections = indexRelatedCollections(schemas.values(), new Map());
 
 function build(rootModel: string): CollectionNode {
   let next = 0;

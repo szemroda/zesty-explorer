@@ -14,6 +14,7 @@ import {
   updateNodePresentation,
   validateCollectionTree,
   validateRelationshipPaths,
+  withPresentationsOf,
 } from './index';
 
 const graph = generateRelationshipGraph(200);
@@ -284,7 +285,10 @@ describe('collection tree operations', () => {
         ]),
       ]),
     ]);
-    expect(validateCollectionTree(tooDeep)).toMatchObject({ ok: false, reason: /five levels/i });
+    expect(validateCollectionTree(tooDeep)).toMatchObject({
+      ok: false,
+      reason: 'A view may contain at most 5 levels.',
+    });
 
     const tooWide = node(
       'node-wide',
@@ -317,6 +321,20 @@ describe('collection tree operations', () => {
     const updated = updateNodePresentation(root, root.id, presentation);
     expect(updated.presentation).toEqual(presentation);
     expect(root.presentation.freeText).toBe('');
+  });
+
+  it('restores a removed subtree with the presentation chosen since', () => {
+    const before = node('node-root', '6-root', [node('node-child', '6-child')]);
+    const sorted = { ...before.presentation, freeText: 'later' };
+    const after = updateNodePresentation(
+      removeCollectionNode(before, 'node-child')!,
+      'node-root',
+      sorted,
+    );
+
+    const restored = withPresentationsOf(before, after);
+    expect(restored.presentation.freeText).toBe('later');
+    expect(restored.children.map((child) => child.id)).toEqual(['node-child']);
   });
 
   it('repairs a relationship without replacing the collection node', () => {

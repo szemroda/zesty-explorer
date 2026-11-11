@@ -10,7 +10,7 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { instanceReferenceFor, parseInstanceReference } from '../collection-reference';
 import type {
@@ -35,12 +35,12 @@ import type {
 import { deploymentLabels } from '../domain';
 import {
   addCollectionNode,
-  buildRelatedTree,
   removeCollectionNode,
   renameCollectionNode,
   subtreeNodeNames,
   updateCollectionRelationship,
   updateNodePresentation,
+  withPresentationsOf,
 } from '../explorer-core';
 import { ViewCodec, type ViewDecodeResult } from '../view-codec';
 import {
@@ -62,7 +62,7 @@ import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { OpenCollectionDialog } from './components/OpenCollectionDialog';
 import { ImportCheck } from './components/ImportCheck';
-import { createChildNode, createRootNode } from './view-state';
+import { createChildNode, createRootNode, sameCollection } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
 import { refreshImportCheck } from './hooks/useImportCheck';
@@ -73,7 +73,8 @@ import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
-import { relatedCollectionsFor, useSchemaIndex } from './hooks/useSchemaIndex';
+import { useRelatedBuild } from './hooks/useRelatedBuild';
+import { relationshipSchemaQueryRoot } from './hooks/useSchemaIndex';
 import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
@@ -138,9 +139,14 @@ interface PendingUndo {
 // A tree without its presentation. Tables save sorting and columns into the tree on their own, so
 // a presentation change is not a change the user made to the tree.
 function treeStructure(root: CollectionNode | undefined): string {
-  return JSON.stringify(root ?? null, (key, value: unknown) =>
-    key === 'presentation' ? undefined : value,
-  );
+  const structure = ({ id, name, reference, relationship, children }: CollectionNode): unknown => ({
+    id,
+    name,
+    reference,
+    relationship,
+    children: children.map(structure),
+  });
+  return JSON.stringify(root ? structure(root) : null);
 }
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
@@ -155,18 +161,7 @@ function initialSharedView(): {
   return decoded.ok ? { state: decoded.state } : { error: decoded };
 }
 
-/** This page's address with another URL fragment, e.g. a view link. */
 /** Identifies an instance's deployment, e.g. to key per-instance state. */
-type CollectionIdentity = Pick<CollectionReference, 'instanceZuid' | 'modelZuid' | 'deployment'>;
-
-function sameCollection(left: CollectionIdentity, right: CollectionIdentity): boolean {
-  return (
-    left.instanceZuid === right.instanceZuid &&
-    left.modelZuid === right.modelZuid &&
-    left.deployment === right.deployment
-  );
-}
-
 function instanceKey(instance: {
   readonly instanceZuid: string;
   readonly deployment: string;
@@ -174,6 +169,7 @@ function instanceKey(instance: {
   return `${instance.instanceZuid}:${instance.deployment}`;
 }
 
+/** This page's address with another URL fragment, e.g. a view link. */
 function appUrl(fragment: string): string {
   const { origin, pathname, search } = window.location;
   return `${origin}${pathname}${search}${fragment}`;
@@ -281,10 +277,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
   // Off by default. While on, opening a root fills its tree with related collections.
   const [addRelatedOnOpen, setAddRelatedOnOpen] = useState(false);
-  // The root collection waiting for every catalog schema before related collections are added.
-  // Opening another root or adding a collection by hand cancels it.
-  const [relatedBuild, setRelatedBuild] = useState<CollectionIdentity>();
-  const [referencesRequestedFor, setReferencesRequestedFor] = useState<string>();
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
   const instancePickerInput = useRef<HTMLInputElement>(null);
   const rootCollectionInput = useRef<HTMLInputElement>(null);
@@ -303,6 +295,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     else instancePickerInput.current?.focus();
   }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
+  const [schemaIndexSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
   // Explorer view is replaced when a root from the new instance is opened.
@@ -450,6 +443,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
+      // Relationship schemas reload in the background; a failure shows where they are listed.
+      void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
         const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
           await Promise.all([
@@ -549,54 +544,34 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     },
     [activeToken, api, relationshipSchemaSemaphore],
   );
-  const catalogCollections = catalogQuery.catalog?.collections ?? [];
-  const schemaIndex = useSchemaIndex({
-    catalog: catalogCollections,
-    loadSchema: loadRelationshipSchema,
-    enabled: Boolean(
-      activeToken &&
-      (relatedBuild ||
-        (instance !== undefined && referencesRequestedFor === instanceKey(instance))),
-    ),
+  // Catalog-wide schema loads take their own permits, so the add-relationship dialog waits behind
+  // at most two of them. They stay interactive: the background lane is full of publication-status
+  // requests, and someone is waiting for these.
+  const loadIndexedSchema = useCallback(
+    async (collectionReference: CollectionReference, signal: AbortSignal) => {
+      const result = await Effect.runPromise(
+        api
+          .loadCollectionSchema(collectionReference, activeToken)
+          .pipe(schemaIndexSemaphore.withPermits(1), Effect.either),
+        { signal },
+      );
+      return Either.isRight(result)
+        ? ({ ok: true, schema: result.right } as const)
+        : ({ ok: false, message: result.left.message } as const);
+    },
+    [activeToken, api, schemaIndexSemaphore],
+  );
+  const treeCatalogLoaded = Boolean(
+    treeRoot && catalogInstance && instanceKey(catalogInstance) === instanceKey(treeRoot.reference),
+  );
+  const relatedBuild = useRelatedBuild({
+    treeRoot,
+    setTreeRoot,
+    catalog: treeCatalogLoaded ? catalogQuery.catalog?.collections : undefined,
+    loadSchema: loadIndexedSchema,
+    offerUndo,
   });
-
-  // Fills the waiting root-only tree once every schema has loaded. The undo toast restores it.
-  const settleRelatedBuild = useEffectEvent((pending: CollectionIdentity) => {
-    const waiting =
-      treeRoot && treeRoot.children.length === 0 && sameCollection(treeRoot.reference, pending);
-    if (waiting && !schemaIndex.done) return;
-    setRelatedBuild(undefined);
-    if (!waiting) return;
-    const { collections, catalogByModel } = relatedCollectionsFor(
-      treeRoot,
-      catalogCollections,
-      schemaIndex.schemas,
-      loadedView?.schemas ?? new Map(),
-    );
-    const built = buildRelatedTree(treeRoot, collections, (link, name) => {
-      const entry = catalogByModel.get(link.modelZuid);
-      return entry ? createChildNode(entry.reference, name, link.relationship) : undefined;
-    });
-    const added = flattenCollectionNodes(built).length - 1;
-    const unchecked =
-      schemaIndex.failed > 0 ? ` ${schemaIndex.failed} collections could not be checked.` : '';
-    if (added === 0) {
-      toast('No related collections found', {
-        description: `No native relationship links ${treeRoot.name} to another collection.${unchecked}`,
-      });
-      return;
-    }
-    setTreeRoot(built);
-    offerUndo(
-      `Added ${added} related collections`,
-      `Remove the ones you don't need, or add more with + beside a collection.${unchecked}`,
-      built,
-      () => setTreeRoot((current) => current && { ...current, children: [] }),
-    );
-  });
-  useEffect(() => {
-    if (relatedBuild) settleRelatedBuild(relatedBuild);
-  }, [relatedBuild, schemaIndex.done, treeRoot]);
+  const { schemaIndex } = relatedBuild;
 
   function saveSessionToken(token: string) {
     sessionTokens.save(deployment, token);
@@ -741,7 +716,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         : createRootNode(selectedReference, label);
     setReference(selectedReference);
     setTreeRoot(next);
-    setRelatedBuild(addRelated && next.children.length === 0 ? next.reference : undefined);
+    // Related collections come from the catalog this root was chosen from.
+    const catalog = catalogQuery.catalog?.collections;
+    relatedBuild.start(addRelated && catalog ? next : undefined, catalog ?? []);
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
     setStep('view');
@@ -911,7 +888,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       `Removed ${subtreeNodeNames(previous, nodeId).join(', ')}`,
       'Its saved table state was removed too.',
       next,
-      () => setTreeRoot(previous),
+      // Keeps the sorting and columns chosen since the removal.
+      () => setTreeRoot((current) => (current ? withPresentationsOf(previous, current) : previous)),
     );
   }
 
@@ -1091,9 +1069,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               onRetryCatalog={() => void catalogQuery.refresh()}
               loadSchema={loadRelationshipSchema}
               schemaIndex={schemaIndex}
-              onFindReferences={() => {
-                if (instance) setReferencesRequestedFor(instanceKey(instance));
-              }}
+              onFindReferences={relatedBuild.requestReferences}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
@@ -1122,20 +1098,21 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               <p>Your collections will appear here.</p>
             </div>
           )}
-          {relatedBuild ? (
+          {relatedBuild.pending ? (
             <div
               className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
               role="status"
             >
               <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
               <span className="min-w-0 flex-1">
-                Finding related collections… {schemaIndex.settled} of {schemaIndex.total}
+                Finding related collections…
+                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-1.5 text-xs"
-                onClick={() => setRelatedBuild(undefined)}
+                onClick={relatedBuild.cancel}
               >
                 Cancel
               </Button>
@@ -1253,7 +1230,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       <Checkbox
                         className="mt-0.5"
                         checked={addRelatedOnOpen && !keepsOpenTree}
-                        disabled={keepsOpenTree}
+                        disabled={keepsOpenTree || !catalogQuery.catalog}
                         onCheckedChange={setAddRelatedOnOpen}
                       />
                       <span className="grid gap-0.5">

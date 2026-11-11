@@ -14,6 +14,7 @@ import {
   type RelatedSuggestion,
 } from '../../explorer-core';
 import type { SchemaIndexState } from '../hooks/useSchemaIndex';
+import { flattenCollectionNodes } from '../load-view';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -35,10 +36,6 @@ interface RelatedCollectionsMenuProps {
   readonly onChooseOther: () => void;
 }
 
-function countNodes(node: CollectionNode): number {
-  return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
-}
-
 /** The "+N" chip on a tree node: adds the collections it contains or is referenced by. */
 export function RelatedCollectionsMenu({
   root,
@@ -57,7 +54,7 @@ export function RelatedCollectionsMenu({
   );
   const contains = suggestions.filter(({ link }) => link.relationship.fieldSide === 'parent');
   const referencedBy = suggestions.filter(({ link }) => link.relationship.fieldSide === 'child');
-  const full = countNodes(root) >= viewTreeLimits.nodes;
+  const full = flattenCollectionNodes(root).length >= viewTreeLimits.nodes;
 
   function add({ link, name }: RelatedSuggestion) {
     const entry = catalogByModel.get(link.modelZuid);
@@ -150,7 +147,9 @@ export function RelatedCollectionsMenu({
             <>
               {rows(referencedBy, 'No other collection links to it, or they are already shown.')}
               {schemaIndex.failed > 0
-                ? note(`${schemaIndex.failed} collections could not be checked.`)
+                ? note(
+                    `${schemaIndex.failed} ${schemaIndex.failed === 1 ? 'collection' : 'collections'} could not be checked.`,
+                  )
                 : null}
             </>
           ) : (

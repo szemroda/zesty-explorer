@@ -40,3 +40,17 @@ export function createChildNode(
     children: [],
   };
 }
+
+/** What identifies a collection: its model in one instance's deployment. */
+export type CollectionIdentity = Pick<
+  CollectionReference,
+  'instanceZuid' | 'modelZuid' | 'deployment'
+>;
+
+export function sameCollection(left: CollectionIdentity, right: CollectionIdentity): boolean {
+  return (
+    left.instanceZuid === right.instanceZuid &&
+    left.modelZuid === right.modelZuid &&
+    left.deployment === right.deployment
+  );
+}

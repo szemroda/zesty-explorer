@@ -120,7 +120,6 @@ function AddRelationship({
   readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
 }) {
-  const queryClient = useQueryClient();
   const [url, setUrl] = useState('');
   const [selectedCollection, setSelectedCollection] = useState<CollectionCatalogEntry>();
   const [name, setName] = useState('');
@@ -147,9 +146,20 @@ function AddRelationship({
     selectedReference !== undefined &&
     selectedReference.instanceZuid === parent.reference.instanceZuid &&
     selectedReference.deployment === parent.reference.deployment;
+  const queryClient = useQueryClient();
   const schemaQueryOptions = relationshipSchemaQuery(selectedReference, loadSchema);
-  const schemaQueryKey = schemaQueryOptions.queryKey;
   const schemaQuery = useQuery({ ...schemaQueryOptions, enabled: open && referenceAllowed });
+
+  // Stops an inspection nobody else is waiting for, such as the schema index.
+  function stopInspection() {
+    const query = queryClient
+      .getQueryCache()
+      .find({ queryKey: schemaQueryOptions.queryKey, exact: true });
+    const waiting = query?.observers.filter((observer) => observer.options.enabled !== false);
+    if (query && (waiting?.length ?? 0) <= 1) {
+      void queryClient.cancelQueries({ queryKey: schemaQueryOptions.queryKey, exact: true });
+    }
+  }
   const loadedChildSchema = schemaQuery.data;
   const nativeCandidates = loadedChildSchema
     ? findNativeRelationshipCandidates(schema, loadedChildSchema)
@@ -230,7 +240,7 @@ function AddRelationship({
       open={open}
       onOpenChange={(nextOpen) => {
         onOpenChange(nextOpen);
-        if (!nextOpen) void queryClient.cancelQueries({ queryKey: schemaQueryKey, exact: true });
+        if (!nextOpen) stopInspection();
       }}
     >
       <DialogContent
