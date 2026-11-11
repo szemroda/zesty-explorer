@@ -152,6 +152,7 @@ describe('related tree', () => {
       }),
     );
 
+    expect(relatedSuggestions(tree, tree.id, twoWay, true)).toEqual([]);
     expect(tree.children.map((child) => child.relationship)).toEqual([
       {
         kind: 'native',
@@ -160,6 +161,22 @@ describe('related tree', () => {
         relatedModelZuid: model('people'),
       },
     ]);
+  });
+
+  it('stops three levels below the root', () => {
+    const chain = indexRelatedCollections(
+      ['one', 'two', 'three', 'four', 'five'].map((name, index, names) =>
+        collection(name, name, names[index + 1] ? [link('next', 'Next', names[index + 1]!)] : []),
+      ),
+      new Map(),
+    );
+    let next = 0;
+    const tree = buildRelatedTree(collectionNode('node-root', model('one')), chain, (related) => {
+      next += 1;
+      return { ...collectionNode(`node-${next}`, related.modelZuid), name: related.modelZuid };
+    });
+
+    expect(outline(tree)).toEqual(['node-root', '  6-two', '    6-three', '      6-four']);
   });
 
   it('suggests unused links that do not lead back up the path', () => {

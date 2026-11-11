@@ -36,6 +36,8 @@ interface RelatedCollectionsMenuProps {
     relationship: RelationshipDefinition,
   ) => string | undefined;
   readonly onChooseOther: () => void;
+  /** Keeps the chip shown, e.g. while a dialog opened from it will return focus to it. */
+  readonly keepVisible: boolean;
 }
 
 /** The "+N" chip on a tree node: adds the collections it contains or is referenced by. */
@@ -49,6 +51,7 @@ export function RelatedCollectionsMenu({
   onFindReferences,
   onAdd,
   onChooseOther,
+  keepVisible,
 }: RelatedCollectionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [rejection, setRejection] = useState<string>();
@@ -123,6 +126,7 @@ export function RelatedCollectionsMenu({
               'text-muted-foreground h-6 shrink-0 gap-0.5 px-1.5 text-xs tabular-nums',
               // Below the root it appears on hover, so long node names keep their width.
               node.id !== root.id &&
+                !keepVisible &&
                 'hidden group-focus-within:inline-flex group-hover:inline-flex data-popup-open:inline-flex pointer-coarse:inline-flex',
             )}
             aria-label={`Add related collections to ${node.name}`}

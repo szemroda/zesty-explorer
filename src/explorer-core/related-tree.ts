@@ -91,7 +91,11 @@ export function indexRelatedCollections(
   return { contains, referencedBy, labels };
 }
 
-/** The links from one collection: those it contains, then, when `referencedBy` is set, the rest. */
+/**
+ * The links from one collection: those it contains, then, when `referencedBy` is set, the fields
+ * of other collections pointing at it. A collection it contains already shows the pairs its own
+ * field pointing back would show, so that mirror is left out.
+ */
 export function relatedLinks(
   modelZuid: ModelZuid,
   collections: RelatedCollections,
@@ -99,7 +103,11 @@ export function relatedLinks(
 ): readonly RelatedLink[] {
   const contains = collections.contains.get(modelZuid) ?? [];
   if (!referencedBy) return contains;
-  return [...contains, ...(collections.referencedBy.get(modelZuid) ?? [])];
+  const contained = new Set(contains.map((link) => link.modelZuid));
+  const referencing = (collections.referencedBy.get(modelZuid) ?? []).filter(
+    (link) => !contained.has(link.modelZuid),
+  );
+  return [...contains, ...referencing];
 }
 
 /**
@@ -138,18 +146,16 @@ export function buildRelatedTree(
     const { node, depth } = queue[index]!;
     if (depth >= autoTreeLimits.depth) continue;
     const links = relatedLinks(node.reference.modelZuid, collections, depth === 0);
-    // Further fields on the same side may link the same collection again in another role. The
-    // other side of a two-way relationship shows the same pairs, so it is not added again.
-    const addedHere = new Map<ModelZuid, RelatedLink['relationship']['fieldSide']>();
+    // Further fields of this parent may link the same collection again in another role.
+    const addedHere = new Set<ModelZuid>();
     const children: CollectionNode[] = [];
     for (const link of links) {
       if (count >= autoTreeLimits.nodes) break;
-      const side = link.relationship.fieldSide;
-      if (shown.has(link.modelZuid) && addedHere.get(link.modelZuid) !== side) continue;
+      if (shown.has(link.modelZuid) && !addedHere.has(link.modelZuid)) continue;
       const child = createNode(link, relatedLinkName(link, links, collections));
       if (!child) continue;
       shown.add(link.modelZuid);
-      addedHere.set(link.modelZuid, side);
+      addedHere.add(link.modelZuid);
       children.push(child);
       queue.push({ node: child, depth: depth + 1 });
       count += 1;

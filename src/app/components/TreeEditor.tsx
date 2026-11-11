@@ -741,6 +741,7 @@ function TreeNodeRow({
             onFindReferences={related.onFindReferences}
             onAdd={onAdd}
             onChooseOther={() => setAddingOther(true)}
+            keepVisible={addingOther}
           />
         ) : null}
         <DropdownMenu>

@@ -1,4 +1,10 @@
-import { queryOptions, useQueries, type UseQueryResult } from '@tanstack/react-query';
+import {
+  queryOptions,
+  useQueries,
+  useQueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query';
+import { useEffect } from 'react';
 import type {
   CollectionCatalogEntry,
   CollectionNodeId,
@@ -49,8 +55,8 @@ export function relationshipSchemaQuery(
 
 /**
  * The collections one instance's tree can attach, from its catalog, and their links: from the
- * catalog-wide index and the view's own node schemas. Those load and refresh with the view, so
- * they win; they also cover each node before the index loads.
+ * catalog-wide index, which Refresh reloads while it is in use, and the view's own node schemas,
+ * which cover each node before the index loads and an uncatalogued root.
  */
 export function relatedCollectionsFor(
   instance: Pick<CollectionReference, 'instanceZuid' | 'deployment'>,
@@ -62,7 +68,9 @@ export function relatedCollectionsFor(
   readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
 } {
   const schemas = new Map(indexSchemas);
-  for (const schema of nodeSchemas.values()) schemas.set(schema.modelZuid, schema);
+  for (const schema of nodeSchemas.values()) {
+    if (!schemas.has(schema.modelZuid)) schemas.set(schema.modelZuid, schema);
+  }
   const catalogByModel = new Map(
     catalog
       .filter(
@@ -84,8 +92,8 @@ export interface SchemaIndexState {
   readonly done: boolean;
 }
 
-// A schema kept from before a Refresh still lists links, but the index is done only once every
-// schema is current or has failed.
+// A schema kept from before a Refresh still lists links. While the index is in use, such a schema
+// reloads and the index is not done until it has; an idle index reports what it has.
 function combineSchemas(results: readonly UseQueryResult<CollectionSchema>[]): SchemaIndexState {
   const schemas = new Map<ModelZuid, CollectionSchema>();
   let settled = 0;
@@ -113,6 +121,15 @@ export function useSchemaIndex({
   readonly loadSchema: SchemaLoader;
   readonly enabled: boolean;
 }): SchemaIndexState {
+  const queryClient = useQueryClient();
+  // When nothing uses the index any more, loads still waiting for a permit are not needed.
+  useEffect(() => {
+    if (enabled) return;
+    void queryClient.cancelQueries({
+      queryKey: [relationshipSchemaQueryRoot, 'index'],
+      predicate: (query) => query.state.data === undefined,
+    });
+  }, [enabled, queryClient]);
   const index = useQueries({
     queries: (catalog ?? []).map((entry) => ({
       ...relationshipSchemaQuery(entry.reference, loadSchema, 'index'),

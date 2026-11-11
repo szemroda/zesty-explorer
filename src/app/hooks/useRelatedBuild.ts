@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useState, type Dispatch, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import type {
@@ -12,7 +11,6 @@ import { flattenCollectionNodes } from '../load-view';
 import { createChildNode, sameCollection, type CollectionIdentity } from '../view-state';
 import {
   relatedCollectionsFor,
-  relationshipSchemaQueryRoot,
   useSchemaIndex,
   type SchemaIndexState,
   type SchemaLoader,
@@ -68,7 +66,6 @@ export function useRelatedBuild({
   loadSchema,
   offerUndo,
 }: RelatedBuildOptions): RelatedBuild {
-  const queryClient = useQueryClient();
   const [pendingRoot, setPendingRoot] = useState<CollectionIdentity>();
   const [outcome, setOutcome] = useState<BuildOutcome>();
   // The instance whose nodes list the collections that reference them.
@@ -99,11 +96,10 @@ export function useRelatedBuild({
     waitingRoot &&
     catalog &&
     schemaIndex.done &&
-    // The root's own links need its schema: from the index when it is catalogued, which is done,
-    // or from the view, unless the view failed to load it.
-    (nodeSchemas.has(waitingRoot.id) ||
-      rootFailed ||
-      catalog.some((entry) => sameCollection(entry.reference, waitingRoot.reference)))
+    // The root's own links need its schema, from the index or the view, unless the view failed.
+    (schemaIndex.schemas.has(waitingRoot.reference.modelZuid) ||
+      nodeSchemas.has(waitingRoot.id) ||
+      rootFailed)
   ) {
     setPendingRoot(undefined);
     const { collections, catalogByModel } = relatedCollectionsFor(
@@ -155,15 +151,7 @@ export function useRelatedBuild({
     schemaIndex,
     start: (root) =>
       setPendingRoot(root && root.children.length === 0 ? { ...root.reference } : undefined),
-    cancel: () => {
-      setPendingRoot(undefined);
-      // Schemas still loading are no longer needed, unless nodes list the references.
-      if (referencesRequested) return;
-      void queryClient.cancelQueries({
-        queryKey: [relationshipSchemaQueryRoot, 'index'],
-        predicate: (query) => query.state.data === undefined,
-      });
-    },
+    cancel: () => setPendingRoot(undefined),
     requestReferences: () => setReferencesFor(rootInstance),
   };
 }

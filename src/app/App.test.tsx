@@ -902,7 +902,19 @@ describe('root collection browser', () => {
   });
 
   it('reloads the collections that reference a node after Refresh', async () => {
-    render(<App api={relatedCollectionsApi()} tokenStore={memoryTokenStore()} />);
+    let authorsLinkStories = true;
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSchema: (reference) => {
+        const loaded = relatedSchemas.get(reference.modelZuid)!;
+        return Effect.succeed(
+          reference.modelZuid === '6-authors123' && !authorsLinkStories
+            ? { ...loaded, fields: [] }
+            : loaded,
+        );
+      },
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     const openReferences = async () => {
       fireEvent.click(
@@ -910,16 +922,43 @@ describe('root collection browser', () => {
       );
       return within(await screen.findByRole('region', { name: 'Referenced by' }));
     };
-    expect((await openReferences()).getByRole('button', { name: /^Authors/ })).toBeInTheDocument();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('region', { name: 'Referenced by' })).not.toBeInTheDocument(),
-    );
     expect(
       await (await openReferences()).findByRole('button', { name: /^Authors/ }),
     ).toBeInTheDocument();
+
+    // Authors no longer links to Stories in Zesty.
+    authorsLinkStories = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    const references = await openReferences();
+    expect(
+      await references.findByText('No other collection links to it, or they are already shown.'),
+    ).toBeInTheDocument();
+  });
+
+  it('stops loading schemas when finding related collections is cancelled', async () => {
+    let interrupted = false;
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSchema: (reference) =>
+        reference.modelZuid === '6-authors123'
+          ? Effect.never.pipe(
+              Effect.onInterrupt(() =>
+                Effect.sync(() => {
+                  interrupted = true;
+                }),
+              ),
+            )
+          : Effect.succeed(relatedSchemas.get(reference.modelZuid)!),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+    await screen.findByText(/Finding related collections/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(interrupted).toBe(true));
+    expect(screen.queryByText(/Finding related collections/)).not.toBeInTheDocument();
   });
 
   it('finishes adding related collections after a Refresh while they load', async () => {
