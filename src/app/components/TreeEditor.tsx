@@ -851,7 +851,7 @@ export function TreeEditor({
   );
   const related: RelatedContext = { ...linked, schemaIndex, catalogError, onFindReferences };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-col">
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
         <GitBranch size={15} aria-hidden="true" />
         <span>Collections</span>
