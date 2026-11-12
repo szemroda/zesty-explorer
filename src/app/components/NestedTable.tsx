@@ -37,7 +37,7 @@ import {
   columnIdForSort,
   contentItemColumns,
   hiddenColumnIds,
-  relatedItemNames,
+  cellText,
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
@@ -295,9 +295,7 @@ export function NestedTable(props: NestedTableProps) {
       <CellValue
         value={value}
         richText={column.richText}
-        names={
-          column.relationship ? relatedItemNames(value, loadedItemsById(loadedView)) : undefined
-        }
+        text={cellText(column, value, () => loadedItemsById(loadedView))}
       />
     ),
     renderStatus: (item) => (

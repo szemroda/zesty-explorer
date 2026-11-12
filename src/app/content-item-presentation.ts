@@ -38,6 +38,8 @@ export type ContentValueColumn = ColumnDefinition & {
   readonly richText: boolean;
   /** The value holds related item ZUIDs, shown by name when those items are loaded. */
   readonly relationship: boolean;
+  /** A yes/no field, which Zesty stores as 1 and 0. */
+  readonly yesNo: boolean;
   read(item: ContentItem): unknown;
 };
 
@@ -73,6 +75,7 @@ export function contentItemColumns(
       defaultWidth: isLabelField(field.name) ? labelColumnWidth : defaultContentColumnWidth,
       richText: field.datatype?.startsWith('wysiwyg') ?? false,
       relationship: field.kind === 'relationship',
+      yesNo: field.kind === 'boolean',
       read: (item: ContentItem) => item.fields[field.name],
     })),
     technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
@@ -101,6 +104,7 @@ function technicalColumn(
     defaultWidth,
     richText: false,
     relationship: false,
+    yesNo: false,
     read,
   };
 }
@@ -199,6 +203,22 @@ export function relatedItemNames(
       return item ? itemDisplayLabel(item) : id;
     })
     .join(', ');
+}
+
+/**
+ * How a table cell shows a value when it differs from the stored value: related items by name,
+ * and yes/no fields as Yes and No. Undefined shows the stored value.
+ */
+export function cellText(
+  column: Pick<ContentValueColumn, 'relationship' | 'yesNo'>,
+  value: unknown,
+  loadedItems: () => ReadonlyMap<string, ContentItem>,
+): string | undefined {
+  if (column.relationship) return relatedItemNames(value, loadedItems());
+  if (!column.yesNo) return undefined;
+  if (value === 1 || value === '1' || value === true) return 'Yes';
+  if (value === 0 || value === '0' || value === false) return 'No';
+  return undefined;
 }
 
 // Zesty Manager editor page for an item; collections outside content and blocks have none.

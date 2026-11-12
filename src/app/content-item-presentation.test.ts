@@ -6,6 +6,7 @@ import {
   formatContentValue,
   hiddenColumnIds,
   initialColumnVisibility,
+  cellText,
   itemDisplayLabel,
   relatedItemNames,
   sortForColumn,
@@ -128,5 +129,21 @@ describe('relatedItemNames', () => {
   it('leaves the value alone when none of its items is loaded', () => {
     expect(relatedItemNames('7-cat-9', loaded)).toBeUndefined();
     expect(relatedItemNames(null, loaded)).toBeUndefined();
+  });
+});
+
+describe('cellText', () => {
+  const none = () => new Map<string, ContentItem>();
+
+  it('shows yes/no fields as Yes and No and leaves other values alone', () => {
+    const yesNo = { relationship: false, yesNo: true };
+    expect([1, 0, '1', true, null].map((value) => cellText(yesNo, value, none))).toEqual([
+      'Yes',
+      'No',
+      'Yes',
+      'Yes',
+      undefined,
+    ]);
+    expect(cellText({ relationship: false, yesNo: false }, 1, none)).toBeUndefined();
   });
 });
