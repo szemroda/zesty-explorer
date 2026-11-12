@@ -61,7 +61,8 @@ export function contentItemColumns(
       label: 'Status',
       technical: true,
       sortable: false,
-      defaultWidth: 180,
+      // Fits "v12 scheduled" and "v11 published" on one line.
+      defaultWidth: 210,
     },
     ...schema.fields.map((field) => ({
       kind: 'value' as const,

@@ -102,7 +102,7 @@ function ConnectedPublicationStatusCell({
   }, [abandoned, queryClient, queryKey]);
 
   return (
-    // Pills wrap rather than draw over the next column; only a scheduled third one needs to.
+    // Pills wrap rather than draw over the next column if the column is made narrow.
     <span ref={cell} className="flex min-w-0 flex-wrap items-center gap-1.5">
       <StatusContent query={query} />
     </span>
