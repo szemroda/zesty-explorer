@@ -69,6 +69,7 @@ const loadedView: LoadedView = {
 function rootTable(props: Partial<ComponentProps<typeof RootTable>> = {}) {
   return (
     <RootTable
+      title={rootSchema.label}
       schema={rootSchema}
       snapshot={generated.parents}
       reference={root.reference}

@@ -64,6 +64,8 @@ export function RootTableSkeleton() {
 }
 
 interface RootTableProps {
+  /** The collection's display name, as the collection tree shows it. */
+  readonly title: string;
   readonly schema: CollectionSchema;
   readonly snapshot: CollectionSnapshot;
   readonly reference: CollectionReference;
@@ -87,6 +89,7 @@ interface RootTableProps {
 }
 
 export function RootTable({
+  title,
   schema,
   snapshot,
   reference,
@@ -260,7 +263,7 @@ export function RootTable({
     <ScrollDockProvider pageHeader={pageHeader}>
       <section
         className={`relative overflow-visible ${panelClassName}`}
-        aria-label={`${schema.label} collection`}
+        aria-label={`${title} collection`}
       >
         <div className={headerClassName}>
           <div className="min-w-36">
@@ -269,7 +272,7 @@ export function RootTable({
               tabIndex={-1}
               className="m-0 text-[17px] font-bold tracking-[-0.02em] outline-none"
             >
-              {schema.label}
+              {title}
             </h2>
             <span className="mt-0.5 block text-[10px] text-muted-foreground">
               {resultsPending
@@ -306,7 +309,7 @@ export function RootTable({
             <div hidden={resultsPending}>
               <ContentTableGrid
                 table={table}
-                label={schema.label}
+                label={title}
                 reference={reference}
                 canExpand={canExpand}
                 onOpenDetails={onOpenDetails}

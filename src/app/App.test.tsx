@@ -780,7 +780,8 @@ describe('root collection browser', () => {
       <App api={api()} tokenStore={memoryTokenStore([['production', 'stored-session-token']])} />,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    // The table carries the node's name, like the collection tree.
+    expect(await screen.findByRole('heading', { name: 'Saved stories' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Edit filter Any field contains “First”' }),
     ).toBeInTheDocument();

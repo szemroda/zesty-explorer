@@ -650,6 +650,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setStep(reference ? 'view' : 'credentials');
   }
 
+  // A root opened before its instance's catalog loaded keeps its model ZUID as its name, and views
+  // that predate catalog labels do too. Show the catalog label for those instead.
+  const rootName = !treeRoot
+    ? ''
+    : treeRoot.name !== treeRoot.reference.modelZuid
+      ? treeRoot.name
+      : (catalogQuery.catalog?.collections.find(
+          (collection) =>
+            instanceKey(collection.reference) === instanceKey(treeRoot.reference) &&
+            collection.reference.modelZuid === treeRoot.reference.modelZuid,
+        )?.label ??
+        loadedView?.schemas.get(treeRoot.id)?.label ??
+        treeRoot.name);
   const rootPickerCollections = useMemo(() => {
     const collections = [...(catalogQuery.catalog?.collections ?? [])];
     if (!catalogInstance) return collections;
@@ -1080,13 +1093,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           >
             {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
             <TreeEditor
-              root={{
-                ...treeRoot,
-                name:
-                  treeRoot.name === treeRoot.reference.modelZuid
-                    ? (loadedView?.schemas.get(treeRoot.id)?.label ?? treeRoot.name)
-                    : treeRoot.name,
-              }}
+              root={rootName === treeRoot.name ? treeRoot : { ...treeRoot, name: rootName }}
               schemas={loadedView?.schemas ?? noNodeSchemas}
               catalog={catalogQuery.catalog?.collections ?? []}
               catalogError={catalogQuery.error}
@@ -1359,6 +1366,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               >
                 <RootTable
                   key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                  title={rootName}
                   schema={rootSchema}
                   snapshot={rootSnapshot}
                   reference={treeRoot.reference}
