@@ -171,7 +171,7 @@ describe('errorPageText', () => {
       errorPageText(
         '<!doctype html><html><body><h1>WebEngine Error</h1>\n<p>Parsley: unknown field `venue.citty`</p><script>x()</script></body></html>',
       ),
-    ).toBe('WebEngine Error Parsley: unknown field `venue.citty`');
+    ).toBe('WebEngine Error — Parsley: unknown field `venue.citty`');
     expect(errorPageText('{"error":"bad"}')).toBeUndefined();
     expect(errorPageText('<p> </p>')).toBeUndefined();
   });

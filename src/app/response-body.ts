@@ -23,7 +23,12 @@ export function errorPageText(body: string): string | undefined {
   if (bodyFormat(body) !== 'markup') return undefined;
   const page = new DOMParser().parseFromString(body, 'text/html');
   page.querySelectorAll('script, style').forEach((node) => node.remove());
-  const text = page.body.textContent.replace(/\s+/g, ' ').trim();
+  // Headings and paragraphs stay apart, so "WebEngine Error" does not run into the reason.
+  const blocks = [...page.body.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, pre')]
+    .map((block) => block.textContent.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const text =
+    blocks.length > 0 ? blocks.join(' — ') : page.body.textContent.replace(/\s+/g, ' ').trim();
   if (!text) return undefined;
   return text.length > summaryLength ? `${text.slice(0, summaryLength)}…` : text;
 }

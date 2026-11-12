@@ -144,11 +144,12 @@ export function CodeSourceView({
     <div
       // Escape clears a pinned highlight, wherever focus is in the source or its explanations.
       onKeyDown={(event) => {
-        if (event.key !== 'Escape' || !pinned) return;
+        if (event.key !== 'Escape' || !active) return;
         event.stopPropagation();
         setPinned(undefined);
+        setHovered(undefined);
       }}
-      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]"
+      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,2fr)_minmax(10rem,1fr)]"
     >
       <section
         className="border-border bg-surface-recessed flex min-h-0 flex-col overflow-hidden rounded-xl border"
@@ -172,6 +173,7 @@ export function CodeSourceView({
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Copy source as saved"
             onClick={() => void copyText(code, 'Source copied', 'As saved, not formatted.')}
           >
             <Copy size={13} aria-hidden="true" /> Copy

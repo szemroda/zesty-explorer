@@ -271,9 +271,23 @@ export function EndpointRequest({
               ))}
             </select>
           ) : (
-            <span className={cn('text-muted-foreground', baseUrls && !baseUrl && 'text-amber-300')}>
-              {baseUrl ?? (baseUrls ? 'no live domain' : 'https://…')}
-            </span>
+            // Below xl the origin folds to "…", so the path and its parameters keep the room.
+            <TooltipTrigger
+              text={baseUrl ?? 'No live domain'}
+              render={
+                <span
+                  className={cn('text-muted-foreground', baseUrls && !baseUrl && 'text-amber-300')}
+                  tabIndex={-1}
+                />
+              }
+            >
+              <span className="max-xl:hidden">
+                {baseUrl ?? (baseUrls ? 'no live domain' : 'https://…')}
+              </span>
+              <span className="xl:hidden" aria-hidden="true">
+                …
+              </span>
+            </TooltipTrigger>
           )}
           {pathParts.map(({ text, wildcard }, index) => (
             <Fragment key={index}>
@@ -484,7 +498,7 @@ function ResponsePane({
   const announcement = sendingUrl
     ? 'Sending request'
     : response
-      ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds`
+      ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds${errorText ? `. The page says: ${errorText}` : ''}`
       : result?.kind === 'failure'
         ? 'Request failed'
         : '';
@@ -502,23 +516,30 @@ function ResponsePane({
           className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200"
           role="status"
         >
-          The request changed since it was sent. This is the response to the previous request; Send
-          to update it.
+          Response to an earlier request. Send to update it.
         </p>
       ) : null}
       {result ? (
         <div className="bg-surface-header border-border flex min-h-11 items-center gap-4 border-b px-4 py-1.5 text-xs">
           {response ? (
             <>
-              <strong className={statusTone(response.status)}>
+              {/* Each item keeps its words together; only the URL shrinks. */}
+              <strong className={cn('shrink-0 whitespace-nowrap', statusTone(response.status))}>
                 {response.status} {response.statusText}
               </strong>
-              <span className="text-muted-foreground">{response.durationMs} ms</span>
-              <span className="text-muted-foreground">{formatBytes(response.bytes)}</span>
-              <span className="text-muted-foreground">{response.contentType}</span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {response.durationMs} ms
+              </span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {formatBytes(response.bytes)}
+              </span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {response.contentType}
+              </span>
               {formatted !== undefined ? (
                 <ToggleGroup
                   aria-label="Response presentation"
+                  className="shrink-0 whitespace-nowrap"
                   value={[presentation]}
                   onValueChange={([next]) => {
                     if (next) setPresentation(next);
@@ -548,6 +569,7 @@ function ResponsePane({
               variant="ghost"
               size="sm"
               className="-mr-2 shrink-0"
+              aria-label="Copy response as received"
               onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
             >
               <Copy size={13} aria-hidden="true" /> Copy
