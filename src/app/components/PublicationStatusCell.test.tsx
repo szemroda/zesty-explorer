@@ -95,18 +95,18 @@ describe('publication status cell', () => {
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeInTheDocument();
   });
 
-  it('keeps separate badges when the latest version is also published', async () => {
+  it('shows one badge when the latest saved version is also published', async () => {
     renderCell({
       loadItemVersions: () => Effect.succeed([{ number: 8, item }]),
       loadItemPublishings: () => Effect.succeed([{ version: 8, active: true }]),
       loadInstanceUsers: () => Effect.succeed([]),
     });
 
-    expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
-      'v8',
-    );
-    expect(screen.getByRole('img', { name: 'Currently published version v8' })).toHaveTextContent(
-      'v8',
-    );
+    expect(
+      await screen.findByRole('img', {
+        name: 'Version v8 is the latest saved and currently published version',
+      }),
+    ).toHaveTextContent('v8 published');
+    expect(screen.getAllByRole('img')).toHaveLength(1);
   });
 });
