@@ -72,11 +72,13 @@ function edgeStateUpdater(scroller: HTMLElement, frame: HTMLElement) {
     written.set(name, value);
     frame.style.setProperty(name, value);
   };
+  // A few pixels of overflow come from borders and rounding, not hidden columns.
+  const slack = 4;
   return () => {
     write('--grid-scrolled', scroller.scrollLeft > 1);
     write(
       '--grid-more-right',
-      scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft > 1,
+      scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft > slack,
     );
   };
 }
