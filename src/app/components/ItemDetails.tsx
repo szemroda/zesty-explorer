@@ -106,7 +106,7 @@ function ValuesList({ values }: { readonly values: Readonly<Record<string, unkno
     <dl className="m-0 divide-y divide-border border-y border-border">
       {Object.entries(values).map(([name, value]) => (
         <div className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10" key={name}>
-          <dt className="text-xs text-muted-foreground">{name}</dt>
+          <dt className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">{name}</dt>
           <dd className="m-0 min-w-0 text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
             <FieldValue value={value} />
           </dd>
@@ -330,11 +330,11 @@ function ItemDetailsPanel({
               </div>
               <TabsContent value="raw">
                 {mode === 'view' ? (
-                  <div className="relative">
+                  <div className="grid gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="absolute top-2 right-2"
+                      className="justify-self-end"
                       onClick={() =>
                         void copyText(
                           JSON.stringify(preview.selectedItem.raw, null, 2),
@@ -344,7 +344,7 @@ function ItemDetailsPanel({
                     >
                       <Copy size={13} aria-hidden="true" /> Copy JSON
                     </Button>
-                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 pr-28 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
+                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
                       {JSON.stringify(preview.selectedItem.raw, null, 2)}
                     </pre>
                   </div>
