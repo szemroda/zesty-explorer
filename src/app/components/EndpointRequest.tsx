@@ -283,7 +283,19 @@ export function EndpointRequest({
                 type="button"
                 className="text-muted-foreground hover:text-foreground ml-0.5 hidden group-focus-within:inline-flex group-hover:inline-flex"
                 aria-label={`Remove ?${parameter.name}`}
-                onClick={() => removeParameter(parameter.id)}
+                onClick={(event) => {
+                  // The chip leaves; focus moves to the next parameter, the previous one, or Add.
+                  const chip = event.currentTarget.parentElement;
+                  const next =
+                    [chip?.nextElementSibling, chip?.previousElementSibling]
+                      .map((sibling) => sibling?.querySelector('input'))
+                      .find((input) => input) ??
+                    chip
+                      ?.closest('form')
+                      ?.querySelector<HTMLElement>('[aria-label="Add a query parameter"]');
+                  removeParameter(parameter.id);
+                  requestAnimationFrame(() => next?.focus());
+                }}
               >
                 <X size={12} aria-hidden="true" />
               </button>
@@ -619,7 +631,10 @@ function AutoWidthInput({
 }) {
   return (
     <input
-      className={cn('placeholder:text-muted-foreground/50 bg-transparent outline-none', className)}
+      className={cn(
+        'placeholder:text-muted-foreground/50 rounded-sm bg-transparent outline-none focus-visible:ring-1 focus-visible:ring-ring/60',
+        className,
+      )}
       style={{ width: `calc(${Math.max(value.length, placeholder.length, 1)}ch + 4px)` }}
       aria-label={ariaLabel}
       placeholder={placeholder}
