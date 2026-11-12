@@ -1846,7 +1846,7 @@ describe('Code tab', () => {
     const reopened = await screen.findByRole('dialog', { name: '/8-abc123.json' });
 
     expect(await within(reopened).findByText('Zesty could not be reached.')).toBeInTheDocument();
-    expect(within(reopened).queryByRole('button', { name: /Version 3/ })).not.toBeInTheDocument();
+    expect(within(reopened).queryByRole('radio', { name: /Version 3/ })).not.toBeInTheDocument();
   });
 
   it('explains why code history could not load a deleted file', async () => {

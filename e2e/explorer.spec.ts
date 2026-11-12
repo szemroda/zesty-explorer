@@ -684,7 +684,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await detailsTrigger.focus();
   await detailsTrigger.press('Enter');
   await expect(page.getByRole('dialog', { name: 'First story' })).toBeVisible();
-  const versionTwo = page.getByRole('button', { name: /Version 2/ });
+  const versionTwo = page.getByRole('radio', { name: /Version 2/ });
   await expect(versionTwo).toContainText('Latest saved');
   await expect(versionTwo).toContainText('Currently published');
   await expect(versionTwo).toContainText('Anna Kowalska');

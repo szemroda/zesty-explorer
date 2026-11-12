@@ -31,7 +31,7 @@ import {
   ModeToggle,
   ResourceNotice,
   VersionBadges,
-  VersionCard,
+  VersionCardList,
   SavedVersionsSidebar,
   VersionPairSelect,
   type HistoryMode,
@@ -227,14 +227,11 @@ export function CodeFileHistory({
               ) : null
             ) : (
               <>
-                {visibleOptions.map((option) => (
-                  <VersionCard
-                    key={option.number}
-                    option={option}
-                    selected={selected?.number === option.number}
-                    onSelect={() => setSelectedNumber(option.number)}
-                  />
-                ))}
+                <VersionCardList
+                  options={visibleOptions}
+                  selectedNumber={selected?.number}
+                  onSelect={setSelectedNumber}
+                />
                 {options.length > 0 && visibleOptions.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                     No saved versions match this search.

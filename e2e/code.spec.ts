@@ -316,11 +316,11 @@ test('previews and compares saved versions of an endpoint', async ({ page }) => 
   const versions = dialog.getByRole('region', { name: 'Saved versions' });
   await expect(versions.getByText('3 total')).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Version 28' })).toBeVisible();
-  await expect(versions.getByRole('button', { name: /Version 26/ })).toContainText(
+  await expect(versions.getByRole('radio', { name: /Version 26/ })).toContainText(
     'Currently published',
   );
 
-  await versions.getByRole('button', { name: /Version 27/ }).click();
+  await versions.getByRole('radio', { name: /Version 27/ }).click();
   await expect(dialog.getByRole('heading', { name: 'Version 27' })).toBeVisible();
   await expect(dialog.getByText('Ada Keller').first()).toBeVisible();
   await expect(dialog.getByRole('tabpanel', { name: 'Formatted' })).toContainText(
