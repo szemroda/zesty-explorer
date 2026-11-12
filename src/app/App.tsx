@@ -1212,6 +1212,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     ) : null}
                     <CollectionPicker
                       label="Root collection"
+                      description="Its items form the top level of the view."
                       collections={rootPickerCollections}
                       value={selectedRootZuid}
                       onChange={(collection) => {
@@ -1256,7 +1257,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     ref={pastedUrlInput}
                     type="url"
                     value={pastedUrl}
-                    placeholder="https://8-….manager.zesty.io/content/6-…"
+                    placeholder="https://8-xxxxxx.manager.zesty.io/content/6-xxxxxx"
                     onChange={(event) => {
                       const value = event.target.value;
                       setPastedUrl(value);

@@ -1735,7 +1735,7 @@ describe('form errors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
 
     expect(picker()).toHaveAccessibleDescription(
-      'Choose a root collection or paste a collection URL.',
+      'Its items form the top level of the view. Choose a root collection or paste a collection URL.',
     );
     expect(picker()).toHaveFocus();
   });

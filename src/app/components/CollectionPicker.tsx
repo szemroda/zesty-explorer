@@ -2,7 +2,7 @@ import { Check, ChevronsUpDown, LoaderCircle, X } from 'lucide-react';
 import { useMemo, type Ref } from 'react';
 import type { CollectionCatalogEntry, CollectionCatalogGroup, ModelZuid } from '../../domain';
 import { Combobox } from './ui/combobox';
-import { Field, FieldLabel } from './ui/field';
+import { Field, FieldDescription, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 
 interface PickerGroup {
@@ -12,6 +12,8 @@ interface PickerGroup {
 
 interface CollectionPickerProps {
   readonly label: string;
+  /** Explains the choice below the field. */
+  readonly description?: string;
   readonly collections: readonly CollectionCatalogEntry[];
   readonly value: ModelZuid | undefined;
   readonly onChange: (collection: CollectionCatalogEntry | undefined) => void;
@@ -31,6 +33,7 @@ const groupOrder: readonly CollectionCatalogGroup[] = ['content', 'blocks', 'oth
 
 export function CollectionPicker({
   label,
+  description,
   collections,
   value,
   onChange,
@@ -102,6 +105,7 @@ export function CollectionPicker({
             </Combobox.Trigger>
           </div>
         </Combobox.InputGroup>
+        {description ? <FieldDescription>{description}</FieldDescription> : null}
         <Combobox.Portal>
           <Combobox.Positioner className="z-50" sideOffset={5}>
             <Combobox.Popup className="bg-popover text-popover-foreground max-h-80 min-w-[var(--anchor-width)] overflow-hidden rounded-md border shadow-md">
