@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bodyTokens, formattedBody } from './response-body';
+import { bodyTokens, errorPageText, formattedBody } from './response-body';
 
 const lines = (...text: string[]) => text.join('\n');
 
@@ -162,5 +162,17 @@ describe('bodyTokens', () => {
       ['html-tag', '</a>'],
       ['comment', '<!-- note -->'],
     ]);
+  });
+});
+
+describe('errorPageText', () => {
+  it('reads the words of an error page and ignores other bodies', () => {
+    expect(
+      errorPageText(
+        '<!doctype html><html><body><h1>WebEngine Error</h1>\n<p>Parsley: unknown field `venue.citty`</p><script>x()</script></body></html>',
+      ),
+    ).toBe('WebEngine Error Parsley: unknown field `venue.citty`');
+    expect(errorPageText('{"error":"bad"}')).toBeUndefined();
+    expect(errorPageText('<p> </p>')).toBeUndefined();
   });
 });

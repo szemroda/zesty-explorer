@@ -13,6 +13,21 @@ export function bodyFormat(body: string): BodyFormat | undefined {
   return undefined;
 }
 
+const summaryLength = 300;
+
+/**
+ * The words of an HTML error page, such as "WebEngine Error Parsley: unknown field `x`", so the
+ * reason is readable above its markup. Undefined for other bodies or pages without text.
+ */
+export function errorPageText(body: string): string | undefined {
+  if (bodyFormat(body) !== 'markup') return undefined;
+  const page = new DOMParser().parseFromString(body, 'text/html');
+  page.querySelectorAll('script, style').forEach((node) => node.remove());
+  const text = page.body.textContent.replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return text.length > summaryLength ? `${text.slice(0, summaryLength)}…` : text;
+}
+
 /** The body laid out for reading when it is JSON or markup. */
 export function formattedBody(body: string): string | undefined {
   const format = bodyFormat(body);

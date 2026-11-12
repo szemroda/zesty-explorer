@@ -30,7 +30,13 @@ import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
 import { copyText } from '../copy-text';
 import { cn } from '../lib/utils';
 import { tokenClasses } from '../code-presentation';
-import { bodyFormat, bodyTokens, formattedBody, type BodyFormat } from '../response-body';
+import {
+  bodyFormat,
+  bodyTokens,
+  errorPageText,
+  formattedBody,
+  type BodyFormat,
+} from '../response-body';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
@@ -448,6 +454,11 @@ function ResponsePane({
   const format = response ? bodyFormat(response.body) : undefined;
 
   const stale = result !== undefined && result.url !== currentUrl;
+  // An error page's reason, such as a Parsley error, sits deep in its markup.
+  const errorText = useMemo(
+    () => (response && response.status >= 400 ? errorPageText(response.body) : undefined),
+    [response],
+  );
   // Announced once per change; the body itself stays out of the live region.
   const announcement = sendingUrl
     ? 'Sending request'
@@ -522,6 +533,12 @@ function ResponsePane({
             </Button>
           ) : null}
         </div>
+      ) : null}
+      {errorText ? (
+        <p className="border-border border-b bg-red-500/10 px-4 py-2 text-xs text-red-200">
+          <span className="font-semibold">The page says: </span>
+          {errorText}
+        </p>
       ) : null}
       {response?.rateLimit ? (
         <p
