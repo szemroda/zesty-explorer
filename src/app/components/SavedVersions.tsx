@@ -29,14 +29,16 @@ export function VersionBadges({ option }: { readonly option: SavedVersionOption 
       {option.scheduledAt ? (
         <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-300">Scheduled</Badge>
       ) : null}
-      {option.currentInView ? <Badge variant="outline">Current in view</Badge> : null}
+      {option.currentInView ? <Badge variant="outline">Shown in tables</Badge> : null}
     </div>
   );
 }
 
 const versionKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
   ArrowDown: (index, count) => Math.min(index + 1, count - 1),
+  ArrowRight: (index, count) => Math.min(index + 1, count - 1),
   ArrowUp: (index) => Math.max(index - 1, 0),
+  ArrowLeft: (index) => Math.max(index - 1, 0),
   Home: () => 0,
   End: (_, count) => count - 1,
 };
@@ -109,7 +111,7 @@ function VersionCard({
       aria-checked={selected}
       tabIndex={tabbable ? 0 : -1}
       data-version={option.number}
-      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/45 ${
+      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-foreground/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
         selected
           ? 'border-primary/70 bg-primary/10'
           : 'border-transparent hover:border-border hover:bg-accent/40'
