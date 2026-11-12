@@ -30,6 +30,9 @@ import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { RichText, richTextBlockClassName } from './RichText';
+import { cn } from '../lib/utils';
+import { parseRichText } from '../rich-text';
 
 interface ItemDetailsProps {
   readonly api: ItemVersionApi;
@@ -65,6 +68,38 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
   );
 }
 
+const htmlTag = /<\/?[a-z][^>]*>/i;
+
+/**
+ * One value as it reads best: HTML formatted like the table's rich text preview, text with its
+ * line breaks, structures as indented JSON, and empty values named. Copy still copies the source.
+ */
+function FieldValue({ value }: { readonly value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground italic">null</span>;
+  }
+  if (value === '') return <span className="text-muted-foreground italic">empty text</span>;
+  if (typeof value === 'string') {
+    const body = htmlTag.test(value) ? parseRichText(value) : undefined;
+    if (body) {
+      return (
+        <div className={cn(richTextBlockClassName, 'text-xs leading-5')}>
+          <RichText body={body} layout="block" />
+        </div>
+      );
+    }
+    return <span className="whitespace-pre-wrap">{value}</span>;
+  }
+  if (typeof value === 'object') {
+    return (
+      <pre className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-code-content">
+        {formatted(value)}
+      </pre>
+    );
+  }
+  return formatted(value);
+}
+
 function ValuesList({ values }: { readonly values: Readonly<Record<string, unknown>> }) {
   return (
     <dl className="m-0 divide-y divide-border border-y border-border">
@@ -72,7 +107,7 @@ function ValuesList({ values }: { readonly values: Readonly<Record<string, unkno
         <div className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10" key={name}>
           <dt className="text-xs text-muted-foreground">{name}</dt>
           <dd className="m-0 min-w-0 text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
-            {formatted(value)}
+            <FieldValue value={value} />
           </dd>
           <CopyValue name={name} value={value} />
         </div>
