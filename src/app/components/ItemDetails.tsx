@@ -1,5 +1,5 @@
 import { Copy, ExternalLink, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { itemDisplayLabel, managerItemUrl } from '../content-item-presentation';
@@ -133,6 +133,8 @@ function ItemDetailsPanel({
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<HistoryMode>('view');
   const [chosenPair, setChosenPair] = useState<VersionNumberPair>();
+  // Focus starts in the version search, not on the Manager link, where Enter would leave the app.
+  const searchInput = useRef<HTMLInputElement>(null);
   const preview = useItemVersionPreview({
     api,
     reference,
@@ -176,6 +178,7 @@ function ItemDetailsPanel({
       <DialogContent
         className="grid h-[min(820px,calc(100vh-32px))] w-[min(1120px,calc(100vw-32px))] grid-rows-[65px_minmax(0,1fr)] gap-0 overflow-hidden p-0"
         aria-labelledby="details-title"
+        initialFocus={searchInput}
         finalFocus={finalFocus}
         showCloseButton={false}
       >
@@ -214,7 +217,8 @@ function ItemDetailsPanel({
         <div className="grid min-h-0 grid-cols-[285px_minmax(0,1fr)]">
           <SavedVersionsSidebar
             isLoading={preview.history.isLoading}
-            total={preview.options.length}
+            total={preview.history.error ? undefined : preview.options.length}
+            searchRef={searchInput}
             search={mode === 'view' ? search : undefined}
             onSearchChange={setSearch}
           >

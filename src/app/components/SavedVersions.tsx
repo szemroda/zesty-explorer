@@ -1,6 +1,6 @@
 // The saved versions list and version pickers shared by item history and code history.
 import { Check, Clock3, History, LoaderCircle, Search } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type { ExplorerError } from '../../domain';
 import { describeExplorerError } from '../error-message';
 import type { VersionNumberPair, VersionPair } from '../item-version-comparison';
@@ -227,13 +227,17 @@ export function SavedVersionsSidebar({
   total,
   search,
   onSearchChange,
+  searchRef,
   children,
 }: {
   readonly isLoading: boolean;
-  readonly total: number;
+  /** Undefined when the versions could not load, so no count is claimed. */
+  readonly total: number | undefined;
   /** Undefined hides the search, e.g. while the column holds the compared versions. */
   readonly search: string | undefined;
   readonly onSearchChange: (search: string) => void;
+  /** The search field, which the dialog focuses when it opens. */
+  readonly searchRef?: Ref<HTMLInputElement>;
   readonly children: ReactNode;
 }) {
   return (
@@ -247,7 +251,9 @@ export function SavedVersionsSidebar({
           <span className="flex items-center gap-2 text-xs font-bold tracking-wide uppercase">
             <History className="text-primary" size={14} aria-hidden="true" /> Saved versions
           </span>
-          <span className="text-xs text-muted-foreground">{isLoading ? '…' : total} total</span>
+          <span className="text-xs text-muted-foreground">
+            {isLoading ? '…' : (total ?? '—')} total
+          </span>
         </div>
         {search === undefined ? null : (
           <label className="relative block">
@@ -257,12 +263,20 @@ export function SavedVersionsSidebar({
               aria-hidden="true"
             />
             <Input
+              ref={searchRef}
               className="pl-9 text-xs"
               type="search"
               aria-label="Search saved versions"
               placeholder="Search version, author, or status"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
+              onKeyDown={(event) => {
+                // Escape clears a search first; only an empty search lets it close the dialog.
+                if (event.key !== 'Escape' || search === '') return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSearchChange('');
+              }}
             />
           </label>
         )}

@@ -477,6 +477,25 @@ test('renames a collection from its menu without leaving the keyboard', async ({
   await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
 });
 
+test('opens item details in the version search, and Escape clears a search before closing', async ({
+  page,
+}) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await page
+    .getByRole('button', { name: /^Open details for/ })
+    .first()
+    .click();
+  const versionSearch = page.getByRole('searchbox', { name: 'Search saved versions' });
+  await expect(versionSearch).toBeFocused();
+  await page.keyboard.type('v2');
+  await page.keyboard.press('Escape');
+  await expect(versionSearch).toHaveValue('');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+});
+
 test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {
   await installFakeApi(page);
   await page.goto('/');
