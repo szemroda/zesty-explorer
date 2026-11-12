@@ -86,7 +86,6 @@ import {
   refreshActivePublicationStatuses,
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
-import { Badge } from './components/ui/badge';
 import { Checkbox } from './components/ui/checkbox';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
@@ -105,6 +104,7 @@ import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import { SharedRichTextPreview } from './components/RichText';
 import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
+import { cn } from './lib/utils';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -1049,22 +1049,24 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               />
               {sharedActions}
             </>
-          ) : (
-            <Badge variant="outline">No collection open</Badge>
-          )}
+          ) : null}
         </div>
       </header>
 
+      {/* Until a collection is open, the setup cards have the page to themselves. */}
       <div
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)]"
+        className={cn(
+          'grid min-h-0 flex-1 grid-cols-1',
+          treeRoot && 'lg:grid-cols-[16rem_minmax(0,1fr)]',
+        )}
         hidden={visibleTab !== 'explorer'}
       >
-        <aside
-          className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
-          aria-label="Collection tree"
-        >
-          {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
-          {treeRoot ? (
+        {treeRoot ? (
+          <aside
+            className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
+            aria-label="Collection tree"
+          >
+            {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
             <TreeEditor
               root={{
                 ...treeRoot,
@@ -1093,33 +1095,28 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 )
               }
             />
-          ) : (
-            <div className="text-muted-foreground flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-center text-sm">
-              <Database size={18} />
-              <p>Your collections will appear here.</p>
-            </div>
-          )}
-          {relatedBuild.pending ? (
-            <div
-              className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
-              role="status"
-            >
-              <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                Finding related collections…
-                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-1.5 text-xs"
-                onClick={relatedBuild.cancel}
+            {relatedBuild.pending ? (
+              <div
+                className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
+                role="status"
               >
-                Cancel
-              </Button>
-            </div>
-          ) : null}
-        </aside>
+                <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  Finding related collections…
+                  {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-xs"
+                  onClick={relatedBuild.cancel}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
 
         <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
           {encodedView && encodedView.length > 8_000 ? (
