@@ -318,9 +318,24 @@ function ItemDetailsPanel({
               </div>
               <TabsContent value="raw">
                 {mode === 'view' ? (
-                  <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
-                    {JSON.stringify(preview.selectedItem.raw, null, 2)}
-                  </pre>
+                  <div className="relative">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="absolute top-2 right-2"
+                      onClick={() =>
+                        void copyText(
+                          JSON.stringify(preview.selectedItem.raw, null, 2),
+                          'Raw JSON copied',
+                        )
+                      }
+                    >
+                      <Copy size={13} aria-hidden="true" /> Copy JSON
+                    </Button>
+                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 pr-28 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
+                      {JSON.stringify(preview.selectedItem.raw, null, 2)}
+                    </pre>
+                  </div>
                 ) : pair ? (
                   <RawJsonComparison
                     key={`${pair.before.number}-${pair.after.number}`}
