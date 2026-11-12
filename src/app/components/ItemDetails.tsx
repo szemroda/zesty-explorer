@@ -13,6 +13,7 @@ import {
 } from '../item-version-comparison';
 import {
   authorLabel,
+  formattedDate,
   matchesVersionPreviewOption,
   savedDescription,
 } from '../item-version-preview';
@@ -295,6 +296,12 @@ function ItemDetailsPanel({
                         : selected
                           ? authorLabel(selected)
                           : 'Author unavailable'}
+                      {selected?.scheduledAt ? (
+                        <span className="text-amber-300">
+                          {' '}
+                          · Publishes {formattedDate(selected.scheduledAt)}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                   {selected ? <VersionBadges option={selected} /> : null}
