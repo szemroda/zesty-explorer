@@ -214,7 +214,12 @@ export function EndpointRequest({
           <ToggleGroupItem value="response">
             <Radio size={14} aria-hidden="true" /> Response
             {result?.kind === 'response' ? (
-              <span className={cn('ml-1', statusTone(result.response.status))}>
+              <span
+                className={cn(
+                  'ml-1',
+                  result.url === url ? statusTone(result.response.status) : 'text-muted-foreground',
+                )}
+              >
                 {result.response.status}
               </span>
             ) : null}
@@ -408,7 +413,12 @@ export function EndpointRequest({
         {pane === 'source' ? (
           children
         ) : (
-          <ResponsePane result={result} sendingUrl={sendingUrl} onCancel={cancel} />
+          <ResponsePane
+            result={result}
+            currentUrl={url}
+            sendingUrl={sendingUrl}
+            onCancel={cancel}
+          />
         )}
       </div>
     </div>
@@ -419,10 +429,13 @@ type BodyPresentation = 'formatted' | 'received';
 
 function ResponsePane({
   result,
+  currentUrl,
   sendingUrl,
   onCancel,
 }: {
   readonly result: RequestResult | undefined;
+  /** The address as the form reads now; a result for another address is from an earlier send. */
+  readonly currentUrl: string | undefined;
   readonly sendingUrl: string | undefined;
   readonly onCancel: () => void;
 }) {
@@ -435,11 +448,33 @@ function ResponsePane({
   const body = presentation === 'formatted' && formatted !== undefined ? formatted : response?.body;
   const format = response ? bodyFormat(response.body) : undefined;
 
+  const stale = result !== undefined && result.url !== currentUrl;
+  // Announced once per change; the body itself stays out of the live region.
+  const announcement = sendingUrl
+    ? 'Sending request'
+    : response
+      ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds`
+      : result?.kind === 'failure'
+        ? 'Request failed'
+        : '';
+
   return (
     <section
       className="border-border bg-surface-recessed flex h-full min-h-0 flex-col overflow-hidden rounded-xl border"
       aria-label="Response"
     >
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
+      {stale ? (
+        <p
+          className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200"
+          role="status"
+        >
+          The request changed since it was sent. This is the response to the previous request; Send
+          to update it.
+        </p>
+      ) : null}
       {result ? (
         <div className="bg-surface-header border-border flex min-h-11 items-center gap-4 border-b px-4 py-1.5 text-xs">
           {response ? (
