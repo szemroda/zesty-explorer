@@ -449,6 +449,28 @@ test('picks the instance and root with the keyboard alone', async ({ page }) => 
   await page.keyboard.press('Tab');
   await expect(url).toHaveAttribute('aria-invalid', 'true');
   await expect(url).not.toBeFocused();
+
+  // Opening hands focus to the collection that opened.
+  await url.fill('');
+  await page.getByRole('button', { name: 'Open root collection' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeFocused();
+});
+
+test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {
+  await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByLabel('Zesty session token')).toBeFocused();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Typed, not pasted: the URL applies when the click leaves the field.
+  await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 });
 
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {

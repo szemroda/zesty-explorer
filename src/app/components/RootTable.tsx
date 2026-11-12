@@ -4,7 +4,7 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useState, type Ref, type RefObject } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -82,6 +82,8 @@ interface RootTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   /** The page's sticky header; table headers stick below it. */
   readonly pageHeader: RefObject<HTMLElement | null>;
+  /** Receives the collection heading, which can take focus when the view opens. */
+  readonly headingRef?: Ref<HTMLHeadingElement>;
 }
 
 export function RootTable({
@@ -98,6 +100,7 @@ export function RootTable({
   onRetry,
   onPresentationChange,
   pageHeader,
+  headingRef,
 }: RootTableProps) {
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
@@ -261,7 +264,13 @@ export function RootTable({
       >
         <div className={headerClassName}>
           <div className="min-w-36">
-            <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
+            <h2
+              ref={headingRef}
+              tabIndex={-1}
+              className="m-0 text-[17px] font-bold tracking-[-0.02em] outline-none"
+            >
+              {schema.label}
+            </h2>
             <span className="mt-0.5 block text-[10px] text-muted-foreground">
               {resultsPending
                 ? `${snapshot.items.length} items`

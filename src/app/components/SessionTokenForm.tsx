@@ -126,7 +126,7 @@ export function SessionTokenForm({
           <div className="relative">
             <Input
               ref={tokenInput}
-              autoFocus={!savedToken}
+              autoFocus
               className="pr-10"
               type={showToken ? 'text' : 'password'}
               value={draft}

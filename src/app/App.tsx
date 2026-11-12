@@ -315,6 +315,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     if (root && !root.disabled) root.focus();
     else instancePickerInput.current?.focus();
   }, []);
+  // Opening a root from the picker hands focus to the collection heading once the table shows,
+  // so keyboard and screen reader users land in the view they asked for.
+  const pendingViewFocus = useRef(false);
+  const focusOpenedView = useCallback((heading: HTMLHeadingElement | null) => {
+    if (!heading || !pendingViewFocus.current) return;
+    pendingViewFocus.current = false;
+    heading.focus();
+  }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
   // When Refresh last made every relationship schema stale.
   const [schemasRefreshedAt, setSchemasRefreshedAt] = useState(0);
@@ -692,7 +700,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     if (!selected) {
       startFormProblem.report(
         'root-collection',
-        'Choose a root collection or paste a collection URL.',
+        catalogQuery.isLoading
+          ? 'Collections are still loading. Choose one when the list is ready.'
+          : 'Choose a root collection or paste a collection URL.',
       );
       return;
     }
@@ -731,6 +741,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTreeRoot(next);
     relatedBuild.start(addRelated ? next : undefined);
     setSelectedItemId(selectedReference.itemZuid);
+    // An item deep link opens its details, which take focus instead.
+    pendingViewFocus.current = !selectedReference.itemZuid;
     startFormProblem.clear();
     setStep('view');
   }
@@ -1212,7 +1224,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     ) : null}
                     <CollectionPicker
                       label="Root collection"
-                      description="Its items form the top level of the view."
+                      description="Its items become the top-level table of the view."
                       collections={rootPickerCollections}
                       value={selectedRootZuid}
                       onChange={(collection) => {
@@ -1265,7 +1277,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       if ((event.nativeEvent as InputEvent).inputType === 'insertFromPaste')
                         applyPastedUrl(value);
                     }}
-                    onBlur={(event) => applyPastedUrl(event.target.value)}
+                    onBlur={(event) => {
+                      // Submit applies the URL itself. Applying it here first would reflow the
+                      // form under the pointer and swallow the click on the submit button.
+                      const next = event.relatedTarget;
+                      if (next instanceof HTMLButtonElement && next.type === 'submit') return;
+                      applyPastedUrl(event.target.value);
+                    }}
                   />
                   <FieldDescription>
                     {reference
@@ -1354,6 +1372,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onRetry={() => void refreshCollections()}
                   onPresentationChange={changePresentation}
                   pageHeader={pageHeader}
+                  headingRef={focusOpenedView}
                 />
               </PublicationStatusProvider>
             </>

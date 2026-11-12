@@ -1681,13 +1681,13 @@ describe('form errors', () => {
     act(() => input.focus());
     fireEvent.change(input, { target: { value: 'https://example.com/content/6-model123' } });
     // Leaving the field shows the problem without pulling focus back.
-    const open = screen.getByRole('button', { name: 'Open root collection' });
-    act(() => open.focus());
+    const back = screen.getByRole('button', { name: 'Back' });
+    act(() => back.focus());
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAccessibleDescription(
       'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. This host is not an allowed Zesty deployment host.',
     );
-    expect(open).toHaveFocus();
+    expect(back).toHaveFocus();
     fireEvent.change(input, { target: { value: 'not-a-url' } });
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
     expect(input).toHaveAccessibleDescription(
@@ -1735,7 +1735,7 @@ describe('form errors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
 
     expect(picker()).toHaveAccessibleDescription(
-      'Its items form the top level of the view. Choose a root collection or paste a collection URL.',
+      'Its items become the top-level table of the view. Choose a root collection or paste a collection URL.',
     );
     expect(picker()).toHaveFocus();
   });
