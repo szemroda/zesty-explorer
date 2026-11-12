@@ -74,7 +74,7 @@ describe('loadPublicationStatus', () => {
         source,
         referenceFor(itemZuid),
         item,
-        0,
+        () => 0,
         controller.signal,
       );
       return { itemZuid, controller, status };

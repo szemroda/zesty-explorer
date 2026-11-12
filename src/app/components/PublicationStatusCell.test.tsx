@@ -97,7 +97,7 @@ describe('publication status cell', () => {
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeInTheDocument();
   });
 
-  it('loads the newest rows first and the rows of one render top to bottom', async () => {
+  it('loads the rows opened last first, and the rows of one render in order', async () => {
     const takeSlot = memoryRequestSlots(1);
     const release = await takeSlot(new AbortController().signal);
     const budget = createRequestBudget({
@@ -118,28 +118,34 @@ describe('publication status cell', () => {
       loadInstanceUsers: () => Effect.succeed([]),
     };
     const client = new QueryClient();
-    const rows = (ids: readonly ContentItemReference['itemZuid'][]) => (
+    type Row = ContentItemReference['itemZuid'];
+    const table = (name: string, ids: readonly Row[]) =>
+      ids.map((id) => (
+        <PublicationStatusCell
+          key={`${name}-${id}`}
+          item={item}
+          reference={{ ...reference, itemZuid: id }}
+        />
+      ));
+    const view = (root: readonly Row[], nested: readonly Row[]) => (
       <QueryClientProvider client={client}>
         <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
-          {ids.map((id) => (
-            <PublicationStatusCell
-              key={id}
-              item={item}
-              reference={{ ...reference, itemZuid: id }}
-            />
-          ))}
+          {table('root', root)}
+          {table('nested', nested)}
         </PublicationStatusProvider>
       </QueryClientProvider>
     );
-    // A root page renders while every slot is busy; a later render opens nested rows.
-    const { rerender } = render(rows(['7-root-1', '7-root-2', '7-root-3']));
+    const root: Row[] = ['7-root-1', '7-root-2', '7-root-3'];
+    // A root page renders while every slot is busy. A later render opens nested rows, one of
+    // which is already queued for the root page.
+    const { rerender } = render(view(root, []));
     await act(() => Promise.resolve());
-    rerender(rows(['7-root-1', '7-nested-1', '7-nested-2', '7-root-2', '7-root-3']));
+    rerender(view(root, ['7-nested-1', '7-root-3', '7-nested-2']));
     await act(() => Promise.resolve());
     release();
 
     await vi.waitFor(() => expect(loaded).toHaveLength(5));
-    expect(loaded).toEqual(['7-nested-1', '7-nested-2', '7-root-1', '7-root-2', '7-root-3']);
+    expect(loaded).toEqual(['7-root-3', '7-nested-1', '7-nested-2', '7-root-1', '7-root-2']);
   });
 
   it('keeps separate badges when the latest version is also published', async () => {

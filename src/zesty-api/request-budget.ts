@@ -4,10 +4,11 @@ import { takeBrowserRequestSlot } from './browser-request-slots';
 export type RequestService = 'instances' | 'accounts' | 'webengine';
 /**
  * Interactive requests start before background ones. Background requests start highest group
- * first, and requests in one group start in the order they were made.
+ * first, and requests in one group start in the order they were made. The budget reads `group`
+ * each time it picks a request, so a caller can raise work that is already queued.
  */
 export type RequestPriority =
-  { readonly kind: 'interactive' } | { readonly kind: 'background'; readonly group: number };
+  { readonly kind: 'interactive' } | { readonly kind: 'background'; readonly group: () => number };
 class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()(
   'zesty/RequestPriority',
   { defaultValue: (): RequestPriority => ({ kind: 'interactive' }) },
@@ -137,10 +138,11 @@ export function createRequestBudget({
           let background: Ticket | undefined;
           let backgroundGroup = -Infinity;
           for (const ticket of queue) {
-            if (ticket.priority.kind !== 'background' || ticket.priority.group <= backgroundGroup)
-              continue;
+            if (ticket.priority.kind !== 'background') continue;
+            const group = ticket.priority.group();
+            if (group <= backgroundGroup) continue;
             background = ticket;
-            backgroundGroup = ticket.priority.group;
+            backgroundGroup = group;
           }
           const ticket =
             interactiveStreak >= 8 && background ? background : (interactive ?? background);

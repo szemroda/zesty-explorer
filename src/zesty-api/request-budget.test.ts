@@ -99,7 +99,7 @@ describe('per-tab request admission', () => {
             order.push('badge');
           }),
         )
-        .pipe(withRequestPriority({ kind: 'background', group: 0 })),
+        .pipe(withRequestPriority({ kind: 'background', group: () => 0 })),
     );
     const foreground = Array.from({ length: 10 }, (_, index) =>
       Effect.runPromise(
@@ -153,7 +153,7 @@ describe('per-tab request admission', () => {
               order.push(String(name));
             }),
           )
-          .pipe(withRequestPriority({ kind: 'background', group: Number(group) })),
+          .pipe(withRequestPriority({ kind: 'background', group: () => Number(group) })),
       ),
     );
     release();
