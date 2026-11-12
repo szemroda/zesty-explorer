@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext, type ReactNode } from 'react';
+import { hashKey, useQuery } from '@tanstack/react-query';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import {
   loadPublicationStatus,
@@ -13,6 +13,23 @@ import { TooltipTrigger } from './ui/tooltip';
 
 const cacheTime = 5 * 60 * 1_000;
 const StatusSourceContext = createContext<PublicationStatusSource | null>(null);
+
+// Badges load newest render group first, so rows the user opened last load first.
+let lastGroup = 0;
+let renderGroup: number | undefined;
+/** One request group for every cell mounted in the same render, newer than any earlier render. */
+function currentRenderGroup(): number {
+  if (renderGroup === undefined) {
+    lastGroup += 1;
+    renderGroup = lastGroup;
+    queueMicrotask(() => {
+      renderGroup = undefined;
+    });
+  }
+  return renderGroup;
+}
+/** The newest group that shows each status query, so a queued load moves up when a newer row shows it. */
+const newestGroups = new Map<string, number>();
 
 export function PublicationStatusProvider({
   api,
@@ -61,16 +78,29 @@ function ConnectedPublicationStatusCell({
   readonly item: ContentItem;
   readonly reference: ContentItemReference;
 }) {
+  const [group] = useState(currentRenderGroup);
+  const queryKey = [
+    ...publicationStatusQueryPrefix,
+    source.credentialRevision,
+    reference.deployment,
+    reference.instanceZuid,
+    reference.modelZuid,
+    reference.itemZuid,
+  ];
+  const queryHash = hashKey(queryKey);
+  useEffect(() => {
+    newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
+  }, [group, queryHash]);
   const query = useQuery({
-    queryKey: [
-      ...publicationStatusQueryPrefix,
-      source.credentialRevision,
-      reference.deployment,
-      reference.instanceZuid,
-      reference.modelZuid,
-      reference.itemZuid,
-    ],
-    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, signal),
+    queryKey,
+    queryFn: ({ signal }) =>
+      loadPublicationStatus(
+        source,
+        reference,
+        item,
+        () => newestGroups.get(queryHash) ?? group,
+        signal,
+      ),
     retry: false,
     staleTime: Infinity,
     gcTime: cacheTime,
