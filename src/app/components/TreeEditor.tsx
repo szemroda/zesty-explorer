@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Database, GitBranch, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Database, GitBranch, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { parseCollectionReference } from '../../collection-reference';
 import type {
@@ -8,11 +8,25 @@ import type {
   CollectionCatalogEntry,
   CollectionReference,
   CollectionSchema,
+  ModelZuid,
   RelationshipDefinition,
   ExplorerError,
 } from '../../domain';
-import { findNativeRelationshipCandidates, findNativeRelationships } from '../../explorer-core';
+import {
+  findNativeRelationshipCandidates,
+  findNativeRelationships,
+  sameNativeRelationship,
+  viewTreeLimits,
+  type RelatedCollections,
+} from '../../explorer-core';
 import { useFieldProblem } from '../hooks/useFieldProblem';
+import {
+  relatedCollectionsFor,
+  relationshipSchemaQuery,
+  type SchemaIndexState,
+  type SchemaLoader,
+} from '../hooks/useSchemaIndex';
+import { RelatedCollectionsMenu } from './RelatedCollectionsMenu';
 import { CollectionPicker } from './CollectionPicker';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { FieldPathInput } from './FieldPathInput';
@@ -38,19 +52,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 interface TreeEditorProps {
   readonly root: CollectionNode;
-  readonly rootSchema: CollectionSchema;
+  /** Each loaded node's schema. A node without one can't list or add related collections yet. */
   readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
   readonly catalog: readonly CollectionCatalogEntry[];
   readonly catalogError: ExplorerError | undefined;
   readonly catalogWarning: ExplorerError | undefined;
   readonly onRetryCatalog: () => void;
-  readonly loadSchema: (
-    reference: CollectionReference,
-    signal: AbortSignal,
-  ) => Promise<
-    | { readonly ok: true; readonly schema: CollectionSchema }
-    | { readonly ok: false; readonly message: string }
-  >;
+  readonly loadSchema: SchemaLoader;
+  readonly schemaIndex: SchemaIndexState;
+  readonly onFindReferences: () => void;
   readonly onAdd: (
     parentId: CollectionNodeId,
     reference: CollectionReference,
@@ -88,22 +98,9 @@ function missingPathProblem(
   return undefined;
 }
 
-function sameFieldPath(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((segment, index) => segment === right[index]);
-}
-
-function sameNativeRelationship(
-  left: Extract<RelationshipDefinition, { readonly kind: 'native' }>,
-  right: Extract<RelationshipDefinition, { readonly kind: 'native' }>,
-): boolean {
-  return (
-    left.fieldSide === right.fieldSide &&
-    left.relatedModelZuid === right.relatedModelZuid &&
-    sameFieldPath(left.field, right.field)
-  );
-}
-
 function AddRelationship({
+  open,
+  onOpenChange,
   parent,
   schema,
   catalog,
@@ -113,6 +110,8 @@ function AddRelationship({
   loadSchema,
   onAdd,
 }: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
   readonly parent: CollectionNode;
   readonly schema: CollectionSchema;
   readonly catalog: TreeEditorProps['catalog'];
@@ -122,8 +121,6 @@ function AddRelationship({
   readonly loadSchema: TreeEditorProps['loadSchema'];
   readonly onAdd: TreeEditorProps['onAdd'];
 }) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [selectedCollection, setSelectedCollection] = useState<CollectionCatalogEntry>();
   const [name, setName] = useState('');
@@ -150,21 +147,18 @@ function AddRelationship({
     selectedReference !== undefined &&
     selectedReference.instanceZuid === parent.reference.instanceZuid &&
     selectedReference.deployment === parent.reference.deployment;
-  const schemaQueryKey = [
-    'relationship-schema',
-    selectedReference?.instanceZuid ?? '',
-    selectedReference?.deployment ?? '',
-    selectedReference?.modelZuid ?? '',
-  ] as const;
+  const queryClient = useQueryClient();
+  const schemaQueryOptions = relationshipSchemaQuery(selectedReference, loadSchema, 'dialog');
+  const schemaQueryKey = schemaQueryOptions.queryKey;
   const schemaQuery = useQuery({
-    queryKey: schemaQueryKey,
+    ...schemaQueryOptions,
     enabled: open && referenceAllowed,
-    retry: false,
-    queryFn: async ({ signal }) => {
-      if (!selectedReference) throw new Error('A valid related collection URL is required.');
-      const result = await loadSchema(selectedReference, signal);
-      if (!result.ok) throw new Error(result.message);
-      return result.schema;
+    // Starts from the index's copy unless a Refresh has made it stale.
+    initialData: () => {
+      const indexed = queryClient.getQueryState(
+        relationshipSchemaQuery(selectedReference, loadSchema, 'index').queryKey,
+      );
+      return indexed && !indexed.isInvalidated ? indexed.data : undefined;
     },
   });
   const loadedChildSchema = schemaQuery.data;
@@ -234,7 +228,7 @@ function AddRelationship({
       setRejection(addRejection);
       return;
     }
-    setOpen(false);
+    onOpenChange(false);
     setUrl('');
     setSelectedCollection(undefined);
     setName('');
@@ -246,21 +240,10 @@ function AddRelationship({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
+        onOpenChange(nextOpen);
         if (!nextOpen) void queryClient.cancelQueries({ queryKey: schemaQueryKey, exact: true });
       }}
     >
-      <DialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground w-full justify-start text-xs"
-          />
-        }
-      >
-        <Plus size={13} /> Add relationship
-      </DialogTrigger>
       <DialogContent
         className="max-h-[85vh] overflow-y-auto sm:max-w-lg"
         closeLabel="Close add relationship"
@@ -673,6 +656,15 @@ function EditRelationship({
   );
 }
 
+/** What every node's related-collections chip needs, computed once per tree. */
+interface RelatedContext {
+  readonly collections: RelatedCollections;
+  readonly catalogByModel: ReadonlyMap<ModelZuid, CollectionCatalogEntry>;
+  readonly schemaIndex: SchemaIndexState;
+  readonly catalogError: ExplorerError | undefined;
+  readonly onFindReferences: () => void;
+}
+
 function TreeNodeRow({
   node,
   root,
@@ -688,6 +680,8 @@ function TreeNodeRow({
   onAdd,
   parent,
   onRelationshipChange,
+  related,
+  level,
 }: {
   readonly node: CollectionNode;
   readonly root: CollectionNode;
@@ -703,8 +697,12 @@ function TreeNodeRow({
   readonly onAdd: TreeEditorProps['onAdd'];
   readonly parent?: CollectionNode;
   readonly onRelationshipChange: TreeEditorProps['onRelationshipChange'];
+  readonly related: RelatedContext;
+  /** 1 for the root. Nothing can be added below the deepest level a view allows. */
+  readonly level: number;
 }) {
   const [editing, setEditing] = useState(false);
+  const [addingOther, setAddingOther] = useState(false);
   const [name, setName] = useState(node.name);
 
   return (
@@ -736,6 +734,20 @@ function TreeNodeRow({
         ) : (
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
         )}
+        {schemas.get(node.id) && level < viewTreeLimits.levels ? (
+          <RelatedCollectionsMenu
+            root={root}
+            node={node}
+            collections={related.collections}
+            catalogByModel={related.catalogByModel}
+            schemaIndex={related.schemaIndex}
+            catalogError={related.catalogError}
+            onFindReferences={related.onFindReferences}
+            onAdd={onAdd}
+            onChooseOther={() => setAddingOther(true)}
+            keepVisible={addingOther}
+          />
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -776,6 +788,8 @@ function TreeNodeRow({
       </div>
       {schemas.get(node.id) ? (
         <AddRelationship
+          open={addingOther}
+          onOpenChange={setAddingOther}
           parent={node}
           schema={schemas.get(node.id)!}
           catalog={catalog}
@@ -805,6 +819,8 @@ function TreeNodeRow({
               onAdd={onAdd}
               parent={node}
               onRelationshipChange={onRelationshipChange}
+              related={related}
+              level={level + 1}
             />
           ))}
         </ul>
@@ -815,22 +831,27 @@ function TreeNodeRow({
 
 export function TreeEditor({
   root,
-  rootSchema,
   schemas,
   catalog,
   catalogError,
   catalogWarning,
   onRetryCatalog,
   loadSchema,
+  schemaIndex,
+  onFindReferences,
   onAdd,
   onRename,
   onChangeRoot,
   onRemove,
   onRelationshipChange,
 }: TreeEditorProps) {
-  const availableSchemas = schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]]);
+  const linked = useMemo(
+    () => relatedCollectionsFor(root.reference, catalog, schemaIndex, schemas),
+    [catalog, root.reference, schemaIndex, schemas],
+  );
+  const related: RelatedContext = { ...linked, schemaIndex, catalogError, onFindReferences };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-col">
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
         <GitBranch size={15} aria-hidden="true" />
         <span>Collections</span>
@@ -842,7 +863,7 @@ export function TreeEditor({
           onRename={onRename}
           onChangeRoot={onChangeRoot}
           onRemove={onRemove}
-          schemas={availableSchemas}
+          schemas={schemas}
           catalog={catalog}
           catalogError={catalogError}
           catalogWarning={catalogWarning}
@@ -850,6 +871,8 @@ export function TreeEditor({
           loadSchema={loadSchema}
           onAdd={onAdd}
           onRelationshipChange={onRelationshipChange}
+          related={related}
+          level={1}
         />
       </ul>
     </div>

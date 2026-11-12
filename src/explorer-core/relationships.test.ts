@@ -14,6 +14,7 @@ import {
   updateNodePresentation,
   validateCollectionTree,
   validateRelationshipPaths,
+  withPresentationsOf,
 } from './index';
 
 const graph = generateRelationshipGraph(200);
@@ -260,7 +261,7 @@ describe('collection tree operations', () => {
     expect(second.root.children.map((child) => child.id)).toEqual(['node-author', 'node-reviewer']);
   });
 
-  it('rejects cross-instance nodes, cycles, depth over five, and more than ten nodes', () => {
+  it('rejects cross-instance nodes, cycles, depth over five, and more than 20 nodes', () => {
     const root = node('node-root', '6-root');
     const foreign = {
       ...node('node-foreign', '6-foreign'),
@@ -284,14 +285,20 @@ describe('collection tree operations', () => {
         ]),
       ]),
     ]);
-    expect(validateCollectionTree(tooDeep)).toMatchObject({ ok: false, reason: /five levels/i });
+    expect(validateCollectionTree(tooDeep)).toMatchObject({
+      ok: false,
+      reason: 'A view may contain at most 5 levels.',
+    });
 
     const tooWide = node(
       'node-wide',
       '6-wide',
-      Array.from({ length: 10 }, (_, index) => node(`node-${index}`, `6-${index}model`)),
+      Array.from({ length: 20 }, (_, index) => node(`node-${index}`, `6-${index}model`)),
     );
-    expect(validateCollectionTree(tooWide)).toMatchObject({ ok: false, reason: /ten nodes/i });
+    expect(validateCollectionTree(tooWide)).toMatchObject({
+      ok: false,
+      reason: 'A view may contain at most 20 nodes.',
+    });
   });
 
   it('renames a role and removes its complete subtree', () => {
@@ -314,6 +321,20 @@ describe('collection tree operations', () => {
     const updated = updateNodePresentation(root, root.id, presentation);
     expect(updated.presentation).toEqual(presentation);
     expect(root.presentation.freeText).toBe('');
+  });
+
+  it('restores a removed subtree with the presentation chosen since', () => {
+    const before = node('node-root', '6-root', [node('node-child', '6-child')]);
+    const sorted = { ...before.presentation, freeText: 'later' };
+    const after = updateNodePresentation(
+      removeCollectionNode(before, 'node-child')!,
+      'node-root',
+      sorted,
+    );
+
+    const restored = withPresentationsOf(before, after);
+    expect(restored.presentation.freeText).toBe('later');
+    expect(restored.children.map((child) => child.id)).toEqual(['node-child']);
   });
 
   it('repairs a relationship without replacing the collection node', () => {

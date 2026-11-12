@@ -216,6 +216,8 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   await page.keyboard.type('2');
   await request(page).getByRole('button', { name: 'Add ?category' }).click();
   await page.keyboard.type('guides');
+  // Send waits for the preview lock lookup, and Enter does nothing until then.
+  await expect(request(page).getByRole('button', { name: 'Send' })).toBeEnabled();
   await page.keyboard.press('Enter');
 
   // The locked preview answers because Send adds its password, which stays out of sight.

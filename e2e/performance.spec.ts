@@ -227,7 +227,8 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
     samples: sortSamples,
   };
 
-  await page.getByRole('button', { name: 'Add relationship' }).click();
+  await page.getByRole('button', { name: /^Add related collections to / }).click();
+  await page.getByRole('button', { name: 'Other collection or custom relationship…' }).click();
   await page
     .getByLabel('Related collection URL')
     .fill('https://8-performance.manager.zesty.io/content/6-performance-child');

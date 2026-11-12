@@ -76,7 +76,8 @@ V1 assumes one open tab: multiple tabs can multiply the request rate, and a cool
 
 - `Published only` applies the same content state to every collection. Off means latest saved content.
 - The language menu next to it appears when the instance has more than one active language. The chosen language applies to every collection in the view and is kept in its link. Views open in the instance's default language.
-- `Add related collection` attaches a collection below a tree node. All nodes must belong to the root instance and deployment.
+- `Add related collections`, when choosing a root, builds the tree from the native relationships of the instance's collections: up to 15 collections, three levels below the root. Each relationship field gets its own node, and every other collection appears once. Collections that reference the root are added below it too. Finding them reads the schema of every collection in the catalog, so it can take a few seconds; `Undo` in the notification removes what was added.
+- The `+` beside a tree node lists the collections it contains and the collections that reference it, and adds one with a click. `Other collection or custom relationship…` attaches any collection. All nodes must belong to the root instance and deployment.
 - Native relationships use model relationship fields declared on either collection. When several fields connect the same models, choose the intended field.
 - Custom relationships compare one parent field path with one child field path using strict scalar equality. Values are not coerced.
 - Expand a content item to mount its related tables. Several rows can remain expanded.
@@ -96,7 +97,7 @@ Zesty's validation rules are not public, so row findings are predictions. The ch
 
 ## Limits and failures
 
-A view supports at most 10 collection nodes and five levels.
+A view supports at most 20 collection nodes and five levels.
 
 Item history remains usable when publishing status or author information fails to load. Each failed source has its own retry.
 

@@ -1,6 +1,15 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Effect, Either } from 'effect';
-import { Code2, Copy, Database, FileCheck2, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  Code2,
+  Copy,
+  Database,
+  FileCheck2,
+  LoaderCircle,
+  MoreHorizontal,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { instanceReferenceFor, parseInstanceReference } from '../collection-reference';
@@ -9,6 +18,7 @@ import type {
   CollectionNode,
   CollectionNodeId,
   CollectionReference,
+  CollectionSchema,
   ContentItem,
   ContentItemReference,
   ContentState,
@@ -31,6 +41,7 @@ import {
   subtreeNodeNames,
   updateCollectionRelationship,
   updateNodePresentation,
+  withPresentationsOf,
 } from '../explorer-core';
 import { ViewCodec, type ViewDecodeResult } from '../view-codec';
 import {
@@ -52,7 +63,7 @@ import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { OpenCollectionDialog } from './components/OpenCollectionDialog';
 import { ImportCheck } from './components/ImportCheck';
-import { createChildNode, createRootNode } from './view-state';
+import { createChildNode, createRootNode, sameCollection } from './view-state';
 import { useCodeTab } from './hooks/useCodeTab';
 import { refreshCodeFiles } from './hooks/useCodeFiles';
 import { refreshImportCheck } from './hooks/useImportCheck';
@@ -63,6 +74,8 @@ import { describeExplorerError } from './error-message';
 import { useLoadedView } from './hooks/useLoadedView';
 import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
+import { useRelatedBuild } from './hooks/useRelatedBuild';
+import { relationshipSchemaQueryRoot, type SchemaLoader } from './hooks/useSchemaIndex';
 import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
@@ -74,6 +87,7 @@ import {
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Badge } from './components/ui/badge';
+import { Checkbox } from './components/ui/checkbox';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
@@ -105,6 +119,7 @@ interface ExplorerProps {
 const defaultApi = createZestyApi(fetchZestyTransport);
 // Toasts with an action stay long enough to reach the button.
 const actionToastDuration = 8_000;
+const noNodeSchemas: ReadonlyMap<CollectionNodeId, CollectionSchema> = new Map();
 
 type ExplorerStep = 'credentials' | 'picker' | 'view';
 
@@ -119,8 +134,21 @@ interface PendingRootReplacement extends RootChoice {
 
 interface PendingUndo {
   readonly toastId: string | number;
-  // The tree the action left behind; any other tree makes the undo stale.
-  readonly treeRoot: CollectionNode | undefined;
+  // The tree the action left behind; any other structure makes the undo stale.
+  readonly structure: string;
+}
+
+// A tree without its presentation. Tables save sorting and columns into the tree on their own, so
+// a presentation change is not a change the user made to the tree.
+function treeStructure(root: CollectionNode | undefined): string {
+  const structure = ({ id, name, reference, relationship, children }: CollectionNode): unknown => ({
+    id,
+    name,
+    reference,
+    relationship,
+    children: children.map(structure),
+  });
+  return JSON.stringify(root ? structure(root) : null);
 }
 
 type InvalidSharedView = Extract<ViewDecodeResult, { readonly ok: false }>;
@@ -135,7 +163,25 @@ function initialSharedView(): {
   return decoded.ok ? { state: decoded.state } : { error: decoded };
 }
 
-/** This page's address with another URL fragment, e.g. a view link. */
+/** Loads one collection's schema through `semaphore`, which caps how many load at once. */
+function schemaLoader(
+  api: ZestyApi,
+  sessionToken: string,
+  semaphore: Effect.Semaphore,
+): SchemaLoader {
+  return async (reference, signal) => {
+    const result = await Effect.runPromise(
+      api
+        .loadCollectionSchema(reference, sessionToken)
+        .pipe(semaphore.withPermits(1), Effect.either),
+      { signal },
+    );
+    return Either.isRight(result)
+      ? { ok: true, schema: result.right }
+      : { ok: false, message: result.left.message };
+  };
+}
+
 /** Identifies an instance's deployment, e.g. to key per-instance state. */
 function instanceKey(instance: {
   readonly instanceZuid: string;
@@ -144,6 +190,7 @@ function instanceKey(instance: {
   return `${instance.instanceZuid}:${instance.deployment}`;
 }
 
+/** This page's address with another URL fragment, e.g. a view link. */
 function appUrl(fragment: string): string {
   const { origin, pathname, search } = window.location;
   return `${origin}${pathname}${search}${fragment}`;
@@ -249,6 +296,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [pendingRootReplacement, setPendingRootReplacement] = useState<PendingRootReplacement>();
+  // Off by default. While on, opening a root fills its tree with related collections.
+  const [addRelatedOnOpen, setAddRelatedOnOpen] = useState(false);
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
   const instancePickerInput = useRef<HTMLInputElement>(null);
   const rootCollectionInput = useRef<HTMLInputElement>(null);
@@ -267,6 +316,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     else instancePickerInput.current?.focus();
   }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
+  // When Refresh last made every relationship schema stale.
+  const [schemasRefreshedAt, setSchemasRefreshedAt] = useState(0);
+  const [schemaIndexSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
   // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
   // Explorer view is replaced when a root from the new instance is opened.
@@ -349,7 +401,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [encodedView, viewDecodeError]);
 
   useEffect(() => {
-    if (pendingUndo.current?.treeRoot === treeRoot) return;
+    if (pendingUndo.current?.structure === treeStructure(treeRoot)) return;
     withdrawUndo();
   }, [treeRoot]);
 
@@ -414,6 +466,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       if (isRefreshing) return;
       setIsRefreshing(true);
       let succeeded: boolean;
+      // Schemas shown right now reload; the rest reload when they are next shown.
+      setSchemasRefreshedAt(Date.now());
+      void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
         const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
           await Promise.all([
@@ -499,20 +554,33 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [contentScope, loadedView, selectedItemId, treeRoot]);
 
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
-  const loadRelationshipSchema = useCallback(
-    async (collectionReference: CollectionReference, signal: AbortSignal) => {
-      const result = await Effect.runPromise(
-        api
-          .loadCollectionSchema(collectionReference, activeToken)
-          .pipe(relationshipSchemaSemaphore.withPermits(1), Effect.either),
-        { signal },
-      );
-      return Either.isRight(result)
-        ? ({ ok: true, schema: result.right } as const)
-        : ({ ok: false, message: result.left.message } as const);
-    },
+  const loadRelationshipSchema = useMemo(
+    () => schemaLoader(api, activeToken, relationshipSchemaSemaphore),
     [activeToken, api, relationshipSchemaSemaphore],
   );
+  // Catalog-wide schema loads take their own permits, so the add-relationship dialog waits behind
+  // at most two of them. They stay interactive: the background lane is full of publication-status
+  // requests, and someone is waiting for these.
+  const loadIndexedSchema = useMemo(
+    () => schemaLoader(api, activeToken, schemaIndexSemaphore),
+    [activeToken, api, schemaIndexSemaphore],
+  );
+  const treeCatalogLoaded = Boolean(
+    treeRoot && catalogInstance && instanceKey(catalogInstance) === instanceKey(treeRoot.reference),
+  );
+  const relatedBuild = useRelatedBuild({
+    treeRoot,
+    setTreeRoot,
+    catalog: treeCatalogLoaded ? catalogQuery.catalog?.collections : undefined,
+    catalogRefreshing: treeCatalogLoaded && catalogQuery.isFetching,
+    schemasRefreshedAt,
+    catalogFailed: treeCatalogLoaded && !catalogQuery.catalog && catalogQuery.error !== undefined,
+    rootFailed: rootFailure !== undefined,
+    nodeSchemas: loadedView?.schemas ?? noNodeSchemas,
+    loadSchema: loadIndexedSchema,
+    offerUndo,
+  });
+  const { schemaIndex } = relatedBuild;
 
   function saveSessionToken(token: string) {
     sessionTokens.save(deployment, token);
@@ -588,6 +656,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return collections;
   }, [catalogInstance, catalogQuery.catalog?.collections]);
 
+  // Opening the root that is already open keeps its tree, so there is nothing to add to.
+  const keepsOpenTree = Boolean(
+    treeRoot?.children.length &&
+    catalogInstance &&
+    selectedRootZuid === treeRoot.reference.modelZuid &&
+    instanceKey(treeRoot.reference) === instanceKey(catalogInstance),
+  );
+
   function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedUrl = pastedUrl.trim();
@@ -623,12 +699,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         ? { itemZuid: targetInstance.suggestedItemZuid }
         : {}),
     };
-    if (
-      treeRoot &&
-      (treeRoot.reference.instanceZuid !== selectedReference.instanceZuid ||
-        treeRoot.reference.modelZuid !== selectedReference.modelZuid ||
-        treeRoot.reference.deployment !== selectedReference.deployment)
-    ) {
+    if (treeRoot && !sameCollection(treeRoot.reference, selectedReference)) {
       setPendingRootReplacement({
         label: selected.label,
         reference: selectedReference,
@@ -636,28 +707,25 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       });
       return;
     }
-    openRoot({ label: selected.label, reference: selectedReference });
+    openRoot({ label: selected.label, reference: selectedReference }, addRelatedOnOpen);
   }
 
-  function replaceRoot(replacement: RootChoice) {
+  function replaceRoot(replacement: RootChoice, addRelated = false) {
     setViewFilters([]);
     setContentState('latest');
-    openRoot(replacement);
+    openRoot(replacement, addRelated);
   }
 
-  // Keeps the current tree when the selected root is the one already open.
-  function openRoot({ label, reference: selectedReference }: RootChoice) {
+  // Keeps the current tree when the selected root is the one already open. `addRelated` fills a
+  // root-only tree with related collections once every catalog schema has loaded.
+  function openRoot({ label, reference: selectedReference }: RootChoice, addRelated = false) {
+    const next =
+      treeRoot && sameCollection(treeRoot.reference, selectedReference)
+        ? treeRoot
+        : createRootNode(selectedReference, label);
     setReference(selectedReference);
-    setTreeRoot((current) => {
-      if (
-        current?.reference.instanceZuid === selectedReference.instanceZuid &&
-        current.reference.modelZuid === selectedReference.modelZuid &&
-        current.reference.deployment === selectedReference.deployment
-      ) {
-        return current;
-      }
-      return createRootNode(selectedReference, label);
-    });
+    setTreeRoot(next);
+    relatedBuild.start(addRelated ? next : undefined);
     setSelectedItemId(selectedReference.itemZuid);
     startFormProblem.clear();
     setStep('view');
@@ -827,7 +895,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       `Removed ${subtreeNodeNames(previous, nodeId).join(', ')}`,
       'Its saved table state was removed too.',
       next,
-      () => setTreeRoot(previous),
+      // Keeps the sorting and columns chosen since the removal.
+      () => setTreeRoot((current) => (current ? withPresentationsOf(previous, current) : previous)),
     );
   }
 
@@ -857,7 +926,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         },
       },
     });
-    pendingUndo.current = { toastId, treeRoot: nextTreeRoot };
+    pendingUndo.current = { toastId, structure: treeStructure(nextTreeRoot) };
   }
 
   function addRelatedCollection(
@@ -990,22 +1059,24 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
           aria-label="Collection tree"
         >
-          {treeRoot && loadedView?.schemas.get(treeRoot.id) ? (
+          {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
+          {treeRoot ? (
             <TreeEditor
               root={{
                 ...treeRoot,
                 name:
                   treeRoot.name === treeRoot.reference.modelZuid
-                    ? loadedView.schemas.get(treeRoot.id)!.label
+                    ? (loadedView?.schemas.get(treeRoot.id)?.label ?? treeRoot.name)
                     : treeRoot.name,
               }}
-              rootSchema={loadedView.schemas.get(treeRoot.id)!}
-              schemas={loadedView.schemas}
+              schemas={loadedView?.schemas ?? noNodeSchemas}
               catalog={catalogQuery.catalog?.collections ?? []}
               catalogError={catalogQuery.error}
               catalogWarning={catalogQuery.catalog?.warning}
               onRetryCatalog={() => void catalogQuery.refresh()}
               loadSchema={loadRelationshipSchema}
+              schemaIndex={schemaIndex}
+              onFindReferences={relatedBuild.requestReferences}
               onAdd={addRelatedCollection}
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
@@ -1018,22 +1089,32 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 )
               }
             />
-          ) : reference ? (
-            <>
-              <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
-                <Database size={15} /> <span>Collections</span>
-              </div>
-              <div className="bg-accent/60 flex min-h-9 items-center gap-2 rounded-md px-2 text-sm font-medium">
-                <span className="bg-primary size-1.5 rounded-full" />
-                <span>{reference.modelZuid}</span>
-              </div>
-            </>
           ) : (
             <div className="text-muted-foreground flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-center text-sm">
               <Database size={18} />
               <p>Your collections will appear here.</p>
             </div>
           )}
+          {relatedBuild.pending ? (
+            <div
+              className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
+              role="status"
+            >
+              <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                Finding related collections…
+                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs"
+                onClick={relatedBuild.cancel}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
         </aside>
 
         <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
@@ -1141,6 +1222,22 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       error={startFormProblem.messageFor('root-collection')}
                       inputRef={rootCollectionInput}
                     />
+                    {/* Always rendered: the form must not shift while a pasted URL applies. */}
+                    <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={addRelatedOnOpen && !keepsOpenTree}
+                        disabled={keepsOpenTree}
+                        onCheckedChange={setAddRelatedOnOpen}
+                      />
+                      <span className="grid gap-0.5">
+                        <span className="font-medium">Add related collections</span>
+                        <span className="text-muted-foreground text-xs">
+                          Builds the collection tree from Zesty relationships. You can remove or add
+                          collections afterwards.
+                        </span>
+                      </span>
+                    </label>
                     {catalogQuery.catalog?.warning ? (
                       <div
                         className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
@@ -1332,7 +1429,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         description="These collection nodes will be removed:"
         confirmLabel="Replace root"
         onConfirm={() => {
-          if (pendingRootReplacement) replaceRoot(pendingRootReplacement);
+          if (pendingRootReplacement) replaceRoot(pendingRootReplacement, addRelatedOnOpen);
         }}
       >
         <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm [overflow-wrap:anywhere]">
