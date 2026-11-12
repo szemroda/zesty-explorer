@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentItem, ContentItemReference } from '../../domain';
+import type { ContentItem, ContentItemReference, ContentState } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { refreshActivePublicationStatuses } from '../hooks/publication-status-query';
 import { PublicationStatusCell, PublicationStatusProvider } from './PublicationStatusCell';
@@ -23,11 +23,16 @@ const reference: ContentItemReference = {
   managerBaseUrl: 'https://8-instance.manager.zesty.io',
 };
 
-function renderCell(api: ItemVersionApi) {
+function renderCell(api: ItemVersionApi, contentState: ContentState = 'published') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+      <PublicationStatusProvider
+        api={api}
+        sessionToken="token"
+        credentialRevision="revision"
+        contentState={contentState}
+      >
         <PublicationStatusCell item={item} reference={reference} />
       </PublicationStatusProvider>
     </QueryClientProvider>,
@@ -108,5 +113,23 @@ describe('publication status cell', () => {
       }),
     ).toHaveTextContent('v8 published');
     expect(screen.getAllByRole('img')).toHaveLength(1);
+  });
+
+  it('reads latest saved items without their version history', async () => {
+    const loadItemVersions = vi.fn(() => Effect.succeed([]));
+    renderCell(
+      {
+        loadItemVersions,
+        loadItemPublishings: () => Effect.succeed([{ version: 5, active: true }]),
+        loadInstanceUsers: () => Effect.succeed([]),
+      },
+      'latest',
+    );
+
+    expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
+      'v8 saved',
+    );
+    expect(screen.getByRole('img', { name: 'Currently published version v5' })).toBeVisible();
+    expect(loadItemVersions).not.toHaveBeenCalled();
   });
 });

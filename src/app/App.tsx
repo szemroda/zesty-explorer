@@ -1368,6 +1368,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 api={api}
                 sessionToken={activeToken}
                 credentialRevision={credentialRevision}
+                contentState={contentState}
               >
                 <RootTable
                   key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}

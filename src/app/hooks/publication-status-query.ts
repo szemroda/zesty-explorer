@@ -1,7 +1,13 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { Effect } from 'effect';
-import type { ContentItem, ContentItemReference, Deployment, InstanceZuid } from '../../domain';
-import { withRequestPriority, type ItemVersionApi } from '../../zesty-api';
+import type {
+  ContentItem,
+  ContentItemReference,
+  ContentState,
+  Deployment,
+  InstanceZuid,
+} from '../../domain';
+import { withRequestPriority, type ItemVersionApi, type RequestPriority } from '../../zesty-api';
 import { runExplorerQuery } from './explorer-query';
 import { contentItemVersionNumber } from '../item-version-preview';
 import { publicationStatus, type PublicationStatus } from '../publication-status';
@@ -12,6 +18,8 @@ export interface PublicationStatusSource {
   readonly api: ItemVersionApi;
   readonly sessionToken: string;
   readonly credentialRevision: string;
+  /** The view's content state. Latest saved items already carry the latest saved version. */
+  readonly contentState: ContentState;
 }
 
 export async function loadPublicationStatus(
@@ -19,15 +27,19 @@ export async function loadPublicationStatus(
   reference: ContentItemReference,
   item: ContentItem,
   signal: AbortSignal,
+  priority: RequestPriority = 'background',
 ): Promise<PublicationStatus> {
+  // The version history only finds a newer save than the item's own version when the view reads
+  // published items; for latest saved items, publishings alone complete the status.
+  const versions =
+    source.contentState === 'latest'
+      ? Effect.succeed([])
+      : source.api.loadItemVersions(reference, source.sessionToken);
   const result = await runExplorerQuery(
     Effect.all(
-      [
-        source.api.loadItemVersions(reference, source.sessionToken),
-        source.api.loadItemPublishings(reference, source.sessionToken),
-      ] as const,
+      [versions, source.api.loadItemPublishings(reference, source.sessionToken)] as const,
       { concurrency: 2 },
-    ).pipe(withRequestPriority('background')),
+    ).pipe(withRequestPriority(priority)),
     signal,
   );
   const status = publicationStatus(

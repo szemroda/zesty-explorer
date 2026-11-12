@@ -166,7 +166,12 @@ describe('recursive collection tables', () => {
     };
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState="published"
+        >
           {rootTable()}
         </PublicationStatusProvider>
       </QueryClientProvider>,

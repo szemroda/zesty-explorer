@@ -6,6 +6,7 @@ import {
   publicationStatusQueryPrefix,
   type PublicationStatusSource,
 } from '../hooks/publication-status-query';
+import type { RequestPriority } from '../../zesty-api';
 import { useNearViewport } from '../hooks/useNearViewport';
 import type { PublicationStatus } from '../publication-status';
 import { Badge } from './ui/badge';
@@ -20,10 +21,11 @@ export function PublicationStatusProvider({
   api,
   sessionToken,
   credentialRevision,
+  contentState,
   children,
 }: PublicationStatusSource & { readonly children: ReactNode }) {
   return (
-    <StatusSourceContext value={{ api, sessionToken, credentialRevision }}>
+    <StatusSourceContext value={{ api, sessionToken, credentialRevision, contentState }}>
       {children}
     </StatusSourceContext>
   );
@@ -57,17 +59,21 @@ function StatusBadge({
   );
 }
 
+interface PublicationStatusCellProps {
+  readonly item: ContentItem;
+  readonly reference: ContentItemReference;
+  /** Interactive for rows the user just revealed, so they go ahead of rows already waiting. */
+  readonly priority?: RequestPriority;
+}
+
 function ConnectedPublicationStatusCell({
   source,
   item,
   reference,
-}: {
-  readonly source: PublicationStatusSource;
-  readonly item: ContentItem;
-  readonly reference: ContentItemReference;
-}) {
+  priority,
+}: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
-  // Each status costs two rate-limited requests, so only rows on or near the screen ask for theirs.
+  // Each status costs rate-limited requests, so only rows on or near the screen ask for theirs.
   // A row scrolled past before its turn gives up its place in the queue and asks again on return.
   const near = useNearViewport(cell);
   const queryClient = useQueryClient();
@@ -84,7 +90,7 @@ function ConnectedPublicationStatusCell({
   );
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, signal),
+    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, signal, priority),
     enabled: near,
     retry: false,
     staleTime: Infinity,
@@ -167,14 +173,8 @@ function StatusContent({ query }: { readonly query: UseQueryResult<PublicationSt
   );
 }
 
-export function PublicationStatusCell({
-  item,
-  reference,
-}: {
-  readonly item: ContentItem;
-  readonly reference: ContentItemReference;
-}) {
+export function PublicationStatusCell(props: PublicationStatusCellProps) {
   const source = useContext(StatusSourceContext);
   if (!source) return null;
-  return <ConnectedPublicationStatusCell source={source} item={item} reference={reference} />;
+  return <ConnectedPublicationStatusCell source={source} {...props} />;
 }
