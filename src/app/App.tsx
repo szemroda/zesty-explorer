@@ -316,12 +316,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     else instancePickerInput.current?.focus();
   }, []);
   // Opening a root from the picker hands focus to the collection heading once the table shows,
-  // so keyboard and screen reader users land in the view they asked for.
+  // so keyboard and screen reader users land in the view they asked for. Focus the user has
+  // already moved elsewhere while the table loaded stays where it is.
   const pendingViewFocus = useRef(false);
   const focusOpenedView = useCallback((heading: HTMLHeadingElement | null) => {
     if (!heading || !pendingViewFocus.current) return;
     pendingViewFocus.current = false;
-    heading.focus();
+    if (document.activeElement === null || document.activeElement === document.body) {
+      heading.focus();
+    }
   }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
   // When Refresh last made every relationship schema stale.
