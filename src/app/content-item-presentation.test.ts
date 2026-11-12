@@ -7,6 +7,7 @@ import {
   hiddenColumnIds,
   initialColumnVisibility,
   itemDisplayLabel,
+  relatedItemNames,
   sortForColumn,
   visibleColumnIds,
 } from './content-item-presentation';
@@ -106,5 +107,23 @@ describe('content item presentation', () => {
       'Named item',
     );
     expect(itemDisplayLabel({ ...item, fields: { title: '<p></p>' } })).toBe('7-item');
+  });
+});
+
+describe('relatedItemNames', () => {
+  const loaded = new Map<string, ContentItem>([
+    ['7-cat-1', { id: '7-cat-1', fields: { title: 'Engineering' }, metadata: {}, raw: {} }],
+    ['7-cat-2', { id: '7-cat-2', fields: { name: 'Design' }, metadata: {}, raw: {} }],
+  ]);
+
+  it('names loaded items and keeps the ZUIDs of the rest', () => {
+    expect(relatedItemNames('7-cat-1, 7-cat-9,7-cat-2', loaded)).toBe(
+      'Engineering, 7-cat-9, Design',
+    );
+  });
+
+  it('leaves the value alone when none of its items is loaded', () => {
+    expect(relatedItemNames('7-cat-9', loaded)).toBeUndefined();
+    expect(relatedItemNames(null, loaded)).toBeUndefined();
   });
 });

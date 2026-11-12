@@ -30,12 +30,13 @@ import {
   createContentTableColumns,
   useContentTable,
 } from '../content-table-model';
-import { loadedSnapshot, type LoadedView } from '../load-view';
+import { loadedItemsById, loadedSnapshot, type LoadedView } from '../load-view';
 import { describeExplorerError } from '../error-message';
 import {
   columnIdForSort,
   contentItemColumns,
   hiddenColumnIds,
+  relatedItemNames,
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
@@ -271,7 +272,15 @@ export function NestedTable(props: NestedTableProps) {
   const tableColumns = createContentTableColumns({
     definitions: columns,
     actionColumnWidth,
-    renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
+    renderValue: (value, column) => (
+      <CellValue
+        value={value}
+        richText={column.richText}
+        names={
+          column.relationship ? relatedItemNames(value, loadedItemsById(loadedView)) : undefined
+        }
+      />
+    ),
     renderStatus: (item) => (
       <PublicationStatusCell item={item} reference={{ ...node.reference, itemZuid: item.id }} />
     ),

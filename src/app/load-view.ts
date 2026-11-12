@@ -27,6 +27,21 @@ export interface LoadedView {
   readonly schemaErrors: ReadonlyMap<CollectionNodeId, ExplorerError>;
 }
 
+const itemsByLoadedView = new WeakMap<LoadedView, ReadonlyMap<string, ContentItem>>();
+
+/** Every loaded item by ZUID, across the view's collections. ZUIDs are unique per instance. */
+export function loadedItemsById(view: LoadedView): ReadonlyMap<string, ContentItem> {
+  const cached = itemsByLoadedView.get(view);
+  if (cached) return cached;
+  const items = new Map<string, ContentItem>();
+  for (const state of view.snapshots.snapshots.values()) {
+    if (state.status === 'failed') continue;
+    for (const [id, item] of state.snapshot.itemsById) items.set(id, item);
+  }
+  itemsByLoadedView.set(view, items);
+  return items;
+}
+
 export class ViewLoadError extends Error {
   constructor(readonly failure: ExplorerError) {
     super(failure.message);

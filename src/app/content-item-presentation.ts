@@ -30,6 +30,8 @@ export type ContentValueColumn = ColumnDefinition & {
   readonly kind: 'value';
   /** The value is WYSIWYG HTML, shown formatted rather than as text. */
   readonly richText: boolean;
+  /** The value holds related item ZUIDs, shown by name when those items are loaded. */
+  readonly relationship: boolean;
   read(item: ContentItem): unknown;
 };
 
@@ -65,6 +67,7 @@ export function contentItemColumns(
         ? labelColumnWidth
         : defaultContentColumnWidth,
       richText: field.datatype?.startsWith('wysiwyg') ?? false,
+      relationship: field.kind === 'relationship',
       read: (item: ContentItem) => item.fields[field.name],
     })),
     technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
@@ -92,6 +95,7 @@ function technicalColumn(
     sortable,
     defaultWidth,
     richText: false,
+    relationship: false,
     read,
   };
 }
@@ -163,6 +167,28 @@ export function itemDisplayLabel(item: ContentItem): string {
     .map(formatContentValue)
     .find((text) => text !== '');
   return label ?? item.id;
+}
+
+/**
+ * Names for a relationship value, which Zesty stores as one ZUID or comma-separated ZUIDs. Items
+ * that are not loaded keep their ZUID. Undefined when no item is loaded, so the ZUIDs show as-is.
+ */
+export function relatedItemNames(
+  value: unknown,
+  items: ReadonlyMap<string, ContentItem>,
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const ids = value
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (!ids.some((id) => items.has(id))) return undefined;
+  return ids
+    .map((id) => {
+      const item = items.get(id);
+      return item ? itemDisplayLabel(item) : id;
+    })
+    .join(', ');
 }
 
 // Zesty Manager editor page for an item; collections outside content and blocks have none.

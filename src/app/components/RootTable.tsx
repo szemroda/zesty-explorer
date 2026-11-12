@@ -26,10 +26,11 @@ import {
   columnIdForSort,
   contentItemColumns,
   initialColumnVisibility,
+  relatedItemNames,
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
-import { buildLoadedViewGraph, type LoadedView } from '../load-view';
+import { buildLoadedViewGraph, loadedItemsById, type LoadedView } from '../load-view';
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { plural, shownCount } from '../lib/utils';
@@ -202,12 +203,20 @@ export function RootTable({
       createContentTableColumns({
         definitions: itemColumnDefinitions,
         actionColumnWidth,
-        renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
+        renderValue: (value, column) => (
+          <CellValue
+            value={value}
+            richText={column.richText}
+            names={
+              column.relationship ? relatedItemNames(value, loadedItemsById(loadedView)) : undefined
+            }
+          />
+        ),
         renderStatus: (item) => (
           <PublicationStatusCell item={item} reference={{ ...reference, itemZuid: item.id }} />
         ),
       }),
-    [actionColumnWidth, itemColumnDefinitions, reference],
+    [actionColumnWidth, itemColumnDefinitions, loadedView, reference],
   );
 
   const table = useContentTable({
