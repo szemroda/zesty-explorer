@@ -102,7 +102,7 @@ import { Input } from './components/ui/input';
 import { Toaster } from './components/ui/sonner';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import { SharedRichTextPreview } from './components/RichText';
-import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
+import { SharedTooltip, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
 import { cn } from './lib/utils';
 
@@ -903,9 +903,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const sharedActions = (
     <>
-      <Button variant="outline" size="sm" onClick={copyLink}>
-        <Copy size={14} aria-hidden="true" /> Copy link
-      </Button>
+      {/* Below xl the label hides so the header stays on one row. */}
+      <TooltipTrigger
+        text="Copy a link to this view, without your session token"
+        render={<Button variant="outline" size="sm" aria-label="Copy link" onClick={copyLink} />}
+      >
+        <Copy size={14} aria-hidden="true" /> <span className="max-xl:hidden">Copy link</span>
+      </TooltipTrigger>
       {viewOptions}
     </>
   );
@@ -995,7 +999,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           <img src="/favicon.svg" alt="" className="size-9" />
           <div>
             <h1 className="text-sm font-semibold">Zesty Explorer</h1>
-            <span className="text-muted-foreground text-xs">Read-only content browser</span>
+            <span className="text-muted-foreground text-xs max-xl:hidden">
+              Read-only content browser
+            </span>
           </div>
           {showTabs ? (
             <Tabs
