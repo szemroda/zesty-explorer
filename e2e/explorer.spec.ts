@@ -675,7 +675,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
   await search(page, 'Add Children filter', 'Children table filter', 'no matching item');
-  await expect(children.getByText('0 related items', { exact: true }).last()).toBeVisible();
+  await expect(children.getByText('0 of 30 related items', { exact: true })).toBeVisible();
   await children
     .getByRole('button', { name: 'Remove filter Any field contains “no matching item”' })
     .click();
