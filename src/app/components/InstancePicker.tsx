@@ -123,7 +123,7 @@ export function InstancePicker({
                 ) : (
                   <Combobox.Empty>
                     <div className="text-muted-foreground px-3 py-6 text-center text-sm">
-                      No instance matches. Paste its Zesty URL below.
+                      No instance matches. Press Esc, then paste its Zesty URL below.
                     </div>
                   </Combobox.Empty>
                 )}
