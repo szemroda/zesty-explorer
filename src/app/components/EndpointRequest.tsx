@@ -15,7 +15,15 @@ import {
   RotateCw,
   X,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { CodeFile, CodeState, InstanceReference } from '../../domain';
 import { queryParameterNames } from '../../parsley';
 import {
@@ -105,6 +113,14 @@ export function EndpointRequest({
   }>();
   // Switching endpoint, code state, or instance unmounts the panel and cancels its request.
   const controller = useRef<AbortController>(undefined);
+  // Send and Cancel replace each other; focus follows to the replacement when the outgoing
+  // button held it, and stays put when the user has moved on.
+  const sendButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const handOver = (from: RefObject<HTMLButtonElement | null>, to: typeof from) => {
+    if (document.activeElement !== from.current) return;
+    requestAnimationFrame(() => to.current?.focus());
+  };
   useEffect(() => () => controller.current?.abort(), []);
 
   const detected = useMemo(() => queryParameterNames(file, files), [file, files]);
@@ -172,12 +188,14 @@ export function EndpointRequest({
   const send = () => {
     if (!url || !sentUrl || blocked || sendingUrl) return;
     setPane('response');
+    handOver(sendButton, cancelButton);
     setSendingUrl(url);
     const request = new AbortController();
     controller.current = request;
     Effect.runPromise(Effect.either(requestEndpoint(sentUrl)), { signal: request.signal }).then(
       (outcome) => {
         if (request.signal.aborted) return;
+        handOver(cancelButton, sendButton);
         setSendingUrl(undefined);
         const result: RequestResult = Either.isRight(outcome)
           ? { kind: 'response', url, response: outcome.right }
@@ -190,6 +208,7 @@ export function EndpointRequest({
   };
   const cancel = () => {
     controller.current?.abort();
+    handOver(cancelButton, sendButton);
     setSendingUrl(undefined);
   };
 
@@ -378,6 +397,7 @@ export function EndpointRequest({
         {sendingUrl ? (
           <Button
             key="cancel"
+            ref={cancelButton}
             type="button"
             variant="outline"
             size="sm"
@@ -390,6 +410,7 @@ export function EndpointRequest({
         ) : (
           <Button
             key="send"
+            ref={sendButton}
             type="submit"
             size="sm"
             className="h-7 rounded-full"
