@@ -80,7 +80,7 @@ export function AddFilterButton({
       trigger={
         <PopoverTrigger
           render={
-            <Button variant="outline" aria-label={addLabel}>
+            <Button variant="outline" size="sm" aria-label={addLabel}>
               <ListFilter size={14} /> Filter
             </Button>
           }

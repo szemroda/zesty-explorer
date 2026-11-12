@@ -392,7 +392,7 @@ export function NestedTable(props: NestedTableProps) {
       className="relative min-w-0 overflow-visible rounded-lg border border-divider-emphasis bg-surface-nested"
       aria-label={`${node.name} related items`}
     >
-      <div className="flex min-h-14 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
+      <div className="flex min-h-12 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
         <div className="min-w-28">
           <strong className="text-xs">{node.name}</strong>
           <span className="mt-0.5 block text-xs text-muted-foreground">
