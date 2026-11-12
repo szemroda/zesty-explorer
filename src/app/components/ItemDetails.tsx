@@ -303,8 +303,13 @@ function ItemDetailsPanel({
                         </span>
                       ) : null}
                     </p>
+                    {/* A row of their own, so moving between versions never shifts them. */}
+                    {selected ? (
+                      <div className="mt-2">
+                        <VersionBadges option={selected} />
+                      </div>
+                    ) : null}
                   </div>
-                  {selected ? <VersionBadges option={selected} /> : null}
                 </>
               )}
             </div>
@@ -325,7 +330,7 @@ function ItemDetailsPanel({
                   label="Item history mode"
                   mode={mode}
                   onChange={selectMode}
-                  compareDisabled={historyLoaded && preview.options.length < 2}
+                  compareDisabled={!historyLoaded || preview.options.length < 2}
                 />
               </div>
               <TabsContent value="raw">
@@ -344,7 +349,7 @@ function ItemDetailsPanel({
                     >
                       <Copy size={13} aria-hidden="true" /> Copy JSON
                     </Button>
-                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
+                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre text-code-content">
                       {JSON.stringify(preview.selectedItem.raw, null, 2)}
                     </pre>
                   </div>

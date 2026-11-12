@@ -294,7 +294,7 @@ export function CodeFileHistory({
                       label="Code history mode"
                       mode={mode}
                       onChange={selectMode}
-                      compareDisabled={historyLoaded && options.length < 2}
+                      compareDisabled={!historyLoaded || options.length < 2}
                     />
                   </div>
                   {/* Only the active panel mounts, so both render the chosen presentation. */}
