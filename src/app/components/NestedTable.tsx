@@ -278,6 +278,8 @@ export function NestedTable(props: NestedTableProps) {
   });
 
   const items = deriveItems(childSnapshot, sortedIds);
+  // Before this table's search and filters, for "2 of 5" and to tell "none" from "none match".
+  const relatedCount = graph.relatedItemIds(node.id, parentItemId).length;
   const hasManagerLink = node.reference.area !== 'other';
   const canExpand = node.children.length > 0;
   const actionColumnWidth = contentActionColumnWidth(canExpand, hasManagerLink);
@@ -421,7 +423,7 @@ export function NestedTable(props: NestedTableProps) {
         <div className="min-w-28">
           <strong className="text-xs">{node.name}</strong>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            {shownCount(items.length, sortedIds.length, 'related item', 'related items')}
+            {shownCount(items.length, relatedCount, 'related item', 'related items')}
           </span>
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
@@ -458,7 +460,11 @@ export function NestedTable(props: NestedTableProps) {
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
         emptyContent={
-          <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
+          <p className="m-0 p-4.5 text-xs text-muted-foreground">
+            {relatedCount === 0
+              ? `This item has no related ${node.name}.`
+              : 'No related items match the search or filters.'}
+          </p>
         }
         renderExpandedRow={(item) => (
           <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">

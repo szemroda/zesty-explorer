@@ -263,7 +263,10 @@ describe('recursive collection tables', () => {
     const value = await screen.findByRole('textbox', { name: 'Children table filter value' });
     fireEvent.change(value, { target: { value: 'no matching child' } });
     fireEvent.keyDown(value, { key: 'Enter' });
-    expect(await screen.findByText('No related items match.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No related items match the search or filters.'),
+    ).toBeInTheDocument();
+    expect(within(nestedTable).getByText(/^0 of \d+ related items?$/)).toBeInTheDocument();
     const tableChips = within(nestedTable).getByRole('group', { name: 'Table filters' });
     fireEvent.click(
       within(tableChips).getByRole('button', {
