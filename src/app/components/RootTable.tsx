@@ -342,7 +342,9 @@ export function RootTable({
         ) : null}
         {snapshot.items.length === 0 ? (
           <p className="m-0 p-7 text-center text-sm text-muted-foreground">
-            This collection has no content items.
+            {contentScope.state === 'published'
+              ? 'This collection has no published content items.'
+              : 'This collection has no content items.'}
           </p>
         ) : (
           <>
@@ -358,7 +360,7 @@ export function RootTable({
                 emptyContent={
                   <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
                     <p className="m-0 font-medium text-foreground">
-                      No items match your search or filters
+                      No items match your search or filters.
                     </p>
                     {viewFilters.length > 0 || freeText !== '' ? (
                       <Button variant="outline" size="sm" onClick={clearSearchAndFilters}>

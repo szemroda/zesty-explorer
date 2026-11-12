@@ -467,9 +467,11 @@ export function NestedTable(props: NestedTableProps) {
         onOpenDetails={onOpenDetails}
         emptyContent={
           <p className="m-0 p-4.5 text-xs text-muted-foreground">
-            {relatedCount === 0
-              ? `This item has no related ${node.name}.`
-              : 'No related items match the search or filters.'}
+            {relatedCount > 0
+              ? 'No related items match these filters.'
+              : contentScope.state === 'published'
+                ? `This item has no published related ${node.name}.`
+                : `This item has no related ${node.name}.`}
           </p>
         }
         renderExpandedRow={(item) => (

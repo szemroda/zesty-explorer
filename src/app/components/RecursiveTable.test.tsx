@@ -263,9 +263,7 @@ describe('recursive collection tables', () => {
     const value = await screen.findByRole('textbox', { name: 'Children table filter value' });
     fireEvent.change(value, { target: { value: 'no matching child' } });
     fireEvent.keyDown(value, { key: 'Enter' });
-    expect(
-      await screen.findByText('No related items match the search or filters.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('No related items match these filters.')).toBeInTheDocument();
     expect(within(nestedTable).getByText(/^0 of \d+ related items?$/)).toBeInTheDocument();
     const tableChips = within(nestedTable).getByRole('group', { name: 'Table filters' });
     fireEvent.click(
@@ -323,7 +321,7 @@ describe('recursive collection tables', () => {
     );
 
     const collection = screen.getByRole('region', { name: 'Parents collection' });
-    expect(within(collection).getByText('No items match your search or filters')).toBeVisible();
+    expect(within(collection).getByText('No items match your search or filters.')).toBeVisible();
     fireEvent.click(within(collection).getByRole('button', { name: 'Clear search and filters' }));
 
     expect(onPresentationChange).toHaveBeenLastCalledWith(
