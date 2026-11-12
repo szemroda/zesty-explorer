@@ -346,7 +346,11 @@ export function EndpointRequest({
         </div>
 
         <TooltipTrigger
-          text="Open in a new tab"
+          text={
+            addsPassword
+              ? 'Open in a new tab, without the preview password: a locked preview asks for it there'
+              : 'Open in a new tab'
+          }
           render={
             <a
               className={cn(
