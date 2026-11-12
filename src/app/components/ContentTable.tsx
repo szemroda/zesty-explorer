@@ -398,7 +398,7 @@ export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenu
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="outline" size="sm" aria-label={label}>
+          <Button variant="outline" size="sm" aria-label={label} data-columns-menu>
             <SlidersHorizontal size={14} /> Columns
           </Button>
         }

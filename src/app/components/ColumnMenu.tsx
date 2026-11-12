@@ -21,12 +21,15 @@ export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) 
   const headingId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
 
-  // Hiding removes this header, so focus moves to the next column's header, or the previous one's.
+  // Hiding removes this header, so focus moves to the next column's header, or the previous
+  // one's, or, once no column is left, to the table's Columns button to bring one back.
   function hide() {
     const cell = trigger.current?.closest('th');
-    const neighbor = [cell?.nextElementSibling, cell?.previousElementSibling]
-      .map((sibling) => sibling?.querySelector('button'))
-      .find((button) => button);
+    const neighbor =
+      [cell?.nextElementSibling, cell?.previousElementSibling]
+        .map((sibling) => sibling?.querySelector('button'))
+        .find((button) => button) ??
+      cell?.closest('section')?.querySelector<HTMLButtonElement>('[data-columns-menu]');
     setOpen(false);
     header.hide();
     requestAnimationFrame(() => neighbor?.focus());
