@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Pin, PinOff } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 /** A column header as its menu sees it. */
@@ -19,10 +19,25 @@ export interface ColumnHeader {
 export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) {
   const [open, setOpen] = useState(false);
   const headingId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  // Hiding removes this header, so focus moves to the next column's header, or the previous one's.
+  function hide() {
+    const cell = trigger.current?.closest('th');
+    const neighbor = [cell?.nextElementSibling, cell?.previousElementSibling]
+      .map((sibling) => sibling?.querySelector('button'))
+      .find((button) => button);
+    setOpen(false);
+    header.hide();
+    requestAnimationFrame(() => neighbor?.focus());
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="group/menu relative -mx-3 -my-2 flex w-[calc(100%+1.5rem)] min-w-0 cursor-pointer items-center gap-1 px-3 py-2 text-left uppercase outline-none hover:text-content-hover focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-inset">
+      <PopoverTrigger
+        ref={trigger}
+        className="group/menu relative -mx-3 -my-2 flex w-[calc(100%+1.5rem)] min-w-0 cursor-pointer items-center gap-1 px-3 py-2 text-left uppercase outline-none hover:text-content-hover focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-inset"
+      >
         <span className="truncate">{header.label}</span>
         {header.pinned ? (
           <Pin size={11} className="shrink-0 opacity-60" aria-label="pinned" />
@@ -82,13 +97,7 @@ export function ColumnMenuHeader({ header }: { readonly header: ColumnHeader }) 
         >
           {header.pinned ? 'Unpin column' : 'Pin column'}
         </MenuButton>
-        <MenuButton
-          icon={<EyeOff size={14} />}
-          onClick={() => {
-            setOpen(false);
-            header.hide();
-          }}
-        >
+        <MenuButton icon={<EyeOff size={14} />} onClick={hide}>
           Hide column
         </MenuButton>
       </PopoverContent>
