@@ -11,6 +11,9 @@ const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
 
 export const columnWidthLimits = { min: 90, max: 520 } as const;
 export const defaultContentColumnWidth = 190;
+// The fields itemDisplayLabel names items by, in order. Their columns start wider.
+const labelFieldNames = ['title', 'name'];
+const labelColumnWidth = 300;
 
 interface ColumnDefinition {
   readonly id: string;
@@ -43,14 +46,14 @@ export function contentItemColumns(
   ].sort();
 
   return [
-    technicalColumn('$id', 'ZUID', 210, (item) => item.id),
+    technicalColumn('$id', 'ZUID', 160, (item) => item.id),
     {
       kind: 'status',
       id: '$status',
       label: 'Status',
       technical: true,
       sortable: false,
-      defaultWidth: 160,
+      defaultWidth: 170,
     },
     ...schema.fields.map((field) => ({
       kind: 'value' as const,
@@ -58,7 +61,9 @@ export function contentItemColumns(
       label: field.label,
       technical: false,
       sortable: true,
-      defaultWidth: defaultContentColumnWidth,
+      defaultWidth: labelFieldNames.includes(field.name)
+        ? labelColumnWidth
+        : defaultContentColumnWidth,
       richText: field.datatype?.startsWith('wysiwyg') ?? false,
       read: (item: ContentItem) => item.fields[field.name],
     })),
@@ -152,7 +157,8 @@ export function visibleColumnIds(
 
 // Human-readable item name for buttons and titles; falls back to the ZUID when untitled.
 export function itemDisplayLabel(item: ContentItem): string {
-  const label = [item.fields.title, item.fields.name]
+  const label = labelFieldNames
+    .map((name) => item.fields[name])
     .filter((value) => value !== null && value !== undefined && value !== '')
     .map(formatContentValue)
     .find((text) => text !== '');
