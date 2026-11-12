@@ -304,11 +304,11 @@ function ItemDetailsPanel({
                       ) : null}
                     </p>
                     {/* A row of their own, so moving between versions never shifts them. */}
-                    {selected ? (
-                      <div className="mt-2">
-                        <VersionBadges option={selected} />
-                      </div>
-                    ) : null}
+                    {/* Kept one badge tall when empty, so stepping through versions never shifts the
+                        fields below. */}
+                    <div className="mt-2 min-h-5.5">
+                      {selected ? <VersionBadges option={selected} /> : null}
+                    </div>
                   </div>
                 </>
               )}
