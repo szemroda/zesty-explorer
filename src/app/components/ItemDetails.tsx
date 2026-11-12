@@ -289,7 +289,12 @@ function ItemDetailsPanel({
                     <h2 className="text-2xl font-bold">Version {selected?.number ?? '—'}</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {savedDescription(selected?.savedAt)} ·{' '}
-                      {selected ? authorLabel(selected) : 'Author unavailable'}
+                      {/* Until history loads, the item in view has no author to name yet. */}
+                      {preview.history.isLoading
+                        ? 'Loading author…'
+                        : selected
+                          ? authorLabel(selected)
+                          : 'Author unavailable'}
                     </p>
                   </div>
                   {selected ? <VersionBadges option={selected} /> : null}
