@@ -506,7 +506,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await chooseSelectOption(page, 'View filter condition', '>');
   await page.getByLabel('View filter value').fill('100');
   await page.getByLabel('View filter value').press('Enter');
-  await expect(page.getByText('4 items')).toBeVisible();
+  await expect(page.getByText('4 of 105 items')).toBeVisible();
 
   await page.getByRole('button', { name: /^Remove filter Score/ }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
@@ -692,7 +692,7 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await page.getByRole('option', { name: /Active/ }).click();
   await page.getByRole('checkbox', { name: /^true/ }).click();
   await page.getByRole('button', { name: /Add filter/ }).click();
-  await expect(page.getByText('1 items')).toBeVisible();
+  await expect(page.getByText('1 of 105 items')).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy link' }).click();
   const copiedToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Link copied' });
@@ -708,7 +708,7 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   ).toBeVisible();
   await restored.getByLabel('Zesty session token').fill('synthetic-session-token');
   await restored.getByRole('button', { name: 'Continue' }).click();
-  await expect(restored.getByText('1 items')).toBeVisible();
+  await expect(restored.getByText('1 of 105 items')).toBeVisible();
   await expect(
     restored.getByRole('button', { name: 'Edit filter Children: Active is true' }),
   ).toBeVisible();

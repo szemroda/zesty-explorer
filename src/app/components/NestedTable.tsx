@@ -41,6 +41,7 @@ import {
 } from '../content-item-presentation';
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import { shownCount } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { tableFilterControls } from './FilterControls';
 import { PublicationStatusCell } from './PublicationStatusCell';
@@ -394,8 +395,8 @@ export function NestedTable(props: NestedTableProps) {
       <div className="flex min-h-14 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
         <div className="min-w-28">
           <strong className="text-xs">{node.name}</strong>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {sortedIds.length} related items
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {shownCount(items.length, sortedIds.length, 'related item', 'related items')}
           </span>
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
@@ -448,7 +449,7 @@ export function NestedTable(props: NestedTableProps) {
           </div>
         )}
       />
-      <ContentTablePagination table={table} itemCount={items.length} itemLabel="related items" />
+      <ContentTablePagination table={table} itemCount={items.length} />
     </section>
   );
 }

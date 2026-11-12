@@ -178,12 +178,12 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
   const searches = ['8765', '765', '65', '5', '4321'];
-  const expectedCounts = ['1 items', '11 items', '111 items', '1111 items', '1 items'];
+  const expectedCounts = ['1', '11', '111', '1111', '1'].map((count) => `${count} of 10000 items`);
   const clearSearch = async () => {
     await page.getByRole('button', { name: /^Remove filter Any field/ }).click();
     await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
   };
-  await searchUntilPaint(page, 'Performance item 9999', '1 items');
+  await searchUntilPaint(page, 'Performance item 9999', '1 of 10000 items');
   await clearSearch();
   const filterSamples: number[] = [];
   for (let index = 0; index < searches.length; index += 1) {

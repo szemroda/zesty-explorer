@@ -32,6 +32,7 @@ import {
 import { buildLoadedViewGraph, type LoadedView } from '../load-view';
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import { plural, shownCount } from '../lib/utils';
 import { tableFilterControls } from './FilterControls';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { PublicationStatusCell } from './PublicationStatusCell';
@@ -263,6 +264,18 @@ export function RootTable({
     });
   }
 
+  // A sort on a hidden column, like the default Modified, gives the order no visible reason.
+  const sortColumn = sorting[0] ? table.getColumn(sorting[0].id) : undefined;
+  const hiddenSort =
+    sorting[0] && sortColumn && !sortColumn.getIsVisible()
+      ? {
+          label:
+            itemColumnDefinitions.find((column) => column.id === sorting[0]?.id)?.label ??
+            sorting[0].id,
+          desc: sorting[0].desc,
+        }
+      : undefined;
+
   return (
     <ScrollDockProvider pageHeader={pageHeader}>
       <section
@@ -278,10 +291,19 @@ export function RootTable({
             >
               {title}
             </h2>
-            <span className="mt-0.5 block text-[10px] text-muted-foreground">
-              {resultsPending
-                ? `${snapshot.items.length} items`
-                : `${filteredItems.length} of ${snapshot.items.length} items`}
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              <span>
+                {resultsPending
+                  ? plural(snapshot.items.length, 'item', 'items')
+                  : shownCount(filteredItems.length, snapshot.items.length, 'item', 'items')}
+              </span>
+              {hiddenSort ? (
+                <>
+                  {' · sorted by '}
+                  {hiddenSort.label} <span aria-hidden="true">{hiddenSort.desc ? '↓' : '↑'}</span>
+                  <span className="sr-only">{hiddenSort.desc ? 'descending' : 'ascending'}</span>
+                </>
+              ) : null}
             </span>
           </div>
           <div className="flex items-center gap-2 max-lg:w-full">
@@ -351,11 +373,7 @@ export function RootTable({
                   </div>
                 )}
               />
-              <ContentTablePagination
-                table={table}
-                itemCount={filteredItems.length}
-                itemLabel="items"
-              />
+              <ContentTablePagination table={table} itemCount={filteredItems.length} />
             </div>
           </>
         )}

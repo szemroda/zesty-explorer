@@ -239,6 +239,7 @@ export function ContentTableGrid({
                   return (
                     <TableHead
                       key={header.id}
+                      aria-sort={ariaSort(header.column.getIsSorted())}
                       className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
                         index < stickyColumns.length ? `z-4 ${placement.className}` : 'relative'
                       }`}
@@ -421,21 +422,20 @@ export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenu
 interface ContentTablePaginationProps {
   readonly table: ContentTableInstance;
   readonly itemCount: number;
-  readonly itemLabel: string;
+}
+
+function ariaSort(sorted: false | 'asc' | 'desc'): 'ascending' | 'descending' | undefined {
+  if (!sorted) return undefined;
+  return sorted === 'asc' ? 'ascending' : 'descending';
 }
 
 const pageSizes = [25, 50, 100] as const;
 
-export function ContentTablePagination({
-  table,
-  itemCount,
-  itemLabel,
-}: ContentTablePaginationProps) {
+export function ContentTablePagination({ table, itemCount }: ContentTablePaginationProps) {
+  // The table header shows the count; this row only appears when paging is possible.
+  if (table.getPageCount() <= 1 && itemCount <= pageSizes[0]) return null;
   return (
     <div className="flex min-h-12 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-      <span className="mr-auto">
-        {itemCount} {itemLabel}
-      </span>
       {table.getPageCount() > 1 ? (
         <>
           <Button
