@@ -275,7 +275,7 @@ describe('root collection browser', () => {
         screen.queryByRole('status', { name: 'Loading instance list' }),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.queryByRole('combobox', { name: 'Root collection' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Root collection' })).toBeDisabled();
     fireEvent.change(instance, { target: { value: 'acme' } });
     fireEvent.keyDown(instance, { key: 'ArrowDown' });
     fireEvent.click(await screen.findByRole('option', { name: /Acme.*8-abc123/ }));

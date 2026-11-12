@@ -467,7 +467,13 @@ test('opens a typed collection URL with one click and returns focus on Back', as
   await expect(page.getByLabel('Zesty session token')).toBeFocused();
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  // Typed, not pasted: the URL applies when the click leaves the field.
+  // Typed, not pasted: the URL applies as the click leaves the field, and the form keeps its
+  // shape, so that click still lands on its button.
+  await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByLabel('Zesty session token')).toBeFocused();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill('');
   await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
   await page.getByRole('button', { name: 'Open root collection' }).click();
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();

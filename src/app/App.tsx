@@ -711,11 +711,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ) ??
       (modelZuid ? suggestedRoot({ ...targetInstance, suggestedModelZuid: modelZuid }) : undefined);
     if (!selected) {
+      // While collections load, the picker shows a spinner; asking for a choice would be wrong.
+      if (catalogQuery.isLoading) return;
       startFormProblem.report(
         'root-collection',
-        catalogQuery.isLoading
-          ? 'Collections are still loading. Choose one when the list is ready.'
-          : 'Choose a root collection or paste a collection URL.',
+        'Choose a root collection or paste a collection URL.',
       );
       return;
     }
@@ -1203,72 +1203,74 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   error={startFormProblem.messageFor('instance')}
                   inputRef={instancePickerInput}
                 />
-                {catalogInstance ? (
-                  <>
-                    {catalogQuery.error ? (
-                      <div
-                        className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
-                        role="alert"
-                      >
-                        <p>{catalogQuery.error.message}</p>
-                        <ErrorTechnicalDetails error={catalogQuery.error} />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => void catalogQuery.refresh()}
-                        >
-                          Retry catalog
-                        </Button>
-                      </div>
-                    ) : null}
-                    {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
-                      <p
-                        className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
-                        role="status"
-                      >
-                        This session returned an empty collection catalog.
-                      </p>
-                    ) : null}
-                    <CollectionPicker
-                      label="Root collection"
-                      description="Its items become the top-level table of the view."
-                      collections={rootPickerCollections}
-                      value={selectedRootZuid}
-                      onChange={(collection) => {
-                        setSelectedRootZuid(collection?.reference.modelZuid);
-                        startFormProblem.clear('root-collection');
-                      }}
-                      disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
-                      loading={catalogQuery.isLoading}
-                      error={startFormProblem.messageFor('root-collection')}
-                      inputRef={rootCollectionInput}
-                    />
-                    {/* Always rendered: the form must not shift while a pasted URL applies. */}
-                    <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
-                      <Checkbox
-                        className="mt-0.5"
-                        checked={addRelatedOnOpen && !keepsOpenTree}
-                        disabled={keepsOpenTree}
-                        onCheckedChange={setAddRelatedOnOpen}
-                      />
-                      <span className="grid gap-0.5">
-                        <span className="font-medium">Add related collections</span>
-                        <span className="text-muted-foreground text-xs">
-                          Builds the collection tree from Zesty relationships. You can remove or add
-                          collections afterwards.
-                        </span>
-                      </span>
-                    </label>
-                    {catalogQuery.catalog?.warning ? (
-                      <div
-                        className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
-                        role="status"
-                      >
-                        <p>{catalogQuery.catalog.warning.message}</p>
-                        <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
-                      </div>
-                    ) : null}
-                  </>
+                {/* The form keeps its shape before an instance is chosen, so applying a URL on blur
+                    never moves the buttons under a click that is still in progress. */}
+                {catalogInstance && catalogQuery.error ? (
+                  <div
+                    className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+                    role="alert"
+                  >
+                    <p>{catalogQuery.error.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.error} />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void catalogQuery.refresh()}
+                    >
+                      Retry catalog
+                    </Button>
+                  </div>
+                ) : null}
+                {catalogInstance &&
+                catalogQuery.catalog &&
+                catalogQuery.catalog.collections.length === 0 ? (
+                  <p
+                    className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
+                    role="status"
+                  >
+                    This session returned an empty collection catalog.
+                  </p>
+                ) : null}
+                <CollectionPicker
+                  label="Root collection"
+                  description="Its items become the top-level table of the view."
+                  collections={rootPickerCollections}
+                  value={selectedRootZuid}
+                  onChange={(collection) => {
+                    setSelectedRootZuid(collection?.reference.modelZuid);
+                    startFormProblem.clear('root-collection');
+                  }}
+                  disabled={
+                    !catalogInstance ||
+                    (catalogQuery.isLoading && rootPickerCollections.length === 0)
+                  }
+                  loading={Boolean(catalogInstance) && catalogQuery.isLoading}
+                  error={startFormProblem.messageFor('root-collection')}
+                  inputRef={rootCollectionInput}
+                />
+                <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={addRelatedOnOpen && !keepsOpenTree}
+                    disabled={keepsOpenTree}
+                    onCheckedChange={setAddRelatedOnOpen}
+                  />
+                  <span className="grid gap-0.5">
+                    <span className="font-medium">Add related collections</span>
+                    <span className="text-muted-foreground text-xs">
+                      Builds the collection tree from Zesty relationships. You can remove or add
+                      collections afterwards.
+                    </span>
+                  </span>
+                </label>
+                {catalogInstance && catalogQuery.catalog?.warning ? (
+                  <div
+                    className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
+                    role="status"
+                  >
+                    <p>{catalogQuery.catalog.warning.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                  </div>
                 ) : null}
                 <Field className="border-t pt-4" error={startFormProblem.messageFor('pasted-url')}>
                   <FieldLabel>Or paste a Zesty URL</FieldLabel>
@@ -1284,13 +1286,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       if ((event.nativeEvent as InputEvent).inputType === 'insertFromPaste')
                         applyPastedUrl(value);
                     }}
-                    onBlur={(event) => {
-                      // Submit applies the URL itself. Applying it here first would reflow the
-                      // form under the pointer and swallow the click on the submit button.
-                      const next = event.relatedTarget;
-                      if (next instanceof HTMLButtonElement && next.type === 'submit') return;
-                      applyPastedUrl(event.target.value);
-                    }}
+                    onBlur={(event) => applyPastedUrl(event.target.value)}
                   />
                   <FieldDescription>
                     {reference
