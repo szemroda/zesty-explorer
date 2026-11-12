@@ -89,6 +89,11 @@ export function ImportCheck({
   // The user's column mapping; a new file or collection starts from a suggested one.
   const [mapping, setMapping] = useState<ImportMapping>();
   const [changing, setChanging] = useState(false);
+  // Change returns to this form; focus starts in the collection picker it came to change.
+  const pickerInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (changing) pickerInput.current?.focus();
+  }, [changing]);
   const { state, reload, authenticationFailed } = useImportCheck({
     api,
     credentials,
@@ -135,6 +140,7 @@ export function ImportCheck({
         </div>
         <CollectionPicker
           label="Collection to import into"
+          inputRef={pickerInput}
           collections={collections}
           value={collection?.reference.modelZuid}
           onChange={(entry: CollectionCatalogEntry | undefined) => {
@@ -171,6 +177,8 @@ function CsvFileButton({
         type="file"
         accept=".csv,text/csv"
         className="sr-only"
+        // The visible button opens it; one keyboard stop is enough.
+        tabIndex={-1}
         aria-label="CSV file to check"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -279,10 +287,27 @@ function Workspace({
       setShowAll(true);
     }
     setSelectedLine(line);
+    focusRow(line);
+  }
+
+  // Focus on a row's gutter button, e.g. after Go to row or closing its details.
+  function focusRow(line: number) {
+    requestAnimationFrame(() =>
+      contents.current?.querySelector<HTMLElement>(`tr[data-line="${line}"] button`)?.focus(),
+    );
   }
 
   return (
-    <div className="flex flex-col lg:h-[calc(100vh-72px)]">
+    <div
+      className="flex flex-col lg:h-[calc(100vh-72px)]"
+      // Escape closes line details, unless it is closing a menu or list first.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || selectedLine === undefined || event.defaultPrevented) return;
+        if ((event.target as HTMLElement).closest('[role="listbox"], [role="menu"]')) return;
+        setSelectedLine(undefined);
+        focusRow(selectedLine);
+      }}
+    >
       <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
         <p className="flex min-w-0 items-center gap-2 text-sm">
           <FileSpreadsheet
@@ -341,14 +366,12 @@ function Workspace({
       </header>
       <div
         className={cn(
-          'grid min-h-0 flex-1 lg:grid-cols-[20rem_minmax(0,1fr)]',
+          // The summary keeps a column at every width, so the lines stay in view at 960px.
+          'grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)]',
           selected && 'xl:grid-cols-[20rem_minmax(0,1fr)_19rem]',
         )}
       >
-        <nav
-          className="border-border min-h-0 overflow-y-auto border-b pb-4 lg:border-r lg:border-b-0"
-          aria-label="Summary"
-        >
+        <nav className="border-border min-h-0 overflow-y-auto border-r pb-4" aria-label="Summary">
           <Headline check={check} />
           {groups.length === 0 ? (
             <p className="text-muted-foreground px-4 pt-4 text-sm">
@@ -398,7 +421,10 @@ function Workspace({
           <Details
             entry={selected}
             check={check}
-            onClose={() => setSelectedLine(undefined)}
+            onClose={() => {
+              if (selectedLine !== undefined) focusRow(selectedLine);
+              setSelectedLine(undefined);
+            }}
             onJump={jumpToRow}
           />
         ) : null}
@@ -534,7 +560,7 @@ function GroupList({
               />
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate',
+                  'line-clamp-2 min-w-0 flex-1 break-words',
                   item.column !== undefined && 'font-mono text-xs',
                 )}
               >
@@ -633,6 +659,11 @@ function Details({
     entry.kind === 'record'
       ? `Row ${entry.row.row} · line ${entry.row.record.line}`
       : `Line ${entry.line}`;
+  // Opened from a row's button, focus follows into the panel; a click on the row leaves it.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (document.activeElement?.closest('tr[data-line]')) headingRef.current?.focus();
+  }, [entry]);
   // Below `xl` the panel slides over the bottom of the page instead of taking a column.
   return (
     <aside
@@ -640,7 +671,9 @@ function Details({
       aria-label="Line details"
     >
       <div className="flex items-center gap-2">
-        <h3 className="font-semibold">{heading}</h3>
+        <h3 ref={headingRef} tabIndex={-1} className="font-semibold outline-none">
+          {heading}
+        </h3>
         <Button
           variant="ghost"
           size="icon-xs"
