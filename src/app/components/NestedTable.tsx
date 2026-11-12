@@ -42,7 +42,12 @@ import {
   visibleColumnIds,
 } from '../content-item-presentation';
 import { CellValue } from './CellValue';
-import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import {
+  ContentColumnsMenu,
+  ContentTableGrid,
+  ContentTablePagination,
+  HiddenSortNote,
+} from './ContentTable';
 import { shownCount } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { tableFilterControls } from './FilterControls';
@@ -423,7 +428,8 @@ export function NestedTable(props: NestedTableProps) {
         <div className="min-w-28">
           <strong className="text-xs">{node.name}</strong>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            {shownCount(items.length, relatedCount, 'related item', 'related items')}
+            <span>{shownCount(items.length, relatedCount, 'related item', 'related items')}</span>
+            <HiddenSortNote table={table} columns={columns} />
           </span>
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">

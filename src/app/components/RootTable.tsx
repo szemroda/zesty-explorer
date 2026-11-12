@@ -37,7 +37,12 @@ import {
   type LoadedView,
 } from '../load-view';
 import { CellValue } from './CellValue';
-import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import {
+  ContentColumnsMenu,
+  ContentTableGrid,
+  ContentTablePagination,
+  HiddenSortNote,
+} from './ContentTable';
 import { plural, shownCount } from '../lib/utils';
 import { tableFilterControls } from './FilterControls';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
@@ -293,18 +298,6 @@ export function RootTable({
     });
   }
 
-  // A sort on a hidden column, like the default Modified, gives the order no visible reason.
-  const sortColumn = sorting[0] ? table.getColumn(sorting[0].id) : undefined;
-  const hiddenSort =
-    sorting[0] && sortColumn && !sortColumn.getIsVisible()
-      ? {
-          label:
-            itemColumnDefinitions.find((column) => column.id === sorting[0]?.id)?.label ??
-            sorting[0].id,
-          desc: sorting[0].desc,
-        }
-      : undefined;
-
   return (
     <ScrollDockProvider pageHeader={pageHeader}>
       <section
@@ -326,13 +319,7 @@ export function RootTable({
                   ? plural(snapshot.items.length, 'item', 'items')
                   : shownCount(filteredItems.length, snapshot.items.length, 'item', 'items')}
               </span>
-              {hiddenSort ? (
-                <>
-                  {' · sorted by '}
-                  {hiddenSort.label} <span aria-hidden="true">{hiddenSort.desc ? '↓' : '↑'}</span>
-                  <span className="sr-only">{hiddenSort.desc ? 'descending' : 'ascending'}</span>
-                </>
-              ) : null}
+              <HiddenSortNote table={table} columns={itemColumnDefinitions} />
             </span>
           </div>
           <div className="flex items-center gap-2 max-lg:w-full">

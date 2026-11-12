@@ -393,6 +393,30 @@ interface ContentColumnsMenuProps {
   readonly label: string;
 }
 
+/**
+ * " · sorted by Modified ↓" when the table is sorted by a hidden column, like the default
+ * Modified, which otherwise gives the order no visible reason. Nothing otherwise.
+ */
+export function HiddenSortNote({
+  table,
+  columns,
+}: {
+  readonly table: ContentTableInstance;
+  readonly columns: readonly ContentItemColumn[];
+}) {
+  const sort = table.state.sorting[0];
+  const column = sort ? table.getColumn(sort.id) : undefined;
+  if (!sort || !column || column.getIsVisible()) return null;
+  const label = columns.find((candidate) => candidate.id === sort.id)?.label ?? sort.id;
+  return (
+    <>
+      {' · sorted by '}
+      {label} <span aria-hidden="true">{sort.desc ? '↓' : '↑'}</span>
+      <span className="sr-only">{sort.desc ? 'descending' : 'ascending'}</span>
+    </>
+  );
+}
+
 export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenuProps) {
   return (
     <DropdownMenu>
