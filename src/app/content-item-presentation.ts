@@ -55,7 +55,7 @@ export function contentItemColumns(
       label: 'Status',
       technical: true,
       sortable: false,
-      defaultWidth: 170,
+      defaultWidth: 180,
     },
     ...schema.fields.map((field) => ({
       kind: 'value' as const,
