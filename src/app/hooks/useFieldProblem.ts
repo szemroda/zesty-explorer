@@ -7,7 +7,8 @@ interface FieldProblem<Field extends string> {
 
 /**
  * Tracks the one validation problem a form shows at a time. Reporting a problem moves focus
- * to the field's control, so pass a ref for every field the form can report on.
+ * to the field's control, so pass a ref for every field the form can report on. Pass
+ * `{ focus: false }` when checking a field the user is leaving, so Tab is not trapped.
  */
 export function useFieldProblem<Field extends string>(
   controls: Readonly<Record<Field, RefObject<HTMLElement | null>>>,
@@ -16,9 +17,9 @@ export function useFieldProblem<Field extends string>(
   return {
     /** The field that has the problem, if any. */
     field: problem?.field,
-    report(field: Field, message: string) {
+    report(field: Field, message: string, { focus = true }: { readonly focus?: boolean } = {}) {
       setProblem({ field, message });
-      controls[field].current?.focus();
+      if (focus) controls[field].current?.focus();
     },
     messageFor(field: Field): string | undefined {
       return problem?.field === field ? problem.message : undefined;

@@ -608,17 +608,18 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }
 
-  // Typing only edits the draft. Paste, blur, and submit commit a complete reference.
+  // Typing only edits the draft. Paste, blur, and submit commit a complete reference. A problem
+  // shows on the field without taking focus; submit moves focus there itself.
   function applyPastedUrl(value: string): InstanceReference | undefined {
     if (!value.trim()) return undefined;
     const parsed = parseInstanceReference(value);
     if (!parsed.ok) {
-      startFormProblem.report('pasted-url', parsed.error.message);
+      startFormProblem.report('pasted-url', parsed.error.message, { focus: false });
       return undefined;
     }
     const problem = pastedReferenceProblem(parsed.value);
     if (problem) {
-      startFormProblem.report('pasted-url', problem);
+      startFormProblem.report('pasted-url', problem, { focus: false });
       return undefined;
     }
     if (
@@ -668,7 +669,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     event.preventDefault();
     const trimmedUrl = pastedUrl.trim();
     const pasted = trimmedUrl ? applyPastedUrl(trimmedUrl) : undefined;
-    if (trimmedUrl && !pasted) return;
+    if (trimmedUrl && !pasted) {
+      pastedUrlInput.current?.focus();
+      return;
+    }
     const targetInstance = pasted ?? catalogInstance;
     if (!targetInstance) {
       startFormProblem.report('instance', 'Choose an instance or paste a Zesty URL.');

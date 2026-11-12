@@ -442,6 +442,13 @@ test('picks the instance and root with the keyboard alone', async ({ page }) => 
   await page.keyboard.press('Enter');
   await expect(root).toHaveValue('6-rootmodel');
   await expect(root).toBeFocused();
+
+  // An invalid URL shows its problem when Tab leaves the field, and Tab still moves on.
+  const url = page.getByLabel('Or paste a Zesty URL');
+  await url.fill('oops');
+  await page.keyboard.press('Tab');
+  await expect(url).toHaveAttribute('aria-invalid', 'true');
+  await expect(url).not.toBeFocused();
 });
 
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {

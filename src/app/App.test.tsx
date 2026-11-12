@@ -1675,13 +1675,17 @@ describe('form errors', () => {
     expect(token).toHaveAccessibleDescription('Enter the Production session token.');
     expect(token).toHaveFocus();
     startSession();
-    pasteUrl('https://example.com/content/6-model123');
     const input = screen.getByLabelText('Or paste a Zesty URL');
+    act(() => input.focus());
+    fireEvent.change(input, { target: { value: 'https://example.com/content/6-model123' } });
+    // Leaving the field shows the problem without pulling focus back.
+    const open = screen.getByRole('button', { name: 'Open root collection' });
+    act(() => open.focus());
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAccessibleDescription(
       'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. This host is not an allowed Zesty deployment host.',
     );
-    expect(input).toHaveFocus();
+    expect(open).toHaveFocus();
     fireEvent.change(input, { target: { value: 'not-a-url' } });
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
     expect(input).toHaveAccessibleDescription(
@@ -1722,7 +1726,6 @@ describe('form errors', () => {
   it('asks for a root collection on the picker when none is chosen', async () => {
     render(<App api={api()} tokenStore={memoryTokenStore()} />);
     loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-    // The picker remounts when its selection changes, so it is looked up again each time.
     const picker = () => screen.getByRole('combobox', { name: 'Root collection' });
     await waitFor(() => expect(picker()).toHaveValue('Stories'));
 
