@@ -1137,7 +1137,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           </aside>
         ) : null}
 
-        <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
+        <section className="min-w-0 p-4 lg:p-6">
           {encodedView && encodedView.length > 8_000 ? (
             <p
               className="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm"
@@ -1304,7 +1304,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </Card>
           ) : null}
 
-          {screen === 'view' && loadStatus.kind === 'loading-root' ? <RootTableSkeleton /> : null}
+          {screen === 'view' && loadStatus.kind === 'loading-root' ? (
+            <RootTableSkeleton title={rootName} />
+          ) : null}
           {screen === 'view' && rootFailure ? (
             <Card
               className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"

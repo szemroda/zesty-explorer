@@ -511,7 +511,9 @@ describe('root collection browser', () => {
     render(<App api={api(() => Effect.never)} tokenStore={memoryTokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
 
-    expect(await screen.findByRole('status', { name: 'Loading collection' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: 'Loading Stories' })).toHaveTextContent(
+      'Loading Stories…',
+    );
   });
 
   it('opens the root picker directly from the root collection menu', async () => {
@@ -621,8 +623,11 @@ describe('root collection browser', () => {
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit',
     );
 
-    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    const htmlCell = screen.getByRole('cell', { name: 'First story' });
+    // The item's details open as a modal, which hides the table from assistive technology.
+    expect(
+      await screen.findByRole('heading', { name: 'Stories', hidden: true }),
+    ).toBeInTheDocument();
+    const htmlCell = screen.getByRole('cell', { name: 'First story', hidden: true });
     expect(htmlCell).toBeInTheDocument();
     expect(htmlCell.querySelector('strong')).toBeNull();
     expect(
@@ -630,13 +635,14 @@ describe('root collection browser', () => {
     ).toBeInTheDocument();
     const zestyLink = screen.getByRole('link', {
       name: /open first story in zesty manager/i,
+      hidden: true,
     });
     expect(zestyLink).toHaveAttribute(
       'href',
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa',
     );
     expect(zestyLink).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns', hidden: true }));
     expect(screen.getByRole('menuitemcheckbox', { name: 'workflowStatus' })).not.toBeChecked();
   });
 

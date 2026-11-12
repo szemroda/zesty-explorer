@@ -45,7 +45,7 @@ const headerClassName =
   'flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col';
 
 // Stands in for RootTable, in the same panel and toolbar layout, while the root collection loads.
-export function RootTableSkeleton() {
+export function RootTableSkeleton({ title }: { readonly title: string }) {
   return (
     <section className={`overflow-hidden ${panelClassName}`}>
       <div className={headerClassName}>
@@ -58,7 +58,7 @@ export function RootTableSkeleton() {
           <Skeleton className="h-9 w-24" />
         </div>
       </div>
-      <TableSkeleton label="Loading collection" rows={8} />
+      <TableSkeleton label={`Loading ${title}`} rows={8} />
     </section>
   );
 }

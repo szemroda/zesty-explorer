@@ -4,6 +4,8 @@ import { Skeleton } from './ui/skeleton';
 export function TableSkeleton({ label, rows }: { readonly label: string; readonly rows: number }) {
   return (
     <div role="status" aria-label={label}>
+      {/* Screen readers announce a status by its text, not by its label. */}
+      <span className="sr-only">{label}…</span>
       <div className="h-9 border-b border-divider-subtle bg-surface-header" />
       {Array.from({ length: rows }, (_, row) => (
         <div
