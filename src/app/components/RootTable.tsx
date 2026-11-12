@@ -30,7 +30,12 @@ import {
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
-import { buildLoadedViewGraph, loadedItemsById, type LoadedView } from '../load-view';
+import {
+  buildLoadedViewGraph,
+  loadedItemsById,
+  namedSortValue,
+  type LoadedView,
+} from '../load-view';
 import { CellValue } from './CellValue';
 import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
 import { plural, shownCount } from '../lib/utils';
@@ -168,14 +173,29 @@ export function RootTable({
     const allIds = snapshot.items.map((item) => item.id);
     const matchingIds = filterNodeItemIds(graph, treeRoot.id, allIds, viewFilters, freeText);
     const activeSort = sorting[0];
-    const sortedIds = sortItemIds(snapshot, matchingIds, {
-      ...sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
-    });
+    const sortsRelationship = itemColumnDefinitions.some(
+      (column) => column.id === activeSort?.id && column.kind === 'value' && column.relationship,
+    );
+    const sortedIds = sortItemIds(
+      snapshot,
+      matchingIds,
+      sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
+      sortsRelationship ? namedSortValue(loadedView) : undefined,
+    );
     return sortedIds.flatMap((id) => {
       const item = snapshot.itemsById.get(id);
       return item ? [item] : [];
     });
-  }, [freeText, graph, snapshot, sorting, treeRoot.id, viewFilters]);
+  }, [
+    freeText,
+    graph,
+    itemColumnDefinitions,
+    loadedView,
+    snapshot,
+    sorting,
+    treeRoot.id,
+    viewFilters,
+  ]);
   // The root collection's filters are the view filters.
   const filterControls = tableFilterControls({
     node: treeRoot,

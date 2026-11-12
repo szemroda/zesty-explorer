@@ -21,6 +21,7 @@ import {
   filterNodeItemIds,
   scalarFieldPaths,
   sortItemIds,
+  type SortValue,
   validateRelationshipPaths,
   type ExplorerGraph,
 } from '../../explorer-core';
@@ -30,7 +31,7 @@ import {
   createContentTableColumns,
   useContentTable,
 } from '../content-table-model';
-import { loadedItemsById, loadedSnapshot, type LoadedView } from '../load-view';
+import { loadedItemsById, loadedSnapshot, namedSortValue, type LoadedView } from '../load-view';
 import { describeExplorerError } from '../error-message';
 import {
   columnIdForSort,
@@ -138,6 +139,8 @@ interface SortedIdsInput {
   readonly filters: readonly ViewFilter[];
   readonly freeText: string;
   readonly sort: SortState;
+  /** Set when the sort column holds relationships, to order them by name. */
+  readonly valueOf: SortValue | undefined;
 }
 
 function createSortedIdsMemo() {
@@ -153,7 +156,8 @@ function createSortedIdsMemo() {
       previousInput.parentItemId === input.parentItemId &&
       previousInput.filters === input.filters &&
       previousInput.freeText === input.freeText &&
-      previousInput.sort === input.sort
+      previousInput.sort === input.sort &&
+      previousInput.valueOf === input.valueOf
     ) {
       return previousResult;
     }
@@ -172,7 +176,7 @@ function createSortedIdsMemo() {
       input.filters,
       input.freeText,
     );
-    previousResult = sortItemIds(input.snapshot, filtered, input.sort);
+    previousResult = sortItemIds(input.snapshot, filtered, input.sort, input.valueOf);
     return previousResult;
   };
 }
@@ -263,6 +267,14 @@ export function NestedTable(props: NestedTableProps) {
     filters: sharedState.filters,
     freeText: sharedState.freeText,
     sort: sharedState.sort,
+    valueOf: columns.some(
+      (column) =>
+        column.id === columnIdForSort(sharedState.sort) &&
+        column.kind === 'value' &&
+        column.relationship,
+    )
+      ? namedSortValue(loadedView)
+      : undefined,
   });
 
   const items = deriveItems(childSnapshot, sortedIds);
