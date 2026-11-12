@@ -821,8 +821,11 @@ function coveredCells(row: Locator) {
   return row.locator(':scope > th, :scope > td').evaluateAll((cells) =>
     cells.flatMap((cell) => {
       const { left, right, top, bottom } = cell.getBoundingClientRect();
-      const x = (left + Math.min(right, window.innerWidth)) / 2;
-      if (x >= window.innerWidth) return [];
+      // Cells past the table's own horizontal scroller are clipped, not covered.
+      const scroller = cell.closest('[class*="overflow-x-auto"]');
+      const edge = Math.min(window.innerWidth, scroller?.getBoundingClientRect().right ?? Infinity);
+      if (left >= edge) return [];
+      const x = (left + Math.min(right, edge)) / 2;
       const hit = document.elementFromPoint(x, (top + bottom) / 2);
       return hit && cell.parentElement?.contains(hit) ? [] : [cell.textContent];
     }),
