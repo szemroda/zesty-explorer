@@ -104,19 +104,26 @@ function ConnectedPublicationStatusCell({
   return (
     // Pills wrap rather than draw over the next column if the column is made narrow.
     <span ref={cell} className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <StatusContent query={query} />
+      <StatusContent query={query} publishedFirst={source.contentState === 'published'} />
     </span>
   );
 }
 
-function StatusContent({ query }: { readonly query: UseQueryResult<PublicationStatus> }) {
+// In a published view the row shows the published version, so its pill leads.
+function StatusContent({
+  query,
+  publishedFirst,
+}: {
+  readonly query: UseQueryResult<PublicationStatus>;
+  readonly publishedFirst: boolean;
+}) {
   if (query.isPending) {
     return (
-      <Skeleton
-        className="h-4.5 w-12 rounded-full"
-        role="status"
-        aria-label="Loading publication status"
-      />
+      // Two pills, the usual shape, so a waiting row keeps the cell's width.
+      <span className="flex gap-1.5" role="status" aria-label="Loading publication status">
+        <Skeleton className="h-4.5 w-14 rounded-full" />
+        <Skeleton className="h-4.5 w-18 rounded-full" />
+      </span>
     );
   }
   if (query.isError) {
@@ -141,40 +148,46 @@ function StatusContent({ query }: { readonly query: UseQueryResult<PublicationSt
       className="border-amber-500/40 bg-amber-500/10 text-amber-300"
     />
   );
-  return (
-    <>
-      {published === status.latestSaved ? (
+  if (published === status.latestSaved) {
+    return (
+      <>
         <StatusBadge
           version={published}
           role="published"
           description={`Version v${published} is the latest saved and currently published version`}
           className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
         />
-      ) : (
-        <>
-          {/* A scheduled latest version says so in its own pill instead of repeating it. */}
-          {scheduled?.version === status.latestSaved ? (
-            scheduledBadge(scheduled.version, scheduled.publishAt, true)
-          ) : (
-            <StatusBadge
-              version={status.latestSaved}
-              role="saved"
-              description={`Latest saved version v${status.latestSaved}`}
-              className="border-sky-500/40 bg-sky-500/10 text-sky-300"
-            />
-          )}
-          {published === undefined ? (
-            <span className="text-muted-foreground text-xs">not published</span>
-          ) : (
-            <StatusBadge
-              version={published}
-              role="published"
-              description={`Currently published version v${published}`}
-              className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-            />
-          )}
-        </>
-      )}
+        {scheduled ? scheduledBadge(scheduled.version, scheduled.publishAt, false) : null}
+      </>
+    );
+  }
+  // A scheduled latest version says so in its own pill instead of repeating it.
+  const latest =
+    scheduled?.version === status.latestSaved ? (
+      scheduledBadge(scheduled.version, scheduled.publishAt, true)
+    ) : (
+      <StatusBadge
+        version={status.latestSaved}
+        role="saved"
+        description={`Latest saved version v${status.latestSaved}`}
+        className="border-sky-500/40 bg-sky-500/10 text-sky-300"
+      />
+    );
+  const live =
+    published === undefined ? (
+      <span className="text-muted-foreground text-xs">not published</span>
+    ) : (
+      <StatusBadge
+        version={published}
+        role="published"
+        description={`Currently published version v${published}`}
+        className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      />
+    );
+  return (
+    <>
+      {publishedFirst ? live : latest}
+      {publishedFirst ? latest : live}
       {scheduled && scheduled.version !== status.latestSaved
         ? scheduledBadge(scheduled.version, scheduled.publishAt, false)
         : null}
