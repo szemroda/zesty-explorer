@@ -468,6 +468,13 @@ test('renames a collection from its menu without leaving the keyboard', async ({
   await page.keyboard.type('Stories');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
+
+  // Escape cancels: the typed name is dropped.
+  await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Rename' }).press('Enter');
+  await page.keyboard.type('Discarded');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
 });
 
 test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {

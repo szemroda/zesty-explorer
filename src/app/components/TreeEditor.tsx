@@ -708,6 +708,8 @@ function TreeNodeRow({
   // hands it back.
   const actionsButton = useRef<HTMLButtonElement>(null);
   const renaming = useRef(false);
+  // Escape moves focus away, which blurs the field; the blur must not save the cancelled name.
+  const renameCancelled = useRef(false);
 
   return (
     <li>
@@ -726,7 +728,8 @@ function TreeNodeRow({
             onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => {
-              onRename(node.id, name);
+              if (!renameCancelled.current) onRename(node.id, name);
+              renameCancelled.current = false;
               setEditing(false);
             }}
             onKeyDown={(event) => {
@@ -737,6 +740,7 @@ function TreeNodeRow({
                 actionsButton.current?.focus();
               }
               if (event.key === 'Escape') {
+                renameCancelled.current = true;
                 setName(node.name);
                 setEditing(false);
                 actionsButton.current?.focus();
