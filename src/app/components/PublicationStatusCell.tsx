@@ -132,6 +132,15 @@ function StatusContent({ query }: { readonly query: UseQueryResult<PublicationSt
 
   const status = query.data;
   const published = status.currentlyPublished;
+  const scheduled = status.nextScheduled;
+  const scheduledBadge = (version: number, publishAt: string, latest: boolean) => (
+    <StatusBadge
+      version={version}
+      role="scheduled"
+      description={`${latest ? 'Latest saved version' : 'Version'} v${version} scheduled to publish ${formatPublishTime(publishAt)}`}
+      className="border-amber-500/40 bg-amber-500/10 text-amber-300"
+    />
+  );
   return (
     <>
       {published === status.latestSaved ? (
@@ -143,12 +152,17 @@ function StatusContent({ query }: { readonly query: UseQueryResult<PublicationSt
         />
       ) : (
         <>
-          <StatusBadge
-            version={status.latestSaved}
-            role="saved"
-            description={`Latest saved version v${status.latestSaved}`}
-            className="border-sky-500/40 bg-sky-500/10 text-sky-300"
-          />
+          {/* A scheduled latest version says so in its own pill instead of repeating it. */}
+          {scheduled?.version === status.latestSaved ? (
+            scheduledBadge(scheduled.version, scheduled.publishAt, true)
+          ) : (
+            <StatusBadge
+              version={status.latestSaved}
+              role="saved"
+              description={`Latest saved version v${status.latestSaved}`}
+              className="border-sky-500/40 bg-sky-500/10 text-sky-300"
+            />
+          )}
           {published === undefined ? (
             <span className="text-muted-foreground text-xs">not published</span>
           ) : (
@@ -161,14 +175,9 @@ function StatusContent({ query }: { readonly query: UseQueryResult<PublicationSt
           )}
         </>
       )}
-      {status.nextScheduled ? (
-        <StatusBadge
-          version={status.nextScheduled.version}
-          role="scheduled"
-          description={`Version v${status.nextScheduled.version} scheduled to publish ${formatPublishTime(status.nextScheduled.publishAt)}`}
-          className="border-amber-500/40 bg-amber-500/10 text-amber-300"
-        />
-      ) : null}
+      {scheduled && scheduled.version !== status.latestSaved
+        ? scheduledBadge(scheduled.version, scheduled.publishAt, false)
+        : null}
     </>
   );
 }

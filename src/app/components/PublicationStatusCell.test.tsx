@@ -132,4 +132,21 @@ describe('publication status cell', () => {
     expect(screen.getByRole('img', { name: 'Currently published version v5' })).toBeVisible();
     expect(loadItemVersions).not.toHaveBeenCalled();
   });
+
+  it('shows a scheduled latest version once, as scheduled', async () => {
+    renderCell({
+      loadItemVersions: () => Effect.succeed([{ number: 8, item }]),
+      loadItemPublishings: () =>
+        Effect.succeed([
+          { version: 5, active: true },
+          { version: 8, active: false, publishAt: '2099-10-01T12:00:00Z' },
+        ]),
+      loadInstanceUsers: () => Effect.succeed([]),
+    });
+
+    expect(
+      await screen.findByRole('img', { name: /^Latest saved version v8 scheduled to publish/ }),
+    ).toHaveTextContent('v8 scheduled');
+    expect(screen.getAllByRole('img')).toHaveLength(2);
+  });
 });
