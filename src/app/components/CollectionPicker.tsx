@@ -14,6 +14,8 @@ interface CollectionPickerProps {
   readonly label: string;
   /** Explains the choice below the field. */
   readonly description?: string;
+  /** Replaces the search prompt, e.g. to say why the field is disabled. */
+  readonly placeholder?: string | undefined;
   readonly collections: readonly CollectionCatalogEntry[];
   readonly value: ModelZuid | undefined;
   readonly onChange: (collection: CollectionCatalogEntry | undefined) => void;
@@ -34,6 +36,7 @@ const groupOrder: readonly CollectionCatalogGroup[] = ['content', 'blocks', 'oth
 export function CollectionPicker({
   label,
   description,
+  placeholder,
   collections,
   value,
   onChange,
@@ -55,7 +58,7 @@ export function CollectionPicker({
   );
 
   return (
-    <Field error={error}>
+    <Field error={error} disabled={disabled}>
       <Combobox.Root
         autoHighlight
         items={groups}
@@ -78,7 +81,7 @@ export function CollectionPicker({
           <Combobox.Input
             ref={inputRef}
             render={<Input className={loading ? 'pr-24' : 'pr-16'} />}
-            placeholder={loading ? 'Loading collections…' : 'Search collections'}
+            placeholder={loading ? 'Loading collections…' : (placeholder ?? 'Search collections')}
           />
           <div className="absolute right-1 flex items-center gap-0.5">
             {loading ? (

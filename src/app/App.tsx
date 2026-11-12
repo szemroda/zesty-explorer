@@ -1234,6 +1234,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <CollectionPicker
                   label="Root collection"
                   description="Its items become the top-level table of the view."
+                  placeholder={catalogInstance ? undefined : 'Choose an instance first'}
                   collections={rootPickerCollections}
                   value={selectedRootZuid}
                   onChange={(collection) => {
