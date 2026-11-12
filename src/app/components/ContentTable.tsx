@@ -406,7 +406,10 @@ export function HiddenSortNote({
 }) {
   const sort = table.state.sorting[0];
   const column = sort ? table.getColumn(sort.id) : undefined;
-  if (!sort || !column || column.getIsVisible()) return null;
+  // A single row has no order worth explaining.
+  if (!sort || !column || column.getIsVisible() || table.getRowModel().rows.length < 2) {
+    return null;
+  }
   const label = columns.find((candidate) => candidate.id === sort.id)?.label ?? sort.id;
   return (
     <>
