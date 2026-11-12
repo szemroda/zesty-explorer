@@ -1,6 +1,7 @@
 import {
   ArrowUpRight,
   CircleCheck,
+  Columns3,
   FileSpreadsheet,
   Info,
   LoaderCircle,
@@ -490,6 +491,12 @@ function Headline({ check }: { readonly check: Check }) {
         from {funnel.dataLines} lines in the file · nothing is written to Zesty
       </p>
       <PredictionNote className="mt-3" />
+      {/* The check suggests column mappings, while Zesty's Import CSV starts every column at None. */}
+      <p className="text-muted-foreground mt-2 flex items-start gap-2 text-xs">
+        <Columns3 size={14} className="mt-px shrink-0" aria-hidden="true" />
+        Column mappings and Path part are suggested. Choose the same in Zesty’s Import CSV, where
+        every column starts at None.
+      </p>
     </div>
   );
 }
