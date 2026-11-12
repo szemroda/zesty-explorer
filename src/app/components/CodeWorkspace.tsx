@@ -471,6 +471,7 @@ function ExplainedFile({
   const source = (
     <CodeSourceView
       analysis={analysis}
+      code={file.code}
       saved={saved}
       formatted={formatted}
       presentation={presentation}

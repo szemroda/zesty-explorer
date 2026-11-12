@@ -3,6 +3,7 @@
 import {
   Braces,
   CircleHelp,
+  Copy,
   Database,
   ExternalLink,
   Globe,
@@ -32,6 +33,7 @@ import {
   type CollectionTone,
   type ToneLookup,
 } from '../code-presentation';
+import { copyText } from '../copy-text';
 import { cn } from '../lib/utils';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -42,6 +44,8 @@ export type SourcePresentation = 'formatted' | 'saved';
 
 interface CodeSourceViewProps {
   readonly analysis: CodeAnalysis;
+  /** The source as saved, for Copy. */
+  readonly code: string;
   readonly saved: readonly DisplayLine[];
   readonly formatted: readonly DisplayLine[];
   readonly presentation: SourcePresentation;
@@ -74,6 +78,7 @@ function toneForTarget(
 
 export function CodeSourceView({
   analysis,
+  code,
   saved,
   formatted,
   presentation,
@@ -136,7 +141,15 @@ export function CodeSourceView({
   return (
     // Below xl a 340px side column would leave the source a third of the width, so the
     // explanations move under it, side by side.
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div
+      // Escape clears a pinned highlight, wherever focus is in the source or its explanations.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !pinned) return;
+        event.stopPropagation();
+        setPinned(undefined);
+      }}
+      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]"
+    >
       <section
         className="border-border bg-surface-recessed flex min-h-0 flex-col overflow-hidden rounded-xl border"
         aria-label="Source"
@@ -152,10 +165,17 @@ export function CodeSourceView({
             <ToggleGroupItem value="formatted">Formatted</ToggleGroupItem>
             <ToggleGroupItem value="saved">As saved</ToggleGroupItem>
           </ToggleGroup>
-          <span className="text-muted-foreground text-xs">
+          <span className="text-muted-foreground ml-auto text-xs">
             {saved.length} {saved.length === 1 ? 'line' : 'lines'} saved → {formatted.length}{' '}
             formatted
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void copyText(code, 'Source copied', 'As saved, not formatted.')}
+          >
+            <Copy size={13} aria-hidden="true" /> Copy
+          </Button>
         </div>
         <div
           ref={codeRef}
@@ -206,7 +226,7 @@ export function CodeSourceView({
           <div>
             <h3 className="text-sm font-semibold">What this code uses</h3>
             <p className="text-muted-foreground mt-1 text-xs">
-              Hover or click an entry to find it in the source.
+              Hover or click an entry to find it in the source; Esc clears it.
             </p>
           </div>
           {nothingUsed ? (
