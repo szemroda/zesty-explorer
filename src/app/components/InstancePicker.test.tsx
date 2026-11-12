@@ -106,7 +106,9 @@ describe('InstancePicker', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
     expect(await screen.findByText('Loading instances…')).toBeInTheDocument();
-    expect(screen.queryByText('No instances found.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('No instance matches. Paste its Zesty URL below.'),
+    ).not.toBeInTheDocument();
   });
 
   it.each([

@@ -117,7 +117,7 @@ export function CollectionPicker({
               <Combobox.List className="max-h-72 overflow-y-auto p-1 outline-none">
                 {(group: PickerGroup) => (
                   <Combobox.Group key={group.value} items={group.items} className="py-1">
-                    <Combobox.GroupLabel className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                    <Combobox.GroupLabel className="text-muted-foreground py-1.5 pr-2 pl-8 text-xs font-medium">
                       {group.value}
                     </Combobox.GroupLabel>
                     <Combobox.Collection>
