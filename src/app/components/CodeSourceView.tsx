@@ -134,7 +134,9 @@ export function CodeSourceView({
     0;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4">
+    // Below xl a 340px side column would leave the source a third of the width, so the
+    // explanations move under it, side by side.
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]">
       <section
         className="border-border bg-surface-recessed flex min-h-0 flex-col overflow-hidden rounded-xl border"
         aria-label="Source"
@@ -196,7 +198,7 @@ export function CodeSourceView({
         </div>
       </section>
 
-      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.25fr)] gap-4">
+      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.25fr)] gap-4 max-xl:grid-cols-2 max-xl:grid-rows-1">
         <aside
           className="border-border bg-card flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border p-4"
           aria-label="What this code uses"

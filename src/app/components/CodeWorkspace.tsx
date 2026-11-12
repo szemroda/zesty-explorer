@@ -48,6 +48,7 @@ import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
+import { TooltipTrigger } from './ui/tooltip';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/skeleton';
@@ -293,15 +294,22 @@ export function CodeWorkspace({
               <History size={14} aria-hidden="true" />
               History
             </Button>
-            <a
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              href={managerCodeFileUrl(instance, named.id)}
-              target="_blank"
-              rel="noreferrer"
+            {/* Below xl the label hides so the file header stays on one row. */}
+            <TooltipTrigger
+              text="Open in Zesty Manager"
+              render={
+                <a
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  href={managerCodeFileUrl(instance, named.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open in Zesty Manager"
+                />
+              }
             >
               <ExternalLink size={14} aria-hidden="true" />
-              Open in Zesty Manager
-            </a>
+              <span className="max-xl:hidden">Open in Zesty Manager</span>
+            </TooltipTrigger>
           </div>
         ) : null}
         {historyOpen && named ? (
