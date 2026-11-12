@@ -23,7 +23,7 @@ function ToggleGroupItem<Value extends string>({
     <TogglePrimitive
       data-slot="toggle-group-item"
       className={cn(
-        'inline-flex h-7 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-muted-foreground outline-none transition-colors hover:bg-surface-menu-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 data-pressed:bg-panel-raised data-pressed:text-foreground data-pressed:shadow-sm',
+        'inline-flex h-7 cursor-pointer items-center rounded-md px-2.5 text-xs font-semibold text-muted-foreground outline-none transition-colors hover:bg-surface-menu-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/45 data-pressed:bg-panel-raised data-pressed:text-foreground data-pressed:shadow-sm',
         className,
       )}
       {...props}

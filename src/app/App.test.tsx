@@ -1672,7 +1672,9 @@ describe('form errors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     const token = screen.getByLabelText('Zesty session token');
     expect(token).toHaveAttribute('aria-invalid', 'true');
-    expect(token).toHaveAccessibleDescription('Enter the Production session token.');
+    expect(token).toHaveAccessibleDescription(
+      'It carries your Zesty permissions. Explorer keeps it in this browser tab only and never puts it in a view link. Enter the Production session token.',
+    );
     expect(token).toHaveFocus();
     startSession();
     const input = screen.getByLabelText('Or paste a Zesty URL');

@@ -1174,7 +1174,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 onSubmit={confirmRoot}
               >
                 <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                  Choose a root · {deploymentLabels[deployment]}
+                  {reference ? 'Choose a root' : 'Step 2 of 2'} · {deploymentLabels[deployment]}
                 </p>
                 <h2 className="text-xl font-semibold" id="root-picker-title">
                   Choose an instance and root collection
