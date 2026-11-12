@@ -1059,17 +1059,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
           aria-label="Collection tree"
         >
-          {treeRoot && loadedView?.schemas.get(treeRoot.id) ? (
+          {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
+          {treeRoot ? (
             <TreeEditor
               root={{
                 ...treeRoot,
                 name:
                   treeRoot.name === treeRoot.reference.modelZuid
-                    ? loadedView.schemas.get(treeRoot.id)!.label
+                    ? (loadedView?.schemas.get(treeRoot.id)?.label ?? treeRoot.name)
                     : treeRoot.name,
               }}
-              rootSchema={loadedView.schemas.get(treeRoot.id)!}
-              schemas={loadedView.schemas}
+              schemas={loadedView?.schemas ?? noNodeSchemas}
               catalog={catalogQuery.catalog?.collections ?? []}
               catalogError={catalogQuery.error}
               catalogWarning={catalogQuery.catalog?.warning}
@@ -1089,16 +1089,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 )
               }
             />
-          ) : reference ? (
-            <>
-              <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-xs font-semibold tracking-wider uppercase">
-                <Database size={15} /> <span>Collections</span>
-              </div>
-              <div className="bg-accent/60 flex min-h-9 items-center gap-2 rounded-md px-2 text-sm font-medium">
-                <span className="bg-primary size-1.5 rounded-full" />
-                <span>{reference.modelZuid}</span>
-              </div>
-            </>
           ) : (
             <div className="text-muted-foreground flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-center text-sm">
               <Database size={18} />

@@ -1049,6 +1049,29 @@ describe('root collection browser', () => {
     expect(await screen.findByText('Added 3 related collections')).toBeInTheDocument();
   });
 
+  it('shows related collections found before the root collection loads', async () => {
+    const rootItems = Effect.runSync(Deferred.make<CollectionSnapshot, ExplorerError>());
+    const testApi: ZestyApi = {
+      ...relatedCollectionsApi(),
+      loadCollectionSnapshot: (reference) =>
+        reference.modelZuid === schema.modelZuid
+          ? Deferred.await(rootItems)
+          : Effect.succeed(snapshot),
+    };
+    render(<App api={testApi} tokenStore={memoryTokenStore()} />);
+    await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123', {
+      addRelated: true,
+    });
+
+    expect(await screen.findByText('Added 2 related collections')).toBeInTheDocument();
+    const tree = screen.getByRole('complementary', { name: 'Collection tree' });
+    expect(
+      within(tree)
+        .getAllByRole('listitem')
+        .map((item) => item.firstChild?.textContent),
+    ).toEqual(['Stories', 'Tags', 'Authors']);
+  });
+
   it('finishes adding related collections after a Refresh while they load', async () => {
     const authorsReady = Effect.runSync(Deferred.make<CollectionSchema, ExplorerError>());
     const testApi: ZestyApi = {
@@ -1718,8 +1741,9 @@ describe('form errors', () => {
       <App api={api()} tokenStore={memoryTokenStore([['production', 'stored-session-token']])} />,
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Actions for Related stories' }));
+    // The item appears once the parent's schema loads.
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Edit relationship for Related stories' }),
+      await screen.findByRole('menuitem', { name: 'Edit relationship for Related stories' }),
     );
     const parentPath = await screen.findByLabelText('Parent field path');
     fireEvent.change(parentPath, { target: { value: '' } });

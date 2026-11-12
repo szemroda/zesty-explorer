@@ -52,7 +52,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 interface TreeEditorProps {
   readonly root: CollectionNode;
-  readonly rootSchema: CollectionSchema;
+  /** Each loaded node's schema. A node without one can't list or add related collections yet. */
   readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
   readonly catalog: readonly CollectionCatalogEntry[];
   readonly catalogError: ExplorerError | undefined;
@@ -831,7 +831,6 @@ function TreeNodeRow({
 
 export function TreeEditor({
   root,
-  rootSchema,
   schemas,
   catalog,
   catalogError,
@@ -846,13 +845,9 @@ export function TreeEditor({
   onRemove,
   onRelationshipChange,
 }: TreeEditorProps) {
-  const availableSchemas = useMemo(
-    () => (schemas.size > 0 ? schemas : new Map([[root.id, rootSchema]])),
-    [root.id, rootSchema, schemas],
-  );
   const linked = useMemo(
-    () => relatedCollectionsFor(root.reference, catalog, schemaIndex, availableSchemas),
-    [availableSchemas, catalog, root.reference, schemaIndex],
+    () => relatedCollectionsFor(root.reference, catalog, schemaIndex, schemas),
+    [catalog, root.reference, schemaIndex, schemas],
   );
   const related: RelatedContext = { ...linked, schemaIndex, catalogError, onFindReferences };
   return (
@@ -868,7 +863,7 @@ export function TreeEditor({
           onRename={onRename}
           onChangeRoot={onChangeRoot}
           onRemove={onRemove}
-          schemas={availableSchemas}
+          schemas={schemas}
           catalog={catalog}
           catalogError={catalogError}
           catalogWarning={catalogWarning}
