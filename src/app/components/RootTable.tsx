@@ -50,7 +50,11 @@ export function RootTableSkeleton({ title }: { readonly title: string }) {
     <section className={`overflow-hidden ${panelClassName}`}>
       <div className={headerClassName}>
         <div className="grid gap-1.5">
-          <Skeleton className="h-5 w-36" />
+          {/* The name is known before the items arrive, so the header shows it at once. The
+              status below announces it; the real heading comes with the table. */}
+          <p className="m-0 text-[17px] font-bold tracking-[-0.02em]" aria-hidden="true">
+            {title}
+          </p>
           <Skeleton className="h-2.5 w-20" />
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
