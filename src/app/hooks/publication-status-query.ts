@@ -14,10 +14,15 @@ export interface PublicationStatusSource {
   readonly credentialRevision: string;
 }
 
+/**
+ * Loads one item's publication status as background work. Statuses in a higher `group` load
+ * first; a newer render's rows get a higher group, so rows the user opened last load first.
+ */
 export async function loadPublicationStatus(
   source: PublicationStatusSource,
   reference: ContentItemReference,
   item: ContentItem,
+  group: number,
   signal: AbortSignal,
 ): Promise<PublicationStatus> {
   const result = await runExplorerQuery(
@@ -27,7 +32,7 @@ export async function loadPublicationStatus(
         source.api.loadItemPublishings(reference, source.sessionToken),
       ] as const,
       { concurrency: 2 },
-    ).pipe(withRequestPriority('background')),
+    ).pipe(withRequestPriority({ kind: 'background', group })),
     signal,
   );
   const status = publicationStatus(

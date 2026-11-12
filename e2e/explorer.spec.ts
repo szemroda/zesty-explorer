@@ -621,6 +621,21 @@ test('creates native and custom roles, expands related rows, and preserves detai
   ).toBeVisible();
 });
 
+test('loads the publication status of an expanded row before the rest of the root page', async ({
+  page,
+}) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  // The root page's 100 badges take about 30 seconds of paced requests, so they are still loading.
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await expect(children.getByRole('img', { name: 'Latest saved version v2' })).toHaveCount(25, {
+    timeout: 15_000,
+  });
+  await expect(page.getByRole('status', { name: 'Loading publication status' })).not.toHaveCount(0);
+});
+
 test('uses descendant filters and restores a non-secret link in another tab', async ({
   page,
   context,

@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
+import { memoryCooldownStorage, memoryRequestSlots } from '../../test/request-budget';
+import { createRequestBudget } from '../../zesty-api/request-budget';
 import { refreshActivePublicationStatuses } from '../hooks/publication-status-query';
 import { PublicationStatusCell, PublicationStatusProvider } from './PublicationStatusCell';
 
@@ -93,6 +95,51 @@ describe('publication status cell', () => {
     version = 9;
     expect(await refreshActivePublicationStatuses(client)).toBe(true);
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeInTheDocument();
+  });
+
+  it('loads the newest rows first and the rows of one render top to bottom', async () => {
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+    });
+    const loaded: string[] = [];
+    const api: ItemVersionApi = {
+      loadItemVersions: (itemReference) =>
+        budget.run('instances', () =>
+          Effect.sync(() => {
+            loaded.push(itemReference.itemZuid);
+            return [{ number: 8, item }];
+          }),
+        ),
+      loadItemPublishings: () => budget.run('instances', () => Effect.succeed([])),
+      loadInstanceUsers: () => Effect.succeed([]),
+    };
+    const client = new QueryClient();
+    const rows = (ids: readonly ContentItemReference['itemZuid'][]) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+          {ids.map((id) => (
+            <PublicationStatusCell
+              key={id}
+              item={item}
+              reference={{ ...reference, itemZuid: id }}
+            />
+          ))}
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    // A root page renders while every slot is busy; a later render opens nested rows.
+    const { rerender } = render(rows(['7-root-1', '7-root-2', '7-root-3']));
+    await act(() => Promise.resolve());
+    rerender(rows(['7-root-1', '7-nested-1', '7-nested-2', '7-root-2', '7-root-3']));
+    await act(() => Promise.resolve());
+    release();
+
+    await vi.waitFor(() => expect(loaded).toHaveLength(5));
+    expect(loaded).toEqual(['7-nested-1', '7-nested-2', '7-root-1', '7-root-2', '7-root-3']);
   });
 
   it('keeps separate badges when the latest version is also published', async () => {

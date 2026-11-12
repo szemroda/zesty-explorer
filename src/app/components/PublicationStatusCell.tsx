@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import {
   loadPublicationStatus,
@@ -13,6 +13,20 @@ import { TooltipTrigger } from './ui/tooltip';
 
 const cacheTime = 5 * 60 * 1_000;
 const StatusSourceContext = createContext<PublicationStatusSource | null>(null);
+
+let lastGroup = 0;
+let renderGroup: number | undefined;
+/** One request group for every cell mounted in the same render, newer than any earlier render. */
+function currentRenderGroup(): number {
+  if (renderGroup === undefined) {
+    lastGroup += 1;
+    renderGroup = lastGroup;
+    queueMicrotask(() => {
+      renderGroup = undefined;
+    });
+  }
+  return renderGroup;
+}
 
 export function PublicationStatusProvider({
   api,
@@ -61,6 +75,7 @@ function ConnectedPublicationStatusCell({
   readonly item: ContentItem;
   readonly reference: ContentItemReference;
 }) {
+  const [group] = useState(currentRenderGroup);
   const query = useQuery({
     queryKey: [
       ...publicationStatusQueryPrefix,
@@ -70,7 +85,7 @@ function ConnectedPublicationStatusCell({
       reference.modelZuid,
       reference.itemZuid,
     ],
-    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, signal),
+    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, group, signal),
     retry: false,
     staleTime: Infinity,
     gcTime: cacheTime,

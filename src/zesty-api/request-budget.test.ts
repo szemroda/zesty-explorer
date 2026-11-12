@@ -99,7 +99,7 @@ describe('per-tab request admission', () => {
             order.push('badge');
           }),
         )
-        .pipe(withRequestPriority('background')),
+        .pipe(withRequestPriority({ kind: 'background', group: 0 })),
     );
     const foreground = Array.from({ length: 10 }, (_, index) =>
       Effect.runPromise(
@@ -126,6 +126,40 @@ describe('per-tab request admission', () => {
       'open-8',
       'open-9',
     ]);
+  });
+
+  it('starts the newest background group first, in request order within each group', async () => {
+    vi.useFakeTimers();
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+      dispatchWindowMs: 10,
+    });
+    const order: string[] = [];
+    const work = [
+      ['root-1', 1],
+      ['root-2', 1],
+      ['nested-1', 2],
+      ['nested-2', 2],
+      ['root-3', 1],
+    ].map(([name, group]) =>
+      Effect.runPromise(
+        budget
+          .run('instances', () =>
+            Effect.sync(() => {
+              order.push(String(name));
+            }),
+          )
+          .pipe(withRequestPriority({ kind: 'background', group: Number(group) })),
+      ),
+    );
+    release();
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all(work);
+    expect(order).toEqual(['nested-1', 'nested-2', 'root-1', 'root-2', 'root-3']);
   });
 
   it('never executes cancelled queued work and releases active work on interruption', async () => {
