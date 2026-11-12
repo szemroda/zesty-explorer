@@ -5,6 +5,7 @@
 import { Effect, Either } from 'effect';
 import {
   ArrowRight,
+  Copy,
   ExternalLink,
   FileCode2,
   LoaderCircle,
@@ -26,6 +27,7 @@ import {
 } from '../../zesty-api';
 import { endpointPath, endpointUrl, wildcardCount, type QueryParameter } from '../endpoint-address';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
+import { copyText } from '../copy-text';
 import { cn } from '../lib/utils';
 import { tokenClasses } from '../code-presentation';
 import { bodyFormat, bodyTokens, formattedBody, type BodyFormat } from '../response-body';
@@ -417,12 +419,7 @@ export function EndpointRequest({
         {pane === 'source' ? (
           children
         ) : (
-          <ResponsePane
-            result={result}
-            currentUrl={url}
-            sendingUrl={sendingUrl}
-            onCancel={cancel}
-          />
+          <ResponsePane result={result} currentUrl={url} sendingUrl={sendingUrl} />
         )}
       </div>
     </div>
@@ -435,13 +432,11 @@ function ResponsePane({
   result,
   currentUrl,
   sendingUrl,
-  onCancel,
 }: {
   readonly result: RequestResult | undefined;
   /** The address as the form reads now; a result for another address is from an earlier send. */
   readonly currentUrl: string | undefined;
   readonly sendingUrl: string | undefined;
-  readonly onCancel: () => void;
 }) {
   const [presentation, setPresentation] = useState<BodyPresentation>('formatted');
   const response = result?.kind === 'response' ? result.response : undefined;
@@ -516,6 +511,16 @@ function ResponsePane({
           >
             {result.url}
           </TooltipTrigger>
+          {response ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-mr-2 shrink-0"
+              onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
+            >
+              <Copy size={13} aria-hidden="true" /> Copy
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {response?.rateLimit ? (
@@ -543,17 +548,15 @@ function ResponsePane({
         ) : result?.kind === 'failure' ? (
           <FailureMessage url={result.url} failure={result.failure} />
         ) : sendingUrl ? (
+          // Cancel lives in the request bar, beside the button that sent the request.
           <Message>
             <span className="inline-flex items-center gap-2">
               <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
               Waiting for <code className="break-all">{sendingUrl}</code>
             </span>
-            <Button variant="outline" size="sm" onClick={onCancel}>
-              Cancel
-            </Button>
           </Message>
         ) : (
-          <Message>Fill in the address bar and send the request to see its response here.</Message>
+          <Message>Send the request to see its response here.</Message>
         )}
       </div>
     </section>

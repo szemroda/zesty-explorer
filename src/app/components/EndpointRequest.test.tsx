@@ -269,7 +269,7 @@ describe('EndpointRequest', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
     await waitFor(() => expect(signal?.aborted).toBe(true));
     expect(screen.getByRole('region', { name: 'Response' })).toHaveTextContent(
-      'send the request to see its response here',
+      'Send the request to see its response here',
     );
   });
 });
