@@ -214,6 +214,7 @@ export function ContentTableGrid({
         style={{ scrollPaddingInlineStart: table.getStartTotalSize() }}
       >
         <Table
+          aria-label={label}
           className="border-separate border-spacing-0 text-xs"
           style={{
             width: `max(100%, ${table.getTotalSize()}px)`,
