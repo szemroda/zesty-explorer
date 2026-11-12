@@ -11,9 +11,15 @@ const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
 
 export const columnWidthLimits = { min: 90, max: 520 } as const;
 export const defaultContentColumnWidth = 190;
-// The fields itemDisplayLabel names items by, in order. Their columns start wider.
+// Fields that name items: these first, in order, then any field named like `full_name` or
+// `headline`. Their columns start wider.
 const labelFieldNames = ['title', 'name'];
+const labelFieldPattern = /(?:^|_)(?:title|name|label|headline)$/i;
 const labelColumnWidth = 300;
+
+function isLabelField(name: string): boolean {
+  return labelFieldNames.includes(name) || labelFieldPattern.test(name);
+}
 
 interface ColumnDefinition {
   readonly id: string;
@@ -63,9 +69,7 @@ export function contentItemColumns(
       label: field.label,
       technical: false,
       sortable: true,
-      defaultWidth: labelFieldNames.includes(field.name)
-        ? labelColumnWidth
-        : defaultContentColumnWidth,
+      defaultWidth: isLabelField(field.name) ? labelColumnWidth : defaultContentColumnWidth,
       richText: field.datatype?.startsWith('wysiwyg') ?? false,
       relationship: field.kind === 'relationship',
       read: (item: ContentItem) => item.fields[field.name],
@@ -161,7 +165,12 @@ export function visibleColumnIds(
 
 // Human-readable item name for buttons and titles; falls back to the ZUID when untitled.
 export function itemDisplayLabel(item: ContentItem): string {
-  const label = labelFieldNames
+  const label = [
+    ...labelFieldNames,
+    ...Object.keys(item.fields).filter(
+      (name) => !labelFieldNames.includes(name) && labelFieldPattern.test(name),
+    ),
+  ]
     .map((name) => item.fields[name])
     .filter((value) => value !== null && value !== undefined && value !== '')
     .map(formatContentValue)

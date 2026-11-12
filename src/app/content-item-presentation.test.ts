@@ -107,6 +107,9 @@ describe('content item presentation', () => {
       'Named item',
     );
     expect(itemDisplayLabel({ ...item, fields: { title: '<p></p>' } })).toBe('7-item');
+    expect(itemDisplayLabel({ ...item, fields: { role: 'Editor', full_name: 'Ada Keller' } })).toBe(
+      'Ada Keller',
+    );
   });
 });
 
