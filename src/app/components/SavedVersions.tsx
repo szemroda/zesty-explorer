@@ -261,10 +261,13 @@ export function ModeToggle({
   label,
   mode,
   onChange,
+  compareDisabled = false,
 }: {
   readonly label: string;
   readonly mode: HistoryMode;
   readonly onChange: (mode: HistoryMode) => void;
+  /** Set once the history is known to hold fewer than two versions. */
+  readonly compareDisabled?: boolean;
 }) {
   return (
     <ToggleGroup
@@ -276,7 +279,12 @@ export function ModeToggle({
       }}
     >
       {HISTORY_MODES.map(({ value, label }) => (
-        <ToggleGroupItem key={value} value={value} className="px-3">
+        <ToggleGroupItem
+          key={value}
+          value={value}
+          className="px-3"
+          disabled={value === 'compare' && compareDisabled}
+        >
           {label}
         </ToggleGroupItem>
       ))}

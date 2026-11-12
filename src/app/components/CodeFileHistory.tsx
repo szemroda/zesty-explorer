@@ -290,7 +290,12 @@ export function CodeFileHistory({
                       <TabsTrigger value="formatted">Formatted</TabsTrigger>
                       <TabsTrigger value="saved">As saved</TabsTrigger>
                     </TabsList>
-                    <ModeToggle label="Code history mode" mode={mode} onChange={selectMode} />
+                    <ModeToggle
+                      label="Code history mode"
+                      mode={mode}
+                      onChange={selectMode}
+                      compareDisabled={historyLoaded && options.length < 2}
+                    />
                   </div>
                   {/* Only the active panel mounts, so both render the chosen presentation. */}
                   <TabsContent value="formatted">{content}</TabsContent>

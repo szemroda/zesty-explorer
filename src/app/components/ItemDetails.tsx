@@ -309,7 +309,12 @@ function ItemDetailsPanel({
                   <TabsTrigger value="fields">Fields</TabsTrigger>
                   <TabsTrigger value="raw">Raw JSON</TabsTrigger>
                 </TabsList>
-                <ModeToggle label="Item history mode" mode={mode} onChange={selectMode} />
+                <ModeToggle
+                  label="Item history mode"
+                  mode={mode}
+                  onChange={selectMode}
+                  compareDisabled={historyLoaded && preview.options.length < 2}
+                />
               </div>
               <TabsContent value="raw">
                 {mode === 'view' ? (
