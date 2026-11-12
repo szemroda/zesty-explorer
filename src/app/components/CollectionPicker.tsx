@@ -53,7 +53,7 @@ export function CollectionPicker({
   return (
     <Field error={error}>
       <Combobox.Root
-        key={`${value ?? 'empty'}:${selected?.label ?? ''}`}
+        autoHighlight
         items={groups}
         value={selected ?? null}
         onValueChange={(collection) => onChange(collection ?? undefined)}

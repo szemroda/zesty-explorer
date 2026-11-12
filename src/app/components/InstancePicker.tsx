@@ -64,7 +64,7 @@ export function InstancePicker({
     <div className="grid gap-3">
       <Field error={error}>
         <Combobox.Root
-          key={`${value?.deployment ?? ''}:${value?.instanceZuid ?? 'empty'}`}
+          autoHighlight
           items={choices}
           value={selected ?? null}
           onValueChange={(choice) => onChange(choice?.reference)}

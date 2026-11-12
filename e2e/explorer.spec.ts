@@ -420,6 +420,30 @@ test('reads the view in a language chosen from the instance languages', async ({
   await expect(page.getByRole('combobox', { name: 'Content language' })).toContainText('de-DE');
 });
 
+test('picks the instance and root with the keyboard alone', async ({ page }) => {
+  await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.keyboard.press('Enter');
+
+  // Enter takes the first match, and focus stays in the field for the next Tab.
+  const instance = page.getByRole('combobox', { name: 'Instance' });
+  await expect(instance).toBeFocused();
+  await expect(instance).toHaveAttribute('placeholder', 'Search instances by name or ZUID');
+  await page.keyboard.type('Fixture');
+  await page.keyboard.press('Enter');
+  await expect(instance).toHaveValue('Fixture site');
+  await expect(instance).toBeFocused();
+
+  const root = page.getByRole('combobox', { name: 'Root collection' });
+  await expect(root).toBeEnabled();
+  await root.focus();
+  await page.keyboard.type('root');
+  await page.keyboard.press('Enter');
+  await expect(root).toHaveValue('6-rootmodel');
+  await expect(root).toBeFocused();
+});
+
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {
   const state = await installFakeApi(page);
   await page.goto('/');
