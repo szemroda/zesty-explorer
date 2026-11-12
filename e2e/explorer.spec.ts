@@ -457,6 +457,19 @@ test('picks the instance and root with the keyboard alone', async ({ page }) => 
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeFocused();
 });
 
+test('renames a collection from its menu without leaving the keyboard', async ({ page }) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Rename' }).press('Enter');
+
+  await expect(page.getByRole('textbox', { name: 'Rename 6-rootmodel' })).toBeFocused();
+  await page.keyboard.type('Stories');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
+});
+
 test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {
   await installFakeApi(page);
   await page.goto('/');

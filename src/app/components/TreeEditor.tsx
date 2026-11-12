@@ -704,6 +704,10 @@ function TreeNodeRow({
   const [editing, setEditing] = useState(false);
   const [addingOther, setAddingOther] = useState(false);
   const [name, setName] = useState(node.name);
+  // Rename hands focus to the name field instead of back to the menu button, and Enter or Escape
+  // hands it back.
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  const renaming = useRef(false);
 
   return (
     <li>
@@ -718,16 +722,24 @@ function TreeNodeRow({
             className="h-7 min-w-0 flex-1"
             aria-label={`Rename ${node.name}`}
             value={name}
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => {
               onRename(node.id, name);
               setEditing(false);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Enter') {
+                // Without this, Enter's keypress would also press the button focused below.
+                event.preventDefault();
+                event.currentTarget.blur();
+                actionsButton.current?.focus();
+              }
               if (event.key === 'Escape') {
                 setName(node.name);
                 setEditing(false);
+                actionsButton.current?.focus();
               }
             }}
           />
@@ -752,6 +764,7 @@ function TreeNodeRow({
           <DropdownMenuTrigger
             render={
               <Button
+                ref={actionsButton}
                 variant="ghost"
                 size="icon"
                 className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
@@ -761,8 +774,22 @@ function TreeNodeRow({
           >
             <MoreHorizontal size={15} />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="right" keepMounted>
-            <DropdownMenuItem onClick={() => setEditing(true)}>
+          <DropdownMenuContent
+            align="start"
+            side="right"
+            keepMounted
+            finalFocus={() => {
+              const restore = !renaming.current;
+              renaming.current = false;
+              return restore;
+            }}
+          >
+            <DropdownMenuItem
+              onClick={() => {
+                renaming.current = true;
+                setEditing(true);
+              }}
+            >
               <Pencil size={12} /> <span>Rename</span>
             </DropdownMenuItem>
             {node.id === root.id ? (
