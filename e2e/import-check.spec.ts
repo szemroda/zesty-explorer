@@ -80,6 +80,21 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
   expect(requests.filter((request) => !request.startsWith('GET '))).toEqual([]);
 });
 
+test('closes line details when a filter hides their line', async ({ page }) => {
+  await checkStoresCsv(page);
+  await summary(page).getByRole('button', { name: 'internal_notes' }).click();
+  await lines(page)
+    .getByRole('button', { name: /^Line 2, row 1:/ })
+    .click();
+  const details = page.getByRole('complementary', { name: 'Line details' });
+  await expect(details.getByRole('heading', { level: 3 })).toHaveText('Line 2 · row 1');
+
+  // Back in Needs attention, line 2 is not listed, so neither are its details.
+  await page.getByRole('button', { name: 'Back to the overview' }).click();
+  await expect(details).toBeHidden();
+  await expect(summary(page).getByRole('button', { name: 'internal_notes' })).toBeFocused();
+});
+
 test('says so when no line needs attention', async ({ page }) => {
   await checkStoresCsv(page, 'name,slug\r\nNew Store,new-store\r\nOther Store,other-store\r\n');
   await expect(summary(page)).toContainText('2 items expected');

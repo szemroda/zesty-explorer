@@ -19,6 +19,7 @@ import {
   describeFileProblem,
   fileLines,
   issueCopy,
+  isDropped,
   lineRange,
   importableRowsCsv,
   markdownReport,
@@ -264,7 +265,9 @@ function Workspace({
     if (finding) return true;
     return showAll || needsAttention(line);
   });
-  const selected = lines.find((line) => line.line === selectedLine);
+  // A filter can hide the chosen line; its details close with it.
+  const selected = visible.find((line) => line.line === selectedLine);
+  const openLine = selected?.line;
   const attentionCount = useMemo(() => lines.filter(needsAttention).length, [lines]);
 
   useEffect(() => {
@@ -293,9 +296,9 @@ function Workspace({
 
   function jumpToRow(row: number) {
     const target = check.rows[row - 1];
-    if (!target || selectedLine === undefined) return;
+    if (!target || openLine === undefined) return;
     const line = target.record.line;
-    setReturnTo({ line: selectedLine, findingId, search, showAll });
+    setReturnTo({ line: openLine, findingId, search, showAll });
     if (!visible.some((candidate) => candidate.line === line)) {
       setFindingId(undefined);
       setSearch('');
@@ -331,6 +334,26 @@ function Workspace({
     );
   }
 
+  // What the table says when no line is shown; the heading already counts the matches.
+  const emptyNote = (text: string) => (
+    <p className="text-muted-foreground p-8 text-center text-sm">{text}</p>
+  );
+  const gridEmpty =
+    lines.length === 0 ? (
+      emptyNote(`${emptyFileText(check)} Choose another file with Change.`)
+    ) : query.kind === 'text' ? (
+      emptyNote('Search looks in cell text. Type “line 12” or “row 12” to go to a line.')
+    ) : query.kind === 'line' ? (
+      emptyNote(`The file has no line ${query.line}.`)
+    ) : query.kind === 'row' ? (
+      emptyNote(`The file has no row ${query.row}.`)
+    ) : !finding && !showAll ? (
+      <NothingNeedsAttention
+        totalLines={check.funnel.dataLines}
+        onShowAll={() => setShowAll(true)}
+      />
+    ) : undefined;
+
   return (
     <div
       className="flex h-[calc(100vh-72px)] flex-col"
@@ -338,10 +361,10 @@ function Workspace({
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;
         if ((event.target as HTMLElement).closest('[role="listbox"], [role="menu"]')) return;
-        if (selectedLine !== undefined) {
+        if (openLine !== undefined) {
           setSelectedLine(undefined);
           setReturnTo(undefined);
-          focusRow(selectedLine);
+          focusRow(openLine);
           return;
         }
         if (findingId !== undefined) clearFinding();
@@ -435,7 +458,11 @@ function Workspace({
         </nav>
         <section
           ref={contents}
-          className="flex min-h-0 min-w-0 flex-col"
+          className={cn(
+            'flex min-h-0 min-w-0 flex-col',
+            // Below xl the details cover the bottom half, so the chosen line stays above them.
+            selected && 'max-xl:[&_table]:mb-[50vh] max-xl:[&_tr]:scroll-mb-[52vh]',
+          )}
           aria-label="File contents"
         >
           <GridHeading
@@ -451,7 +478,7 @@ function Workspace({
           <ImportCheckGrid
             check={check}
             lines={visible}
-            selectedLine={selectedLine}
+            selectedLine={openLine}
             onSelect={(line) => {
               setSelectedLine((current) => (current === line ? undefined : line));
               setReturnTo(undefined);
@@ -459,25 +486,7 @@ function Workspace({
             onMap={(header, field) => onMappingChange(mapColumn(check.mapping, header, field))}
             {...(query.kind === 'text' ? { highlight: query.text } : {})}
             {...(finding?.column !== undefined ? { focusColumn: finding.column } : {})}
-            {...(lines.length === 0
-              ? {
-                  empty: (
-                    <p className="text-muted-foreground p-8 text-center text-sm">
-                      {emptyFileText(check)} Choose another file with Change.
-                    </p>
-                  ),
-                }
-              : {})}
-            {...(lines.length > 0 && query.kind === 'none' && !finding && !showAll
-              ? {
-                  empty: (
-                    <NothingNeedsAttention
-                      totalLines={check.funnel.dataLines}
-                      onShowAll={() => setShowAll(true)}
-                    />
-                  ),
-                }
-              : {})}
+            {...(gridEmpty ? { empty: gridEmpty } : {})}
           />
         </section>
         {selected ? (
@@ -485,12 +494,12 @@ function Workspace({
             entry={selected}
             check={check}
             onClose={() => {
-              if (selectedLine !== undefined) focusRow(selectedLine);
+              if (openLine !== undefined) focusRow(openLine);
               setSelectedLine(undefined);
               setReturnTo(undefined);
             }}
             onJump={jumpToRow}
-            {...(returnTo && returnTo.line !== selectedLine
+            {...(returnTo && returnTo.line !== openLine
               ? { back: { line: returnTo.line, onBack: goBack } }
               : {})}
           />
@@ -775,7 +784,8 @@ function Details({
           <ArrowLeft size={13} /> Back to line {back.line}
         </Button>
       ) : null}
-      <div className="mt-3 grid gap-4 text-sm">
+      {/* Long values break anywhere, so a URL cannot widen the panel. */}
+      <div className="mt-3 grid gap-4 text-sm [overflow-wrap:anywhere] [&>*]:min-w-0">
         <DetailsBody entry={entry} check={check} onJump={onJump} />
       </div>
     </aside>
@@ -866,10 +876,39 @@ function DetailsBody({
         <dl className="grid gap-2 text-xs">
           {check.columns.map((column) => {
             const value = row.record.cells[column.index] ?? '';
+            const kept = column.status === 'kept' ? column : undefined;
+            const issue = kept && row.issues.find((item) => item.column === column.header);
+            const tone = issue
+              ? issue.certainty === 'possible'
+                ? 'at-risk'
+                : 'rejected'
+              : undefined;
+            // Where the cell goes: a field, the URL, or nowhere.
+            const target = kept?.field?.label ?? (kept?.pathPart ? 'URL' : 'not imported');
             return (
-              <div key={column.index} className="grid gap-0.5">
-                <dt className="text-muted-foreground font-mono">{column.header}</dt>
-                <dd className="break-words whitespace-pre-wrap">
+              <div
+                key={column.index}
+                className={cn('grid gap-0.5', isDropped(column) && 'opacity-60')}
+              >
+                <dt className="text-muted-foreground flex items-center gap-1.5">
+                  {tone ? (
+                    <span
+                      className={cn('size-2 shrink-0 rounded-full', dot[tone])}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  <span className="font-mono">{column.header}</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="sr-only">goes to</span>
+                  <span>{target}</span>
+                </dt>
+                <dd
+                  className={cn(
+                    'whitespace-pre-wrap',
+                    tone === 'rejected' && 'text-rose-200',
+                    tone === 'at-risk' && 'text-amber-200',
+                  )}
+                >
                   {value.trim() === '' ? (
                     <span className="text-muted-foreground italic">empty</span>
                   ) : (

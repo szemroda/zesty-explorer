@@ -78,7 +78,7 @@ export function ImportCheckGrid({
               scope="col"
               className="border-border bg-surface-header text-muted-foreground sticky top-0 left-0 z-30 w-16 border-r border-b px-3 py-2 text-right font-mono font-normal"
             >
-              1
+              <span className="sr-only">Line </span>1<span className="sr-only">, the header</span>
             </th>
             {check.columns.map((column) => (
               <ColumnHeader
@@ -288,12 +288,7 @@ function GridRow({
         ? describeFileProblem(entry.problem)
         : 'Not read as a record.';
     return (
-      <tr
-        data-line={entry.line}
-        aria-selected={selected}
-        className={rowClass}
-        onClick={() => onSelect(entry.line)}
-      >
+      <tr data-line={entry.line} className={rowClass} onClick={() => onSelect(entry.line)}>
         <Gutter
           lines={[entry.line]}
           stripe={blank ? undefined : outcomeStripe.rejected}
@@ -337,12 +332,7 @@ function GridRow({
   const lineNumbers = Array.from({ length: row.record.lineSpan }, (_, index) => entry.line + index);
   const { primary } = row;
   return (
-    <tr
-      data-line={entry.line}
-      aria-selected={selected}
-      className={rowClass}
-      onClick={() => onSelect(entry.line)}
-    >
+    <tr data-line={entry.line} className={rowClass} onClick={() => onSelect(entry.line)}>
       <Gutter
         lines={lineNumbers}
         stripe={problem ? outcomeStripe.rejected : outcomeStripe[row.outcome]}
