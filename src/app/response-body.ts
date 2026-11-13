@@ -96,12 +96,52 @@ export function bodyTokens(body: string, format: BodyFormat): readonly BodyToken
   return tokens;
 }
 
+/**
+ * Valid JSON indented like `JSON.stringify(value, null, 2)`, but from its own text: numbers keep
+ * every digit and repeated keys stay, so the view never shows a value the server did not send.
+ */
 function formattedJson(text: string): string | undefined {
   try {
-    return JSON.stringify(JSON.parse(text), null, 2);
+    JSON.parse(text);
   } catch {
     return undefined;
   }
+  const out: string[] = [];
+  let depth = 0;
+  const newline = () => `\n${'  '.repeat(depth)}`;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (char === '"') {
+      const end = stringEnd(text, index);
+      out.push(text.slice(index, end));
+      index = end - 1;
+    } else if (char === '{' || char === '[') {
+      let next = index + 1;
+      while (' \t\n\r'.includes(text[next] ?? '.')) next += 1;
+      if (text[next] === (char === '{' ? '}' : ']')) {
+        out.push(char, text[next]!);
+        index = next;
+      } else {
+        depth += 1;
+        out.push(char, newline());
+      }
+    } else if (char === '}' || char === ']') {
+      depth -= 1;
+      out.push(newline(), char);
+    } else if (char === ',') out.push(',', newline());
+    else if (char === ':') out.push(': ');
+    else if (!' \t\n\r'.includes(char)) out.push(char);
+  }
+  return out.join('');
+}
+
+/** The index just past the JSON string that opens at `start`. */
+function stringEnd(text: string, start: number): number {
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === '\\') index += 1;
+    else if (text[index] === '"') return index + 1;
+  }
+  return text.length;
 }
 
 type MarkupNode =

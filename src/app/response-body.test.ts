@@ -13,6 +13,20 @@ describe('formattedBody', () => {
     expect(formattedBody('')).toBeUndefined();
   });
 
+  it('lays out JSON from its own text, keeping digits, repeated keys, and empty containers', () => {
+    expect(formattedBody('{"id":9007199254740993,"a":1,"a":[],"b":{ },"s":"x\\",y"}')).toBe(
+      lines(
+        '{',
+        '  "id": 9007199254740993,',
+        '  "a": 1,',
+        '  "a": [],',
+        '  "b": {},',
+        '  "s": "x\\",y"',
+        '}',
+      ),
+    );
+  });
+
   it('keeps short runs of text on one line and nests the rest', () => {
     const html =
       '<!DOCTYPE html><html><head><title>Guides</title><meta charset="utf-8"></head>' +
