@@ -728,9 +728,10 @@ test('loads the publication status of an expanded row before the rest of the roo
   // The root page's 100 badges take about 30 seconds of paced requests, so they are still loading.
   await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
-  await expect(children.getByRole('img', { name: 'Latest saved version v2' })).toHaveCount(25, {
-    timeout: 15_000,
-  });
+  // Only rows on or near the screen load their status, so the first child rows are enough.
+  await expect(
+    children.getByRole('img', { name: 'Currently published version v2' }).first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('status', { name: 'Loading publication status' })).not.toHaveCount(0);
 });
 
