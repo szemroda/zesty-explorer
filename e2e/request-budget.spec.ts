@@ -109,7 +109,7 @@ test('restores a cooldown on reload while another tab can send independently', a
     });
   });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Response' })).toContainText('429');
+  await expect(page.getByRole('region', { name: 'Response', exact: true })).toContainText('429');
   await expect(page.getByTestId('response-body').locator('pre').last()).toHaveText(
     'Please slow down',
   );
@@ -120,7 +120,7 @@ test('restores a cooldown on reload while another tab can send independently', a
   await page.reload();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Response' })).toContainText('Retry after');
+  await expect(page.getByRole('region', { name: 'Response', exact: true })).toContainText('Retry after');
   expect(sends).toBe(2);
   const saved = await page.evaluate(() => sessionStorage.getItem('zesty-request-cooldowns'));
   expect(JSON.parse(saved ?? 'null')).toEqual({

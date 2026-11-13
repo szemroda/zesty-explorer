@@ -121,8 +121,14 @@ test('filters files by name or URL and restores the filter from the link', async
   await expect(listed.first()).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(listed.nth(1)).toBeFocused();
-  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
   await expect(filter).toBeFocused();
+
+  // Enter in the filter opens the first file it lists.
+  await filter.fill('drafts');
+  await filter.press('Enter');
+  await expect(page.getByRole('heading', { name: '/data/drafts.json' })).toBeVisible();
 
   await filter.fill('no such file');
   await expect(page.getByText('No files match this filter.')).toBeVisible();
@@ -215,10 +221,18 @@ test('scrolls a long file to a pinned step in both presentations', async ({ page
   await page.getByRole('heading', { name: '/archive/by-category.html' }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('code-lines').locator('[data-highlighted]')).toHaveCount(0);
+
+  // Each explanation card is one Tab stop; arrow keys move between its entries.
+  const entries = steps(page).locator('[data-entry]');
+  await entries.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(entries.nth(1)).toBeFocused();
+  await expect(entries.nth(1)).toHaveAttribute('tabindex', '0');
+  await expect(entries.first()).toHaveAttribute('tabindex', '-1');
 });
 
 const request = (page: Page) => page.getByRole('form', { name: 'Request' });
-const response = (page: Page) => page.getByRole('region', { name: 'Response' });
+const response = (page: Page) => page.getByRole('region', { name: 'Response', exact: true });
 
 test('sends an endpoint request to the host of each code state', async ({ page }) => {
   await openInstance(page);
@@ -238,7 +252,7 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   // The locked preview answers because Send adds its password, which stays out of sight.
   const sent = `${previewOrigin}/data/articles.json?limit=2&category=guides`;
   await expect(response(page)).toContainText('200');
-  await expect(response(page)).toContainText(sent);
+  await expect(newTab).toHaveAttribute('href', sent);
   await expect(page.getByText('fixture-zpw')).toHaveCount(0);
   await expect(page.getByTestId('response-body')).toContainText('"title": "Guide article 2"');
   await toggle(page, 'Workspace pane', 'Source').click();
@@ -254,7 +268,7 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   await toggle(page, 'Code state', 'Latest').click();
   await expect(newTab).toHaveAttribute('href', sent);
   await toggle(page, 'Workspace pane', 'Response 200').click();
-  await expect(response(page)).toContainText(sent);
+  await expect(page.getByTestId('response-body')).toContainText('"title": "Guide article 2"');
 });
 
 test('hides the last response while a resent request is pending, and Cancel restores it', async ({

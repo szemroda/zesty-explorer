@@ -127,7 +127,6 @@ describe('EndpointRequest', () => {
       expect.anything(),
     );
     expect(newTabLink()).toHaveAttribute('href', `${preview}/data/list.json?limit=5`);
-    expect(response).toHaveTextContent(`${preview}/data/list.json?limit=5`);
     expect(response).not.toHaveTextContent('zpw');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add a query parameter' }));

@@ -40,6 +40,7 @@ import {
   type CodeCredentials,
   type WebEngineBaseUrlsResult,
 } from '../hooks/useCodeFiles';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { CodeFileHistory } from './CodeFileHistory';
 import { CodeSourceView, type SourcePresentation } from './CodeSourceView';
@@ -192,6 +193,7 @@ export function CodeWorkspace({
     [fileFilter, files],
   );
   const fileList = useRef<HTMLUListElement>(null);
+  const fileFilterInput = useRef<HTMLInputElement>(null);
 
   return (
     <div className="grid h-[calc(100vh-72px)] min-h-0 grid-cols-[16rem_minmax(0,1fr)]">
@@ -214,14 +216,21 @@ export function CodeWorkspace({
               aria-hidden="true"
             />
             <Input
+              ref={fileFilterInput}
               className="h-8 pl-8 text-xs"
               type="search"
               aria-label="Filter code files"
               placeholder="Filter by name or URL"
               value={fileFilter}
               onChange={(event) => onFileFilterChange(event.target.value)}
-              // ArrowDown moves from the filter into the files it left.
+              // ArrowDown moves from the filter into the files it left; Enter opens the first.
               onKeyDown={(event) => {
+                const first = listedFiles[0];
+                if (event.key === 'Enter' && first) {
+                  event.preventDefault();
+                  openFromList(first.id);
+                  return;
+                }
                 if (event.key !== 'ArrowDown') return;
                 const target = fileList.current?.querySelector<HTMLElement>('[tabindex="0"]');
                 if (!target) return;
@@ -262,7 +271,13 @@ export function CodeWorkspace({
               No files match this filter.
             </p>
           ) : null}
-          <CodeFileList ref={fileList} files={listedFiles} openId={fileId} onOpen={openFromList} />
+          <CodeFileList
+            ref={fileList}
+            files={listedFiles}
+            openId={fileId}
+            onOpen={openFromList}
+            onLeaveTop={() => fileFilterInput.current?.focus()}
+          />
         </div>
       </nav>
 
@@ -410,15 +425,6 @@ interface ExplainedFileProps {
   readonly onOpenCollection: (modelZuid: ModelZuid) => void;
 }
 
-// Parses once per file; re-analyzes as field schemas arrive, since each schema can reveal a
-// relationship whose related collection needs its own schema.
-const fileKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
-  ArrowDown: (index, count) => Math.min(index + 1, count - 1),
-  ArrowUp: (index) => Math.max(index - 1, 0),
-  Home: () => 0,
-  End: (_, count) => count - 1,
-};
-
 /**
  * The listed files as one Tab stop: the last focused file, else the open one, else the first.
  * Arrow keys, Home and End move between files; a real instance lists hundreds.
@@ -428,8 +434,11 @@ function CodeFileList({
   files,
   openId,
   onOpen,
+  onLeaveTop,
 }: {
   readonly ref: Ref<HTMLUListElement>;
+  /** ArrowUp on the first file, e.g. back to the filter above. */
+  readonly onLeaveTop: () => void;
   readonly files: readonly Pick<CodeFile, 'id' | 'type' | 'fileName'>[];
   readonly openId: CodeFileZuid | undefined;
   readonly onOpen: (id: CodeFileZuid) => void;
@@ -443,13 +452,14 @@ function CodeFileList({
       ref={ref}
       className="grid gap-0.5"
       onKeyDown={(event) => {
-        const move = fileKeys[event.key];
+        const move = listKeys[event.key];
         if (!move) return;
         const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('button')];
         const index = buttons.indexOf(event.target as HTMLElement);
         if (index < 0) return;
         event.preventDefault();
-        buttons[move(index, buttons.length)]?.focus();
+        if (index === 0 && event.key === 'ArrowUp') onLeaveTop();
+        else buttons[move(index, buttons.length)]?.focus();
       }}
     >
       {files.map((file) => (
@@ -474,6 +484,8 @@ function CodeFileList({
   );
 }
 
+// Parses once per file; re-analyzes as field schemas arrive, since each schema can reveal a
+// relationship whose related collection needs its own schema.
 function ExplainedFile({
   api,
   instance,

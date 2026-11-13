@@ -15,7 +15,14 @@ import {
   Split,
   Variable,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type { CodeFileZuid, ModelZuid } from '../../domain';
 import {
   matchingLines,
@@ -34,6 +41,7 @@ import {
   type ToneLookup,
 } from '../code-presentation';
 import { copyText } from '../copy-text';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -102,13 +110,35 @@ export function CodeSourceView({
   const { usage, steps } = analysis;
   const togglePin = (target: string) =>
     setPinned((current) => (current === target ? undefined : target));
-  const entryProps = (target: string) => ({
+  // Each card is one Tab stop: the last focused entry, else the pinned one, else the first.
+  // Arrow keys move between its entries, and an entry's own action follows it in Tab order.
+  const [focusedTarget, setFocusedTarget] = useState<string>();
+  const tabStopOf = (targets: readonly string[]) =>
+    [focusedTarget, pinned].find((target) => target !== undefined && targets.includes(target)) ??
+    targets[0];
+  const tabStops: Readonly<Record<Card, string | undefined>> = {
+    usage: tabStopOf([
+      ...usage.collections.map((entry) => entry.ref),
+      ...[
+        ...usage.inputs,
+        ...usage.variables,
+        ...usage.snippets,
+        ...usage.remote,
+        ...usage.unrecognized,
+      ].map((entry) => entry.target),
+    ]),
+    steps: tabStopOf(steps.map((step) => step.target)),
+  };
+  const entryProps = (target: string, card: Card) => ({
     active: active === target,
     pinned: pinned === target,
+    tabbable: tabStops[card] === target,
     onEnter: () => setHovered(target),
     onLeave: () => setHovered(undefined),
+    onFocus: () => setFocusedTarget(target),
     onSelect: () => togglePin(target),
   });
+  const usageProps = (target: string) => entryProps(target, 'usage');
 
   // Pinning scrolls the first matching line into view, in either presentation.
   useEffect(() => {
@@ -135,7 +165,10 @@ export function CodeSourceView({
     const clear = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       const target = event.target instanceof Element ? event.target : undefined;
-      if (target?.closest('[role="dialog"], [role="listbox"], [role="menu"]')) return;
+      // Escape in a text field leaves the field; it should not clear a highlight out of view.
+      if (target?.closest('[role="dialog"], [role="listbox"], [role="menu"], input, textarea')) {
+        return;
+      }
       setPinned(undefined);
       setHovered(undefined);
     };
@@ -245,6 +278,7 @@ export function CodeSourceView({
         <aside
           className="border-border bg-card flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border p-4"
           aria-label="What this code uses"
+          onKeyDown={moveBetweenEntries}
         >
           <div>
             <h3 className="text-sm font-semibold">What this code uses</h3>
@@ -270,7 +304,7 @@ export function CodeSourceView({
                 return (
                   <UsageEntry
                     key={ref}
-                    {...entryProps(ref)}
+                    {...usageProps(ref)}
                     actions={
                       <button
                         type="button"
@@ -282,16 +316,15 @@ export function CodeSourceView({
                       </button>
                     }
                   >
-                    {/* One row: the code name gives way first, then the label; badges stay. */}
-                    <div className="flex items-center gap-x-2">
+                    {/* The code name fills what the label leaves and truncates; badges that
+                        do not fit beside the label wrap under it instead of squeezing it. */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span
                         className={cn('size-2 shrink-0 rounded-full', tone.dot)}
                         aria-hidden="true"
                       />
-                      <strong className={cn('min-w-0 truncate', tone.text)}>
-                        {collection.label}
-                      </strong>
-                      <code className="text-muted-foreground min-w-0 shrink-[4] truncate text-[11px]">
+                      <strong className={cn('shrink-0', tone.text)}>{collection.label}</strong>
+                      <code className="text-muted-foreground min-w-0 flex-1 basis-0 truncate text-[11px]">
                         {collection.name}
                       </code>
                       <span className="ml-auto flex shrink-0 gap-1">
@@ -327,14 +360,14 @@ export function CodeSourceView({
             title="Request parameters"
             entries={usage.inputs}
             className="text-orange-300"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
           <PlainEntries
             icon={<Variable size={14} />}
             title="Variables"
             entries={usage.variables}
             className="text-orange-200"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
 
           {usage.snippets.length ? (
@@ -346,7 +379,7 @@ export function CodeSourceView({
               {usage.snippets.map((snippet) => (
                 <UsageEntry
                   key={snippet.target}
-                  {...entryProps(snippet.target)}
+                  {...usageProps(snippet.target)}
                   actions={
                     <OpenSnippetButton
                       snippet={snippet}
@@ -369,7 +402,7 @@ export function CodeSourceView({
             title="Remote requests"
             entries={usage.remote}
             className="break-all text-[11px] text-emerald-300/85"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
 
           {unrecognizedCount ? (
@@ -383,7 +416,7 @@ export function CodeSourceView({
                 wrong.
               </p>
               {usage.unrecognized.map((entry) => (
-                <UsageEntry key={entry.target} {...entryProps(entry.target)}>
+                <UsageEntry key={entry.target} {...usageProps(entry.target)}>
                   <code className="text-code-content break-all">{entry.label}</code>
                   {entry.detail ? (
                     <p className="text-muted-foreground mt-0.5 text-[11px]">{entry.detail}</p>
@@ -397,6 +430,7 @@ export function CodeSourceView({
         <section
           className="border-border bg-card flex min-h-0 flex-col gap-3 overflow-auto rounded-xl border p-4"
           aria-label="How it works"
+          onKeyDown={moveBetweenEntries}
         >
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
@@ -424,7 +458,7 @@ export function CodeSourceView({
               {steps.map((step) => (
                 <li key={step.target} style={{ paddingLeft: `${step.depth * 14}px` }}>
                   <UsageEntry
-                    {...entryProps(step.target)}
+                    {...entryProps(step.target, 'steps')}
                     actions={
                       step.snippet ? (
                         <OpenSnippetButton
@@ -450,6 +484,19 @@ export function CodeSourceView({
       </div>
     </div>
   );
+}
+
+type Card = 'usage' | 'steps';
+
+// Arrow keys, Home and End move focus between a card's entries.
+function moveBetweenEntries(event: ReactKeyboardEvent<HTMLElement>) {
+  const move = listKeys[event.key];
+  if (!move) return;
+  const entries = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-entry]')];
+  const index = entries.indexOf(event.target as HTMLElement);
+  if (index < 0) return;
+  event.preventDefault();
+  entries[move(index, entries.length)]?.focus();
 }
 
 export function IndentGuides({ count }: { readonly count: number }) {
@@ -629,8 +676,11 @@ function StepContent({ step, toneFor }: { readonly step: Step; readonly toneFor:
 interface UsageEntryState {
   readonly active: boolean;
   readonly pinned: boolean;
+  /** Whether this entry is its card's Tab stop. */
+  readonly tabbable: boolean;
   readonly onEnter: () => void;
   readonly onLeave: () => void;
+  readonly onFocus: () => void;
   readonly onSelect: () => void;
 }
 
@@ -662,8 +712,10 @@ function UsageSection({
 function UsageEntry({
   active,
   pinned,
+  tabbable,
   onEnter,
   onLeave,
+  onFocus,
   onSelect,
   actions,
   children,
@@ -680,9 +732,13 @@ function UsageEntry({
     >
       <div
         role="button"
-        tabIndex={0}
+        tabIndex={tabbable ? 0 : -1}
+        data-entry=""
         aria-pressed={pinned}
-        onFocus={onEnter}
+        onFocus={() => {
+          onEnter();
+          onFocus();
+        }}
         onBlur={onLeave}
         onClick={onSelect}
         onKeyDown={(event) => {

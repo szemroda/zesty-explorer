@@ -562,23 +562,20 @@ function ResponsePane({
                 : 'No readable response'}
             </strong>
           )}
-          {/* The address bar shows the same URL; below xl it shows here only when it differs. */}
-          <TooltipTrigger
-            text={result.url}
-            render={
-              <code
-                className={cn('text-muted-foreground ml-auto truncate', !stale && 'max-xl:hidden')}
-                tabIndex={0}
-              />
-            }
-          >
-            {result.url}
-          </TooltipTrigger>
+          {/* The address bar shows the current URL, so this one shows only when it differs. */}
+          {stale ? (
+            <TooltipTrigger
+              text={result.url}
+              render={<code className="text-muted-foreground ml-auto truncate" tabIndex={0} />}
+            >
+              {result.url}
+            </TooltipTrigger>
+          ) : null}
           {response ? (
             <Button
               variant="ghost"
               size="sm"
-              className={cn('-mr-2 shrink-0', !stale && 'max-xl:ml-auto')}
+              className={cn('-mr-2 shrink-0', !stale && 'ml-auto')}
               aria-label="Copy response as received"
               onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
             >
@@ -613,7 +610,12 @@ function ResponsePane({
           {formatBytes(response.bytes)} are shown, and it is cut off at the end.
         </p>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        role="region"
+        aria-label="Response body"
+        tabIndex={0}
+        className="focus-visible:ring-ring/45 min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      >
         {body !== undefined ? (
           <ResponseBody text={body} format={format} />
         ) : result?.kind === 'failure' ? (

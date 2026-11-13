@@ -11,6 +11,7 @@ import {
   type RowIssue,
   type RowOutcome,
 } from '../../import-check';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { TooltipTrigger } from './ui/tooltip';
@@ -28,13 +29,6 @@ const outcomeWord: Readonly<Record<RowOutcome, string>> = {
 };
 
 type KeptColumn = Extract<ColumnCheck, { readonly status: 'kept' }>;
-
-const lineKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
-  ArrowDown: (index, count) => Math.min(index + 1, count - 1),
-  ArrowUp: (index) => Math.max(index - 1, 0),
-  Home: () => 0,
-  End: (_, count) => count - 1,
-};
 
 /** The file as a table: one row per record, blank line or unreadable line, marked by outcome. */
 export function ImportCheckGrid({
@@ -103,7 +97,7 @@ export function ImportCheckGrid({
             if (line) setFocusedLine(Number(line.dataset.line));
           }}
           onKeyDown={(event) => {
-            const move = lineKeys[event.key];
+            const move = listKeys[event.key];
             if (!move) return;
             const buttons = [
               ...event.currentTarget.querySelectorAll<HTMLElement>('tr[data-line] > th button'),
