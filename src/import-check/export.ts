@@ -60,7 +60,7 @@ export function markdownReport(
     lines.push(
       `**${funnel.created} items expected** from ${funnel.dataLines} lines.`,
       '',
-      `${funnel.dataLines} lines − ${funnel.rejected} won’t import − ${notEntries} lines that aren’t entries = ${funnel.created} items`,
+      `${funnel.dataLines} lines − ${funnel.rejected} won’t import − ${notEntries} lines that aren’t rows = ${funnel.created} items`,
     );
   }
   const mapped = check.columns.flatMap((column) =>

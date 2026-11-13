@@ -35,7 +35,7 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
   await expect(summary(page)).toContainText('from 300 lines in the file');
   await expect(summary(page).getByRole('heading', { name: /Won’t import/ })).toContainText('−28');
   await expect(
-    summary(page).getByRole('heading', { name: /Lines that aren’t entries/ }),
+    summary(page).getByRole('heading', { name: /Lines that aren’t rows/ }),
   ).toContainText('−12');
 
   await summary(page)
@@ -43,17 +43,17 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
     .click();
   await expect(lines(page).getByRole('row')).toHaveCount(9);
   await lines(page)
-    .getByRole('button', { name: /^Row 151,/ })
+    .getByRole('button', { name: /^Line 158, row 151:/ })
     .click();
   const details = page.getByRole('complementary', { name: 'Line details' });
   await expect(details).toContainText('“BERLIN-OLD-TOWN” becomes “berlin-old-town”, like row 6.');
   await details.getByRole('button', { name: 'Go to row 6' }).click();
-  await expect(details.getByRole('heading')).toHaveText('Row 6 · line 7');
-  await expect(lines(page).getByRole('button', { name: /^Row 6,/ })).toBeInViewport();
+  await expect(details.getByRole('heading')).toHaveText('Line 7 · row 6');
+  await expect(lines(page).getByRole('button', { name: /, row 6:/ })).toBeInViewport();
 
   await page.getByRole('searchbox', { name: 'Search the file' }).fill('line 11');
   await expect(page.getByText('1 match for “line 11”')).toBeVisible();
-  await expect(lines(page).getByRole('button', { name: /^Row 9, lines 10–11:/ })).toBeVisible();
+  await expect(lines(page).getByRole('button', { name: /^Lines 10–11, row 9:/ })).toBeVisible();
 
   const before = requests.length;
   await page.getByRole('button', { name: 'Refresh' }).click();
@@ -71,7 +71,7 @@ test('says so when no line needs attention', async ({ page }) => {
   await page.getByRole('button', { name: 'Needs attention' }).click();
   await expect(lines(page)).toContainText('Nothing needs attention');
   await lines(page).getByRole('button', { name: 'Show all 2 lines' }).click();
-  await expect(lines(page).getByRole('button', { name: /^Row 2,/ })).toBeVisible();
+  await expect(lines(page).getByRole('button', { name: /, row 2:/ })).toBeVisible();
 });
 
 test('checks the file with the columns mapped like in Zesty', async ({ page }) => {

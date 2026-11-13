@@ -18,6 +18,7 @@ import {
   describeFileProblem,
   fileLines,
   issueCopy,
+  lineRange,
   importableRowsCsv,
   markdownReport,
   canBePathPart,
@@ -136,7 +137,7 @@ export function ImportCheck({
             Check a CSV before you import it
           </h2>
           <p className="text-muted-foreground text-sm">
-            See how many entries Zesty will import, and why the others won’t.
+            See how many rows Zesty will import, and why the others won’t.
           </p>
         </div>
         <CollectionPicker
@@ -323,7 +324,7 @@ function Workspace({
           <span className="truncate font-medium">{collection.label}</span>
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/45 rounded-sm text-xs underline-offset-2 outline-none hover:underline focus-visible:ring-2"
             onClick={onChange}
           >
             Change
@@ -376,7 +377,7 @@ function Workspace({
           <Headline check={check} />
           {groups.length === 0 ? (
             <p className="text-muted-foreground px-4 pt-4 text-sm">
-              No problems found. Zesty should import every entry.
+              No problems found. Zesty should import every row.
             </p>
           ) : (
             groups.map((group) => (
@@ -522,7 +523,7 @@ function NothingNeedsAttention({
     <div className="grid justify-items-center gap-2 p-10 text-center text-sm" role="status">
       <CircleCheck size={22} className="text-emerald-500" aria-hidden="true" />
       <p className="font-medium">Nothing needs attention</p>
-      <p className="text-muted-foreground">Every line is an entry Zesty should import.</p>
+      <p className="text-muted-foreground">Zesty should import every row in the file.</p>
       <Button variant="outline" size="sm" className="mt-2" onClick={onShowAll}>
         {totalLines === 1 ? 'Show the line' : `Show all ${totalLines} lines`}
       </Button>
@@ -637,7 +638,7 @@ function GridHeading({
             aria-pressed={showAll === option.all}
             onClick={() => onShowAll(option.all)}
             className={cn(
-              'rounded px-2.5 py-1 text-xs',
+              'focus-visible:ring-ring/45 rounded px-2.5 py-1 text-xs outline-none focus-visible:ring-2',
               showAll === option.all
                 ? 'bg-background text-foreground shadow-xs'
                 : 'text-muted-foreground hover:text-foreground',
@@ -662,9 +663,10 @@ function Details({
   readonly onClose: () => void;
   readonly onJump: (row: number) => void;
 }) {
+  // Lines lead, as in the table's gutter and the user's editor; Zesty's messages count rows.
   const heading =
     entry.kind === 'record'
-      ? `Row ${entry.row.row} · line ${entry.row.record.line}`
+      ? `${lineRange(entry.row)} · row ${entry.row.row}`
       : `Line ${entry.line}`;
   // Opened from a row's button, focus follows into the panel; a click on the row leaves it.
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -730,11 +732,11 @@ function DetailsBody({
       ) : null}
       {check.fileRejected && !entry.problem ? (
         <p className="text-muted-foreground">
-          Zesty rejects the whole file, so this entry isn’t imported either.
+          Zesty rejects the whole file, so this row isn’t imported either.
         </p>
       ) : null}
       {row.issues.length === 0 && !check.fileRejected ? (
-        <p className="text-emerald-400">Zesty should import this entry.</p>
+        <p className="text-emerald-400">Zesty should import this row.</p>
       ) : (
         row.issues.map((issue, index) => {
           const related =

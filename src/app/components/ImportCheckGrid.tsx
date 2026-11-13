@@ -312,7 +312,7 @@ function GridRow({
         lines={lineNumbers}
         stripe={problem ? outcomeStripe.rejected : outcomeStripe[row.outcome]}
         selected={selected}
-        label={`Row ${row.row}, ${lineRange(row).toLowerCase()}: ${outcomeWord[row.outcome]}${
+        label={`${lineRange(row)}, row ${row.row}: ${outcomeWord[row.outcome]}${
           primary ? `. ${primary.message}` : ''
         }`}
       />
