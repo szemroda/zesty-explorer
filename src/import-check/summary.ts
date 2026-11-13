@@ -108,9 +108,9 @@ export function summarize(check: ImportCheck): FindingGroup[] {
   if (funnel.continuationLines > 0) {
     notEntries.push({
       id: 'multiline',
-      label: 'Line breaks inside cells',
+      label: 'Extra lines from line breaks in cells',
       count: funnel.continuationLines,
-      fix: 'Each of these rows spans several lines but is still one item. Nothing to do.',
+      fix: 'A line break inside a cell continues its row on the next line. Each row is still one item. Nothing to do.',
       tone: 'quiet',
       lines: new Set(check.multilineRows.map((row) => row.record.line)),
     });

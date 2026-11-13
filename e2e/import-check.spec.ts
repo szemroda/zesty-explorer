@@ -32,7 +32,7 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
   const requests = await checkStoresCsv(page);
 
   await expect(summary(page)).toContainText('260 items expected');
-  await expect(summary(page)).toContainText('from 300 lines in the file');
+  await expect(summary(page)).toContainText('from 300 lines after the header');
   await expect(summary(page).getByRole('heading', { name: /Won’t import/ })).toContainText('−28');
   await expect(
     summary(page).getByRole('heading', { name: /Lines that aren’t rows/ }),
@@ -47,9 +47,26 @@ test('explains why 300 lines become 260 items without writing to Zesty', async (
     .click();
   const details = page.getByRole('complementary', { name: 'Line details' });
   await expect(details).toContainText('“BERLIN-OLD-TOWN” becomes “berlin-old-town”, like row 6.');
-  await details.getByRole('button', { name: 'Go to row 6' }).click();
-  await expect(details.getByRole('heading')).toHaveText('Line 7 · row 6');
+  await details.getByRole('button', { name: 'Go to line 7 · row 6' }).click();
+  await expect(details.getByRole('heading', { level: 3 })).toHaveText('Line 7 · row 6');
   await expect(lines(page).getByRole('button', { name: /, row 6:/ })).toBeInViewport();
+
+  // Back returns to the line and the reason it was followed from.
+  await details.getByRole('button', { name: 'Back to line 158' }).click();
+  await expect(details.getByRole('heading', { level: 3 })).toHaveText('Line 158 · row 151');
+  await expect(lines(page).getByRole('row')).toHaveCount(9);
+  const reason = summary(page).getByRole('button', { name: /Same URL as an earlier row/ });
+  await expect(reason).toHaveAttribute('aria-pressed', 'true');
+
+  // The lines are one Tab stop moved with arrow keys; Escape closes details, then the reason.
+  await expect(lines(page).getByRole('button', { name: /^Line 158,/ })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(lines(page).getByRole('button', { name: /^Line 170,/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(details).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(reason).toBeFocused();
+  await expect(reason).toHaveAttribute('aria-pressed', 'false');
 
   await page.getByRole('searchbox', { name: 'Search the file' }).fill('line 11');
   await expect(page.getByText('1 match for “line 11”')).toBeVisible();
