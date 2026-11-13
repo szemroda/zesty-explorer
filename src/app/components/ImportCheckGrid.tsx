@@ -1,5 +1,5 @@
 import { CornerDownLeft, FileWarning } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { FieldZuid } from '../../domain';
 import {
   describeFileProblem,
@@ -29,6 +29,13 @@ const outcomeWord: Readonly<Record<RowOutcome, string>> = {
 
 type KeptColumn = Extract<ColumnCheck, { readonly status: 'kept' }>;
 
+const lineKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
+  ArrowDown: (index, count) => Math.min(index + 1, count - 1),
+  ArrowUp: (index) => Math.max(index - 1, 0),
+  Home: () => 0,
+  End: (_, count) => count - 1,
+};
+
 /** The file as a table: one row per record, blank line or unreadable line, marked by outcome. */
 export function ImportCheckGrid({
   check,
@@ -53,6 +60,16 @@ export function ImportCheckGrid({
   /** Shown instead of “Nothing matches.” when no line is shown. */
   readonly empty?: ReactNode;
 }) {
+  // The lines are one Tab stop: the last focused line, else the selected one, else the first.
+  // Arrow keys, Home and End move between lines.
+  const [focusedLine, setFocusedLine] = useState<number>();
+  const shown = (line: number | undefined) =>
+    line !== undefined && lines.some((entry) => entry.line === line);
+  const tabStop = shown(focusedLine)
+    ? focusedLine
+    : shown(selectedLine)
+      ? selectedLine
+      : lines[0]?.line;
   return (
     <div
       className="min-h-0 flex-1 overflow-auto"
@@ -80,12 +97,29 @@ export function ImportCheckGrid({
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody
+          onFocus={(event) => {
+            const line = (event.target as HTMLElement).closest<HTMLElement>('tr[data-line]');
+            if (line) setFocusedLine(Number(line.dataset.line));
+          }}
+          onKeyDown={(event) => {
+            const move = lineKeys[event.key];
+            if (!move) return;
+            const buttons = [
+              ...event.currentTarget.querySelectorAll<HTMLElement>('tr[data-line] > th button'),
+            ];
+            const index = buttons.indexOf(event.target as HTMLElement);
+            if (index < 0) return;
+            event.preventDefault();
+            buttons[move(index, buttons.length)]?.focus();
+          }}
+        >
           {lines.map((entry) => (
             <GridRow
               key={entry.line}
               entry={entry}
               check={check}
+              tabbable={entry.line === tabStop}
               selected={entry.line === selectedLine}
               onSelect={onSelect}
               highlight={highlight}
@@ -132,6 +166,7 @@ function ColumnHeader({
   readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
   const dropped = isDropped(column);
+  const hintId = `import-column-${column.index}-hint`;
   return (
     <th
       scope="col"
@@ -142,15 +177,14 @@ function ColumnHeader({
       )}
     >
       <div className="px-3 pt-2">
-        {/* Only as wide as the name, so the tooltip appears over it, not over a wide column. */}
+        {/* Only as wide as the name, so the tooltip appears over it, not over a wide column.
+            Not a Tab stop: the field select below carries the same text as its description. */}
+        <span id={hintId} className="sr-only">
+          {columnTooltip(column, check)}
+        </span>
         <TooltipTrigger
           text={columnTooltip(column, check)}
-          render={
-            <div
-              tabIndex={0}
-              className="focus-visible:ring-ring/45 inline-flex max-w-full items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2"
-            />
-          }
+          render={<div className="inline-flex max-w-full items-center gap-1.5" />}
         >
           <span
             className={cn(
@@ -171,7 +205,7 @@ function ColumnHeader({
         {column.status === 'shadowed' ? (
           <p className="text-muted-foreground px-1 py-1.5 text-xs italic">Duplicate header</p>
         ) : (
-          <FieldSelect column={column} check={check} onMap={onMap} />
+          <FieldSelect column={column} check={check} hintId={hintId} onMap={onMap} />
         )}
       </div>
     </th>
@@ -182,10 +216,13 @@ function ColumnHeader({
 function FieldSelect({
   column,
   check,
+  hintId,
   onMap,
 }: {
   readonly column: KeptColumn;
   readonly check: ImportCheck;
+  /** The column's explanation, read with the select. */
+  readonly hintId: string;
   readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
   const { fields } = check.schema;
@@ -205,6 +242,7 @@ function FieldSelect({
         size="sm"
         className={cn('h-7 w-full', isDropped(column) && 'text-muted-foreground')}
         aria-label={`Field for column ${column.header}`}
+        aria-describedby={hintId}
       >
         <SelectValue />
       </SelectTrigger>
@@ -230,6 +268,7 @@ function FieldSelect({
 function GridRow({
   entry,
   check,
+  tabbable,
   selected,
   onSelect,
   highlight,
@@ -237,6 +276,7 @@ function GridRow({
 }: {
   readonly entry: FileLine;
   readonly check: ImportCheck;
+  readonly tabbable: boolean;
   readonly selected: boolean;
   readonly onSelect: (line: number) => void;
   readonly highlight: string | undefined;
@@ -264,6 +304,7 @@ function GridRow({
           lines={[entry.line]}
           stripe={blank ? undefined : outcomeStripe.rejected}
           struck={blank}
+          tabbable={tabbable}
           selected={selected}
           label={`Line ${entry.line}: ${description}`}
         />
@@ -311,6 +352,7 @@ function GridRow({
       <Gutter
         lines={lineNumbers}
         stripe={problem ? outcomeStripe.rejected : outcomeStripe[row.outcome]}
+        tabbable={tabbable}
         selected={selected}
         label={`${lineRange(row)}, row ${row.row}: ${outcomeWord[row.outcome]}${
           primary ? `. ${primary.message}` : ''
@@ -339,12 +381,14 @@ function Gutter({
   lines,
   stripe,
   struck = false,
+  tabbable,
   selected,
   label,
 }: {
   readonly lines: readonly number[];
   readonly stripe: string | undefined;
   readonly struck?: boolean;
+  readonly tabbable: boolean;
   readonly selected: boolean;
   readonly label: string;
 }) {
@@ -360,6 +404,7 @@ function Gutter({
         type="button"
         aria-label={label}
         aria-pressed={selected}
+        tabIndex={tabbable ? 0 : -1}
         className="focus-visible:ring-ring/45 relative block w-16 cursor-pointer px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-inset"
       >
         {stripe ? (
