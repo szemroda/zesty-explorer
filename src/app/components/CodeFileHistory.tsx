@@ -335,7 +335,7 @@ function VersionSourceLines({
             )}
           >
             <IndentGuides count={line.indent} />
-            <LineTokens line={line} saved={saved} toneFor={toneFor} onSelect={() => {}} />
+            <LineTokens line={line} saved={saved} toneFor={toneFor} />
           </span>
         </div>
       ))}

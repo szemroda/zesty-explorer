@@ -154,6 +154,23 @@ export function EndpointRequest({
           : undefined;
   // A pending request hides the last result, so a resent request never shows stale content.
   const result = sendingUrl ? undefined : form.result;
+  const response = result?.kind === 'response' ? result.response : undefined;
+  const stale = result !== undefined && result.url !== url;
+  // An error page's reason, such as a Parsley error, sits deep in its markup.
+  const errorText = useMemo(
+    () => (response && response.status >= 400 ? errorPageText(response.body) : undefined),
+    [response],
+  );
+  // Announced from the always-present bar, so a result is heard even while Source shows.
+  const announcement = sendingUrl
+    ? 'Sending request'
+    : stale
+      ? 'Response to an earlier request. Send to update it.'
+      : response
+        ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds${errorText ? `. The page says: ${errorText}` : ''}`
+        : result?.kind === 'failure'
+          ? 'Request failed'
+          : '';
 
   const updateParameter = (id: number, change: Partial<QueryParameter>) =>
     setForm((current) => ({
@@ -254,7 +271,8 @@ export function EndpointRequest({
         </ToggleGroup>
         <span className="text-muted-foreground text-[11px] font-bold">GET</span>
 
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto font-mono text-[13px] whitespace-nowrap [scrollbar-width:none]">
+        {/* The scrollbar is hidden, so the last 1.5rem fades to show that more may follow. */}
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto pr-6 font-mono text-[13px] whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]">
           {baseUrls && baseUrls.length > 1 ? (
             <select
               className="text-muted-foreground hover:text-foreground cursor-pointer bg-transparent outline-none"
@@ -287,6 +305,7 @@ export function EndpointRequest({
               <span className="xl:hidden" aria-hidden="true">
                 …
               </span>
+              <span className="sr-only xl:hidden">{baseUrl ?? 'No live domain'}</span>
             </TooltipTrigger>
           )}
           {pathParts.map(({ text, wildcard }, index) => (
@@ -456,12 +475,15 @@ export function EndpointRequest({
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        {pane === 'source' ? (
-          children
-        ) : (
-          <ResponsePane result={result} currentUrl={url} sendingUrl={sendingUrl} />
-        )}
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
+      {/* Both panes stay mounted, so switching keeps the source's scroll and highlight. */}
+      <div className="min-h-0 flex-1" hidden={pane !== 'source'}>
+        {children}
+      </div>
+      <div className="min-h-0 flex-1" hidden={pane !== 'response'}>
+        <ResponsePane result={result} stale={stale} errorText={errorText} sendingUrl={sendingUrl} />
       </div>
     </div>
   );
@@ -471,12 +493,15 @@ type BodyPresentation = 'formatted' | 'received';
 
 function ResponsePane({
   result,
-  currentUrl,
+  stale,
+  errorText,
   sendingUrl,
 }: {
   readonly result: RequestResult | undefined;
-  /** The address as the form reads now; a result for another address is from an earlier send. */
-  readonly currentUrl: string | undefined;
+  /** Whether the result is for an address other than the form's current one. */
+  readonly stale: boolean;
+  /** An error page's words, read from its markup. */
+  readonly errorText: string | undefined;
   readonly sendingUrl: string | undefined;
 }) {
   const [presentation, setPresentation] = useState<BodyPresentation>('formatted');
@@ -488,34 +513,13 @@ function ResponsePane({
   const body = presentation === 'formatted' && formatted !== undefined ? formatted : response?.body;
   const format = response ? bodyFormat(response.body) : undefined;
 
-  const stale = result !== undefined && result.url !== currentUrl;
-  // An error page's reason, such as a Parsley error, sits deep in its markup.
-  const errorText = useMemo(
-    () => (response && response.status >= 400 ? errorPageText(response.body) : undefined),
-    [response],
-  );
-  // Announced once per change; the body itself stays out of the live region.
-  const announcement = sendingUrl
-    ? 'Sending request'
-    : response
-      ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds${errorText ? `. The page says: ${errorText}` : ''}`
-      : result?.kind === 'failure'
-        ? 'Request failed'
-        : '';
-
   return (
     <section
       className="border-border bg-surface-recessed flex h-full min-h-0 flex-col overflow-hidden rounded-xl border"
       aria-label="Response"
     >
-      <span className="sr-only" role="status">
-        {announcement}
-      </span>
       {stale ? (
-        <p
-          className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200"
-          role="status"
-        >
+        <p className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200">
           Response to an earlier request. Send to update it.
         </p>
       ) : null}
@@ -558,9 +562,15 @@ function ResponsePane({
                 : 'No readable response'}
             </strong>
           )}
+          {/* The address bar shows the same URL; below xl it shows here only when it differs. */}
           <TooltipTrigger
             text={result.url}
-            render={<code className="text-muted-foreground ml-auto truncate" tabIndex={0} />}
+            render={
+              <code
+                className={cn('text-muted-foreground ml-auto truncate', !stale && 'max-xl:hidden')}
+                tabIndex={0}
+              />
+            }
           >
             {result.url}
           </TooltipTrigger>
@@ -568,11 +578,12 @@ function ResponsePane({
             <Button
               variant="ghost"
               size="sm"
-              className="-mr-2 shrink-0"
+              className={cn('-mr-2 shrink-0', !stale && 'max-xl:ml-auto')}
               aria-label="Copy response as received"
               onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
             >
-              <Copy size={13} aria-hidden="true" /> Copy
+              <Copy size={13} aria-hidden="true" />{' '}
+              {body === formatted ? 'Copy as received' : 'Copy'}
             </Button>
           ) : null}
         </div>

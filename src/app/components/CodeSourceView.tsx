@@ -128,6 +128,21 @@ export function CodeSourceView({
       });
   }, [pinned, lines]);
 
+  // A click in the source pins without moving focus here, so Escape also clears a pin from
+  // anywhere on the page; menus and dialogs handle their own Escape first.
+  useEffect(() => {
+    if (!pinned) return;
+    const clear = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (target?.closest('[role="dialog"], [role="listbox"], [role="menu"]')) return;
+      setPinned(undefined);
+      setHovered(undefined);
+    };
+    document.addEventListener('keydown', clear);
+    return () => document.removeEventListener('keydown', clear);
+  }, [pinned]);
+
   const unrecognizedCount = usage.unrecognized.length;
   const nothingUsed =
     usage.collections.length +
@@ -149,7 +164,7 @@ export function CodeSourceView({
         setPinned(undefined);
         setHovered(undefined);
       }}
-      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,2fr)_minmax(10rem,1fr)]"
+      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(13rem,2fr)]"
     >
       <section
         className="border-border bg-surface-recessed flex min-h-0 flex-col overflow-hidden rounded-xl border"
@@ -176,12 +191,18 @@ export function CodeSourceView({
             aria-label="Copy source as saved"
             onClick={() => void copyText(code, 'Source copied', 'As saved, not formatted.')}
           >
-            <Copy size={13} aria-hidden="true" /> Copy
+            {/* Formatted is what shows, but Copy takes the source as saved, so it says so. */}
+            <Copy size={13} aria-hidden="true" />{' '}
+            {presentation === 'formatted' ? 'Copy as saved' : 'Copy'}
           </Button>
         </div>
+        {/* A Tab stop of its own, so the keyboard can scroll long source. */}
         <div
           ref={codeRef}
-          className="relative min-h-0 flex-1 overflow-auto py-2 font-mono text-[12.5px] leading-6 [tab-size:2]"
+          role="region"
+          aria-label="Source lines"
+          tabIndex={0}
+          className="focus-visible:ring-ring/45 relative min-h-0 flex-1 overflow-auto py-2 font-mono text-[12.5px] leading-6 outline-none [tab-size:2] focus-visible:ring-2 focus-visible:ring-inset"
           data-testid="code-lines"
         >
           {lines.map((line, index) => {
@@ -261,11 +282,19 @@ export function CodeSourceView({
                       </button>
                     }
                   >
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={cn('size-2 rounded-full', tone.dot)} aria-hidden="true" />
-                      <strong className={tone.text}>{collection.label}</strong>
-                      <code className="text-muted-foreground text-[11px]">{collection.name}</code>
-                      <span className="ml-auto flex gap-1">
+                    {/* One row: the code name gives way first, then the label; badges stay. */}
+                    <div className="flex items-center gap-x-2">
+                      <span
+                        className={cn('size-2 shrink-0 rounded-full', tone.dot)}
+                        aria-hidden="true"
+                      />
+                      <strong className={cn('min-w-0 truncate', tone.text)}>
+                        {collection.label}
+                      </strong>
+                      <code className="text-muted-foreground min-w-0 shrink-[4] truncate text-[11px]">
+                        {collection.name}
+                      </code>
+                      <span className="ml-auto flex shrink-0 gap-1">
                         {access.map((kind) => (
                           <Badge key={kind} variant="outline">
                             {accessLabels[kind]}
@@ -454,7 +483,8 @@ export function LineTokens({
   readonly line: DisplayLine;
   readonly saved: boolean;
   readonly toneFor: ToneLookup;
-  readonly onSelect: (target: string) => void;
+  /** Unset where tokens only explain themselves, e.g. in code history. */
+  readonly onSelect?: (target: string) => void;
 }) {
   return line.tokens.map((token, index) => {
     if (saved && index === 0 && token.kind === 'text') {
@@ -483,7 +513,7 @@ function TokenSpan({
 }: {
   readonly token: DisplayToken;
   readonly toneFor: ToneLookup;
-  readonly onSelect: (target: string) => void;
+  readonly onSelect: ((target: string) => void) | undefined;
 }) {
   const collection = refCollection(token.ref);
   const tone = collection ? toneFor(collection) : undefined;
@@ -493,13 +523,13 @@ function TokenSpan({
     tone && (token.kind === 'alias' || token.kind === 'field') && tone.text,
   );
   if (!token.hint) return <span className={className}>{token.text}</span>;
-  const ref = token.ref;
+  const ref = onSelect ? token.ref : undefined;
   return (
     <TooltipTrigger
       text={token.hint}
       render={<span />}
       className={cn(className, ref ? 'cursor-pointer hover:brightness-125' : 'cursor-help')}
-      {...(ref ? { onClick: () => onSelect(ref) } : {})}
+      {...(ref && onSelect ? { onClick: () => onSelect(ref) } : {})}
     >
       {token.text}
     </TooltipTrigger>

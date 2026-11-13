@@ -114,6 +114,16 @@ test('filters files by name or URL and restores the filter from the link', async
   await expect(fileButton(page, '/data/articles.json')).toBeHidden();
   await expect(page.getByRole('heading', { name: '/api/events.json' })).toBeVisible();
 
+  // The list is one Tab stop: ArrowDown leaves the filter for it and moves between files.
+  await filter.fill('.json');
+  await filter.press('ArrowDown');
+  const listed = page.getByRole('navigation', { name: 'Code files' }).getByRole('button');
+  await expect(listed.first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(listed.nth(1)).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(filter).toBeFocused();
+
   await filter.fill('no such file');
   await expect(page.getByText('No files match this filter.')).toBeVisible();
 });
@@ -200,6 +210,11 @@ test('scrolls a long file to a pinned step in both presentations', async ({ page
   await expect(page.getByTestId('code-lines').locator('[data-highlighted]').first()).toContainText(
     "{{each articles as article where article.category = '{category.zuid}'",
   );
+
+  // Escape clears the pin even after focus has left the source and its explanations.
+  await page.getByRole('heading', { name: '/archive/by-category.html' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('code-lines').locator('[data-highlighted]')).toHaveCount(0);
 });
 
 const request = (page: Page) => page.getByRole('form', { name: 'Request' });
@@ -227,7 +242,7 @@ test('sends an endpoint request to the host of each code state', async ({ page }
   await expect(page.getByText('fixture-zpw')).toHaveCount(0);
   await expect(page.getByTestId('response-body')).toContainText('"title": "Guide article 2"');
   await toggle(page, 'Workspace pane', 'Source').click();
-  await expect(page.getByRole('region', { name: 'Source' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Source', exact: true })).toBeVisible();
 
   // Published code is served by the live domain the user picks; the form starts afresh.
   await toggle(page, 'Code state', 'Published').click();

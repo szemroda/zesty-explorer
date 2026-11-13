@@ -104,7 +104,7 @@ describe('EndpointRequest', () => {
       target: { value: '6' },
     });
     expect(response).toHaveTextContent(sent);
-    expect(screen.queryByText('Source view')).not.toBeInTheDocument();
+    expect(screen.getByText('Source view')).not.toBeVisible();
   });
 
   it('sends a locked preview its password without showing it, unless the form sets zpw', async () => {
@@ -165,7 +165,7 @@ describe('EndpointRequest', () => {
       </EndpointRequest>,
     );
 
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'Zesty Explorer could not read the preview lock password. If the preview answers 401, add ?zpw with the password.',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -224,7 +224,7 @@ describe('EndpointRequest', () => {
     renderPanel(endpoint('11-published', '{{get_var.limit}}'), 'published');
 
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'This instance has no live domain, so its published endpoints have no address.',
     );
   });
@@ -249,7 +249,7 @@ describe('EndpointRequest', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'Zesty Explorer could not look up the preview host of this instance.',
     );
   });
