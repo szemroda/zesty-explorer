@@ -524,7 +524,8 @@ function ResponsePane({
         </p>
       ) : null}
       {result ? (
-        <div className="bg-surface-header border-border flex min-h-11 items-center gap-4 border-b px-4 py-1.5 text-xs">
+        // Items wrap rather than clip at narrow widths; an older request's URL takes a row.
+        <div className="bg-surface-header border-border flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-1.5 text-xs">
           {response ? (
             <>
               {/* Each item keeps its words together; only the URL shrinks. */}
@@ -566,7 +567,12 @@ function ResponsePane({
           {stale ? (
             <TooltipTrigger
               text={result.url}
-              render={<code className="text-muted-foreground ml-auto truncate" tabIndex={0} />}
+              render={
+                <code
+                  className="text-muted-foreground truncate max-xl:order-last max-xl:basis-full xl:ml-auto"
+                  tabIndex={0}
+                />
+              }
             >
               {result.url}
             </TooltipTrigger>
@@ -575,7 +581,7 @@ function ResponsePane({
             <Button
               variant="ghost"
               size="sm"
-              className={cn('-mr-2 shrink-0', !stale && 'ml-auto')}
+              className={cn('-mr-2 shrink-0', stale ? 'max-xl:ml-auto' : 'ml-auto')}
               aria-label="Copy response as received"
               onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
             >
