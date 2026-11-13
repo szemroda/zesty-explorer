@@ -59,7 +59,12 @@ describe('loadPublicationStatus', () => {
         ),
       loadInstanceUsers: () => Effect.succeed([]),
     };
-    const source = { api, sessionToken: 'token', credentialRevision: 'revision' };
+    const source = {
+      api,
+      sessionToken: 'token',
+      credentialRevision: 'revision',
+      contentState: 'published' as const,
+    };
     const itemZuids: readonly ItemZuid[] = [
       '7-row-1',
       '7-row-2',

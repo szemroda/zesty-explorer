@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Deferred, Effect, Either } from 'effect';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -205,6 +205,9 @@ async function submitStartForm(
 }
 
 afterEach(() => {
+  // Unmount first: a table can still save its presentation into the view, which writes the view
+  // into the URL, and the next test would open that view.
+  cleanup();
   toast.dismiss();
   window.history.replaceState(null, '', '/');
   vi.restoreAllMocks();
@@ -275,7 +278,7 @@ describe('root collection browser', () => {
         screen.queryByRole('status', { name: 'Loading instance list' }),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.queryByRole('combobox', { name: 'Root collection' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Root collection' })).toBeDisabled();
     fireEvent.change(instance, { target: { value: 'acme' } });
     fireEvent.keyDown(instance, { key: 'ArrowDown' });
     fireEvent.click(await screen.findByRole('option', { name: /Acme.*8-abc123/ }));
@@ -511,7 +514,9 @@ describe('root collection browser', () => {
     render(<App api={api(() => Effect.never)} tokenStore={memoryTokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
 
-    expect(await screen.findByRole('status', { name: 'Loading collection' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: 'Loading Stories' })).toHaveTextContent(
+      'Loading Stories…',
+    );
   });
 
   it('opens the root picker directly from the root collection menu', async () => {
@@ -621,8 +626,11 @@ describe('root collection browser', () => {
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit',
     );
 
-    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
-    const htmlCell = screen.getByRole('cell', { name: 'First story' });
+    // The item's details open as a modal, which hides the table from assistive technology.
+    expect(
+      await screen.findByRole('heading', { name: 'Stories', hidden: true }),
+    ).toBeInTheDocument();
+    const htmlCell = screen.getByRole('cell', { name: 'First story', hidden: true });
     expect(htmlCell).toBeInTheDocument();
     expect(htmlCell.querySelector('strong')).toBeNull();
     expect(
@@ -630,13 +638,14 @@ describe('root collection browser', () => {
     ).toBeInTheDocument();
     const zestyLink = screen.getByRole('link', {
       name: /open first story in zesty manager/i,
+      hidden: true,
     });
     expect(zestyLink).toHaveAttribute(
       'href',
       'https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa',
     );
     expect(zestyLink).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose visible columns', hidden: true }));
     expect(screen.getByRole('menuitemcheckbox', { name: 'workflowStatus' })).not.toBeChecked();
   });
 
@@ -780,7 +789,8 @@ describe('root collection browser', () => {
       <App api={api()} tokenStore={memoryTokenStore([['production', 'stored-session-token']])} />,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+    // The table carries the node's name, like the collection tree.
+    expect(await screen.findByRole('heading', { name: 'Saved stories' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Edit filter Any field contains “First”' }),
     ).toBeInTheDocument();
@@ -1672,16 +1682,22 @@ describe('form errors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     const token = screen.getByLabelText('Zesty session token');
     expect(token).toHaveAttribute('aria-invalid', 'true');
-    expect(token).toHaveAccessibleDescription('Enter the Production session token.');
+    expect(token).toHaveAccessibleDescription(
+      'It carries your Zesty permissions. Explorer keeps it in this browser tab only and never puts it in a view link. Enter the Production session token.',
+    );
     expect(token).toHaveFocus();
     startSession();
-    pasteUrl('https://example.com/content/6-model123');
     const input = screen.getByLabelText('Or paste a Zesty URL');
+    act(() => input.focus());
+    fireEvent.change(input, { target: { value: 'https://example.com/content/6-model123' } });
+    // Leaving the field shows the problem without pulling focus back.
+    const back = screen.getByRole('button', { name: 'Back' });
+    act(() => back.focus());
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAccessibleDescription(
       'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. This host is not an allowed Zesty deployment host.',
     );
-    expect(input).toHaveFocus();
+    expect(back).toHaveFocus();
     fireEvent.change(input, { target: { value: 'not-a-url' } });
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
     expect(input).toHaveAccessibleDescription(
@@ -1722,7 +1738,6 @@ describe('form errors', () => {
   it('asks for a root collection on the picker when none is chosen', async () => {
     render(<App api={api()} tokenStore={memoryTokenStore()} />);
     loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-    // The picker remounts when its selection changes, so it is looked up again each time.
     const picker = () => screen.getByRole('combobox', { name: 'Root collection' });
     await waitFor(() => expect(picker()).toHaveValue('Stories'));
 
@@ -1730,7 +1745,7 @@ describe('form errors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
 
     expect(picker()).toHaveAccessibleDescription(
-      'Choose a root collection or paste a collection URL.',
+      'Its items become the top-level table of the view. Choose a root collection or paste a collection URL.',
     );
     expect(picker()).toHaveFocus();
   });
@@ -1834,7 +1849,7 @@ describe('Code tab', () => {
     const reopened = await screen.findByRole('dialog', { name: '/8-abc123.json' });
 
     expect(await within(reopened).findByText('Zesty could not be reached.')).toBeInTheDocument();
-    expect(within(reopened).queryByRole('button', { name: /Version 3/ })).not.toBeInTheDocument();
+    expect(within(reopened).queryByRole('radio', { name: /Version 3/ })).not.toBeInTheDocument();
   });
 
   it('explains why code history could not load a deleted file', async () => {

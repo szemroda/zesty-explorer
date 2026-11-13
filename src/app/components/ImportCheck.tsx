@@ -1,6 +1,8 @@
 import {
+  ArrowLeft,
   ArrowUpRight,
   CircleCheck,
+  Columns3,
   FileSpreadsheet,
   Info,
   LoaderCircle,
@@ -17,6 +19,8 @@ import {
   describeFileProblem,
   fileLines,
   issueCopy,
+  isDropped,
+  lineRange,
   importableRowsCsv,
   markdownReport,
   canBePathPart,
@@ -39,7 +43,7 @@ import {
 import type { CollectionApi } from '../../zesty-api';
 import { copyText } from '../copy-text';
 import { useImportCheck, type CsvSource, type ImportCheckState } from '../hooks/useImportCheck';
-import { cn } from '../lib/utils';
+import { cn, plural } from '../lib/utils';
 import { CollectionPicker } from './CollectionPicker';
 import { ImportCheckGrid } from './ImportCheckGrid';
 import { Button } from './ui/button';
@@ -89,6 +93,11 @@ export function ImportCheck({
   // The user's column mapping; a new file or collection starts from a suggested one.
   const [mapping, setMapping] = useState<ImportMapping>();
   const [changing, setChanging] = useState(false);
+  // Change returns to this form; focus starts in the collection picker it came to change.
+  const pickerInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (changing) pickerInput.current?.focus();
+  }, [changing]);
   const { state, reload, authenticationFailed } = useImportCheck({
     api,
     credentials,
@@ -130,11 +139,12 @@ export function ImportCheck({
             Check a CSV before you import it
           </h2>
           <p className="text-muted-foreground text-sm">
-            See how many entries Zesty will import, and why the others won’t.
+            See how many rows Zesty will import, and why the others won’t.
           </p>
         </div>
         <CollectionPicker
           label="Collection to import into"
+          inputRef={pickerInput}
           collections={collections}
           value={collection?.reference.modelZuid}
           onChange={(entry: CollectionCatalogEntry | undefined) => {
@@ -171,6 +181,8 @@ function CsvFileButton({
         type="file"
         accept=".csv,text/csv"
         className="sr-only"
+        // The visible button opens it; one keyboard stop is enough.
+        tabIndex={-1}
         aria-label="CSV file to check"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -234,7 +246,16 @@ function Workspace({
   const [showAll, setShowAll] = useState(() => !lines.some(needsAttention));
   const [search, setSearch] = useState('');
   const [selectedLine, setSelectedLine] = useState<number>();
+  // Where Go to row came from, so Back can restore that line and its filter.
+  const [returnTo, setReturnTo] = useState<{
+    readonly line: number;
+    readonly findingId: string | undefined;
+    readonly search: string;
+    readonly showAll: boolean;
+  }>();
   const contents = useRef<HTMLElement>(null);
+  const summary = useRef<HTMLElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
 
   const finding = groups.flatMap((group) => group.findings).find((item) => item.id === findingId);
   const query = parseLineQuery(search);
@@ -244,7 +265,10 @@ function Workspace({
     if (finding) return true;
     return showAll || needsAttention(line);
   });
-  const selected = lines.find((line) => line.line === selectedLine);
+  // A filter can hide the chosen line; its details close with it.
+  const selected = visible.find((line) => line.line === selectedLine);
+  const openLine = selected?.line;
+  const attentionCount = useMemo(() => lines.filter(needsAttention).length, [lines]);
 
   useEffect(() => {
     if (selectedLine === undefined) return;
@@ -267,22 +291,85 @@ function Workspace({
     setFindingId((current) => (current === id ? undefined : id));
     setSearch('');
     setSelectedLine(undefined);
+    setReturnTo(undefined);
   }
 
   function jumpToRow(row: number) {
     const target = check.rows[row - 1];
-    if (!target) return;
+    if (!target || openLine === undefined) return;
     const line = target.record.line;
+    setReturnTo({ line: openLine, findingId, search, showAll });
     if (!visible.some((candidate) => candidate.line === line)) {
       setFindingId(undefined);
       setSearch('');
       setShowAll(true);
     }
     setSelectedLine(line);
+    focusRow(line);
   }
 
+  function goBack() {
+    if (!returnTo) return;
+    setFindingId(returnTo.findingId);
+    setSearch(returnTo.search);
+    setShowAll(returnTo.showAll);
+    setSelectedLine(returnTo.line);
+    setReturnTo(undefined);
+    focusRow(returnTo.line);
+  }
+
+  // Leaves a reason's lines and puts focus back on that reason in the summary.
+  function clearFinding() {
+    const id = findingId;
+    setFindingId(undefined);
+    requestAnimationFrame(() =>
+      summary.current?.querySelector<HTMLElement>(`[data-finding="${id}"]`)?.focus(),
+    );
+  }
+
+  // Focus on a row's gutter button, e.g. after Go to row or closing its details.
+  function focusRow(line: number) {
+    requestAnimationFrame(() =>
+      contents.current?.querySelector<HTMLElement>(`tr[data-line="${line}"] button`)?.focus(),
+    );
+  }
+
+  // What the table says when no line is shown; the heading already counts the matches.
+  const emptyNote = (text: string) => (
+    <p className="text-muted-foreground p-8 text-center text-sm">{text}</p>
+  );
+  const gridEmpty =
+    lines.length === 0 ? (
+      emptyNote(`${emptyFileText(check)} Choose another file with Change.`)
+    ) : query.kind === 'text' ? (
+      emptyNote('Search looks in cell text. Type “line 12” or “row 12” to go to a line.')
+    ) : query.kind === 'line' ? (
+      emptyNote(`The file has no line ${query.line}.`)
+    ) : query.kind === 'row' ? (
+      emptyNote(`The file has no row ${query.row}.`)
+    ) : !finding && !showAll ? (
+      <NothingNeedsAttention
+        totalLines={check.funnel.dataLines}
+        onShowAll={() => setShowAll(true)}
+      />
+    ) : undefined;
+
   return (
-    <div className="flex flex-col lg:h-[calc(100vh-72px)]">
+    <div
+      className="flex h-[calc(100vh-72px)] flex-col"
+      // Escape closes line details, then leaves a reason's lines, unless a menu or list takes it.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        if ((event.target as HTMLElement).closest('[role="listbox"], [role="menu"]')) return;
+        if (openLine !== undefined) {
+          setSelectedLine(undefined);
+          setReturnTo(undefined);
+          focusRow(openLine);
+          return;
+        }
+        if (findingId !== undefined) clearFinding();
+      }}
+    >
       <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
         <p className="flex min-w-0 items-center gap-2 text-sm">
           <FileSpreadsheet
@@ -297,7 +384,7 @@ function Workspace({
           <span className="truncate font-medium">{collection.label}</span>
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/45 rounded-sm text-xs underline-offset-2 outline-none hover:underline focus-visible:ring-2"
             onClick={onChange}
           >
             Change
@@ -314,6 +401,7 @@ function Workspace({
               aria-hidden="true"
             />
             <Input
+              ref={searchInput}
               type="search"
               className="pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
               aria-label="Search the file"
@@ -323,14 +411,18 @@ function Workspace({
                 setSearch(event.target.value);
                 setFindingId(undefined);
                 setSelectedLine(undefined);
+                setReturnTo(undefined);
               }}
             />
             {search ? (
               <button
                 type="button"
-                className="text-muted-foreground hover:text-foreground absolute right-2.5 grid size-5 place-items-center rounded"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/45 absolute right-2.5 grid size-5 place-items-center rounded outline-none focus-visible:ring-2"
                 aria-label="Clear search"
-                onClick={() => setSearch('')}
+                onClick={() => {
+                  setSearch('');
+                  searchInput.current?.focus();
+                }}
               >
                 <X size={14} />
               </button>
@@ -341,18 +433,22 @@ function Workspace({
       </header>
       <div
         className={cn(
-          'grid min-h-0 flex-1 lg:grid-cols-[20rem_minmax(0,1fr)]',
+          // The summary keeps a column at every width, so the lines stay in view at 960px.
+          'grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]',
           selected && 'xl:grid-cols-[20rem_minmax(0,1fr)_19rem]',
         )}
       >
         <nav
-          className="border-border min-h-0 overflow-y-auto border-b pb-4 lg:border-r lg:border-b-0"
+          ref={summary}
+          className="border-border min-h-0 overflow-y-auto border-r pb-4"
           aria-label="Summary"
         >
           <Headline check={check} />
-          {groups.length === 0 ? (
+          {lines.length === 0 ? (
+            <p className="text-muted-foreground px-4 pt-4 text-sm">{emptyFileText(check)}</p>
+          ) : groups.length === 0 ? (
             <p className="text-muted-foreground px-4 pt-4 text-sm">
-              No problems found. Zesty should import every entry.
+              No problems found. Zesty should import every row.
             </p>
           ) : (
             groups.map((group) => (
@@ -362,7 +458,11 @@ function Workspace({
         </nav>
         <section
           ref={contents}
-          className="flex min-h-0 min-w-0 flex-col max-lg:h-[75vh]"
+          className={cn(
+            'flex min-h-0 min-w-0 flex-col',
+            // Below xl the details cover the bottom half, so the chosen line stays above them.
+            selected && 'max-xl:[&_table]:mb-[50vh] max-xl:[&_tr]:scroll-mb-[52vh]',
+          )}
           aria-label="File contents"
         >
           <GridHeading
@@ -370,36 +470,38 @@ function Workspace({
             search={query.kind === 'none' ? undefined : search.trim()}
             shown={visible.length}
             showAll={showAll}
+            attentionCount={attentionCount}
             totalLines={check.funnel.dataLines}
             onShowAll={setShowAll}
-            onClear={() => setFindingId(undefined)}
+            onClear={clearFinding}
           />
           <ImportCheckGrid
             check={check}
             lines={visible}
-            selectedLine={selectedLine}
-            onSelect={(line) => setSelectedLine((current) => (current === line ? undefined : line))}
+            selectedLine={openLine}
+            onSelect={(line) => {
+              setSelectedLine((current) => (current === line ? undefined : line));
+              setReturnTo(undefined);
+            }}
             onMap={(header, field) => onMappingChange(mapColumn(check.mapping, header, field))}
             {...(query.kind === 'text' ? { highlight: query.text } : {})}
             {...(finding?.column !== undefined ? { focusColumn: finding.column } : {})}
-            {...(query.kind === 'none' && !finding && !showAll
-              ? {
-                  empty: (
-                    <NothingNeedsAttention
-                      totalLines={check.funnel.dataLines}
-                      onShowAll={() => setShowAll(true)}
-                    />
-                  ),
-                }
-              : {})}
+            {...(gridEmpty ? { empty: gridEmpty } : {})}
           />
         </section>
         {selected ? (
           <Details
             entry={selected}
             check={check}
-            onClose={() => setSelectedLine(undefined)}
+            onClose={() => {
+              if (openLine !== undefined) focusRow(openLine);
+              setSelectedLine(undefined);
+              setReturnTo(undefined);
+            }}
             onJump={jumpToRow}
+            {...(returnTo && returnTo.line !== openLine
+              ? { back: { line: returnTo.line, onBack: goBack } }
+              : {})}
           />
         ) : null}
       </div>
@@ -461,9 +563,15 @@ function Headline({ check }: { readonly check: Check }) {
         </span>
       </p>
       <p className="text-muted-foreground mt-1 text-xs">
-        from {funnel.dataLines} lines in the file · nothing is written to Zesty
+        from {plural(funnel.dataLines, 'line', 'lines')} after the header
       </p>
       <PredictionNote className="mt-3" />
+      {/* The check suggests column mappings, while Zesty's Import CSV starts every column at None. */}
+      <p className="text-muted-foreground mt-2 flex items-start gap-2 text-xs">
+        <Columns3 size={14} className="mt-px shrink-0" aria-hidden="true" />
+        Mappings are suggested. Zesty’s Import CSV starts every column at None, so choose the same
+        there.
+      </p>
     </div>
   );
 }
@@ -489,7 +597,7 @@ function NothingNeedsAttention({
     <div className="grid justify-items-center gap-2 p-10 text-center text-sm" role="status">
       <CircleCheck size={22} className="text-emerald-500" aria-hidden="true" />
       <p className="font-medium">Nothing needs attention</p>
-      <p className="text-muted-foreground">Every line is an entry Zesty should import.</p>
+      <p className="text-muted-foreground">Zesty should import every row in the file.</p>
       <Button variant="outline" size="sm" className="mt-2" onClick={onShowAll}>
         {totalLines === 1 ? 'Show the line' : `Show all ${totalLines} lines`}
       </Button>
@@ -522,6 +630,7 @@ function GroupList({
             <button
               type="button"
               aria-pressed={item.id === selectedId}
+              data-finding={item.id}
               onClick={() => onPick(item.id)}
               className={cn(
                 'focus-visible:ring-ring/45 flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2',
@@ -534,7 +643,7 @@ function GroupList({
               />
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate',
+                  'line-clamp-2 min-w-0 flex-1 break-words',
                   item.column !== undefined && 'font-mono text-xs',
                 )}
               >
@@ -556,6 +665,7 @@ function GridHeading({
   search,
   shown,
   showAll,
+  attentionCount,
   totalLines,
   onShowAll,
   onClear,
@@ -564,6 +674,7 @@ function GridHeading({
   readonly search: string | undefined;
   readonly shown: number;
   readonly showAll: boolean;
+  readonly attentionCount: number;
   readonly totalLines: number;
   readonly onShowAll: (showAll: boolean) => void;
   readonly onClear: () => void;
@@ -595,8 +706,8 @@ function GridHeading({
     <div className={base}>
       <div className="bg-muted inline-flex rounded-md p-0.5" role="group" aria-label="Lines shown">
         {[
-          { all: false, label: 'Needs attention' },
-          { all: true, label: `All ${totalLines} lines` },
+          { all: false, label: 'Needs attention', count: attentionCount },
+          { all: true, label: 'All lines', count: totalLines },
         ].map((option) => (
           <button
             key={option.label}
@@ -604,13 +715,14 @@ function GridHeading({
             aria-pressed={showAll === option.all}
             onClick={() => onShowAll(option.all)}
             className={cn(
-              'rounded px-2.5 py-1 text-xs',
+              'focus-visible:ring-ring/45 rounded px-2.5 py-1 text-xs outline-none focus-visible:ring-2',
               showAll === option.all
                 ? 'bg-background text-foreground shadow-xs'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {option.label}
+            {option.label}{' '}
+            <span className="text-muted-foreground tabular-nums">{option.count}</span>
           </button>
         ))}
       </div>
@@ -623,16 +735,25 @@ function Details({
   check,
   onClose,
   onJump,
+  back,
 }: {
   readonly entry: FileLine;
   readonly check: Check;
   readonly onClose: () => void;
   readonly onJump: (row: number) => void;
+  /** Set after Go to row, to return to the line it was followed from. */
+  readonly back?: { readonly line: number; readonly onBack: () => void };
 }) {
+  // Lines lead, as in the table's gutter and the user's editor; Zesty's messages count rows.
   const heading =
     entry.kind === 'record'
-      ? `Row ${entry.row.row} · line ${entry.row.record.line}`
+      ? `${lineRange(entry.row)} · row ${entry.row.row}`
       : `Line ${entry.line}`;
+  // Opened from a row's button, focus follows into the panel; a click on the row leaves it.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (document.activeElement?.closest('tr[data-line]')) headingRef.current?.focus();
+  }, [entry]);
   // Below `xl` the panel slides over the bottom of the page instead of taking a column.
   return (
     <aside
@@ -640,7 +761,9 @@ function Details({
       aria-label="Line details"
     >
       <div className="flex items-center gap-2">
-        <h3 className="font-semibold">{heading}</h3>
+        <h3 ref={headingRef} tabIndex={-1} className="font-semibold outline-none">
+          {heading}
+        </h3>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -651,7 +774,18 @@ function Details({
           <X />
         </Button>
       </div>
-      <div className="mt-3 grid gap-4 text-sm">
+      {back ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground -ml-2 h-7"
+          onClick={back.onBack}
+        >
+          <ArrowLeft size={13} /> Back to line {back.line}
+        </Button>
+      ) : null}
+      {/* Long values break anywhere, so a URL cannot widen the panel. */}
+      <div className="mt-3 grid gap-4 text-sm [overflow-wrap:anywhere] [&>*]:min-w-0">
         <DetailsBody entry={entry} check={check} onJump={onJump} />
       </div>
     </aside>
@@ -690,11 +824,11 @@ function DetailsBody({
       ) : null}
       {check.fileRejected && !entry.problem ? (
         <p className="text-muted-foreground">
-          Zesty rejects the whole file, so this entry isn’t imported either.
+          Zesty rejects the whole file, so this row isn’t imported either.
         </p>
       ) : null}
       {row.issues.length === 0 && !check.fileRejected ? (
-        <p className="text-emerald-400">Zesty should import this entry.</p>
+        <p className="text-emerald-400">Zesty should import this row.</p>
       ) : (
         row.issues.map((issue, index) => {
           const related =
@@ -721,7 +855,8 @@ function DetailsBody({
                   className="justify-start"
                   onClick={() => onJump(related.row)}
                 >
-                  <ArrowUpRight size={13} /> Go to row {related.row}
+                  <ArrowUpRight size={13} /> Go to {lineRange(related).toLowerCase()} · row{' '}
+                  {related.row}
                 </Button>
               ) : null}
             </div>
@@ -733,8 +868,67 @@ function DetailsBody({
           {note}
         </p>
       ))}
+      {/* Cells are cut off in the table; here every value reads in full. */}
+      <section className="border-border grid gap-2 border-t pt-3" aria-labelledby="line-cells">
+        <h4 id="line-cells" className="text-muted-foreground text-xs font-medium">
+          Cells
+        </h4>
+        <dl className="grid gap-2 text-xs">
+          {check.columns.map((column) => {
+            const value = row.record.cells[column.index] ?? '';
+            const kept = column.status === 'kept' ? column : undefined;
+            const issue = kept && row.issues.find((item) => item.column === column.header);
+            const tone = issue
+              ? issue.certainty === 'possible'
+                ? 'at-risk'
+                : 'rejected'
+              : undefined;
+            // Where the cell goes: a field, the URL, or nowhere.
+            const target = kept?.field?.label ?? (kept?.pathPart ? 'URL' : 'not imported');
+            return (
+              <div
+                key={column.index}
+                className={cn('grid gap-0.5', isDropped(column) && 'opacity-60')}
+              >
+                <dt className="text-muted-foreground flex items-center gap-1.5">
+                  {tone ? (
+                    <span
+                      className={cn('size-2 shrink-0 rounded-full', dot[tone])}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  <span className="font-mono">{column.header}</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="sr-only">goes to</span>
+                  <span>{target}</span>
+                </dt>
+                <dd
+                  className={cn(
+                    'whitespace-pre-wrap',
+                    tone === 'rejected' && 'text-rose-200',
+                    tone === 'at-risk' && 'text-amber-200',
+                  )}
+                >
+                  {value.trim() === '' ? (
+                    <span className="text-muted-foreground italic">empty</span>
+                  ) : (
+                    value
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      </section>
     </>
   );
+}
+
+/** Why a file shows no lines at all. */
+function emptyFileText(check: Check): string {
+  return check.parsed.header.length === 0
+    ? 'The file is empty.'
+    : 'The file has a header but no lines under it.';
 }
 
 function download(file: CsvExport) {

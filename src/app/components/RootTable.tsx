@@ -4,7 +4,7 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/react-table';
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useState, type Ref, type RefObject } from 'react';
 import type {
   CollectionNode,
   CollectionNodeId,
@@ -26,12 +26,24 @@ import {
   columnIdForSort,
   contentItemColumns,
   initialColumnVisibility,
+  cellText,
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
-import { buildLoadedViewGraph, type LoadedView } from '../load-view';
+import {
+  buildLoadedViewGraph,
+  loadedItemsById,
+  namedSortValue,
+  type LoadedView,
+} from '../load-view';
 import { CellValue } from './CellValue';
-import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import {
+  ContentColumnsMenu,
+  ContentTableGrid,
+  ContentTablePagination,
+  HiddenSortNote,
+} from './ContentTable';
+import { plural, shownCount } from '../lib/utils';
 import { tableFilterControls } from './FilterControls';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
 import { PublicationStatusCell } from './PublicationStatusCell';
@@ -45,12 +57,16 @@ const headerClassName =
   'flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col';
 
 // Stands in for RootTable, in the same panel and toolbar layout, while the root collection loads.
-export function RootTableSkeleton() {
+export function RootTableSkeleton({ title }: { readonly title: string }) {
   return (
     <section className={`overflow-hidden ${panelClassName}`}>
       <div className={headerClassName}>
         <div className="grid gap-1.5">
-          <Skeleton className="h-5 w-36" />
+          {/* The name is known before the items arrive, so the header shows it at once. The
+              status below announces it; the real heading comes with the table. */}
+          <p className="m-0 text-[17px] font-bold tracking-[-0.02em]" aria-hidden="true">
+            {title}
+          </p>
           <Skeleton className="h-2.5 w-20" />
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
@@ -58,12 +74,14 @@ export function RootTableSkeleton() {
           <Skeleton className="h-9 w-24" />
         </div>
       </div>
-      <TableSkeleton label="Loading collection" rows={8} />
+      <TableSkeleton label={`Loading ${title}`} rows={8} />
     </section>
   );
 }
 
 interface RootTableProps {
+  /** The collection's display name, as the collection tree shows it. */
+  readonly title: string;
   readonly schema: CollectionSchema;
   readonly snapshot: CollectionSnapshot;
   readonly reference: CollectionReference;
@@ -82,9 +100,12 @@ interface RootTableProps {
   readonly onPresentationChange: (nodeId: CollectionNodeId, presentation: NodePresentation) => void;
   /** The page's sticky header; table headers stick below it. */
   readonly pageHeader: RefObject<HTMLElement | null>;
+  /** Receives the collection heading, which can take focus when the view opens. */
+  readonly headingRef?: Ref<HTMLHeadingElement>;
 }
 
 export function RootTable({
+  title,
   schema,
   snapshot,
   reference,
@@ -98,6 +119,7 @@ export function RootTable({
   onRetry,
   onPresentationChange,
   pageHeader,
+  headingRef,
 }: RootTableProps) {
   const [nodeStates, setNodeStates] = useState<ReadonlyMap<CollectionNodeId, SharedNodeTableState>>(
     new Map(),
@@ -156,14 +178,29 @@ export function RootTable({
     const allIds = snapshot.items.map((item) => item.id);
     const matchingIds = filterNodeItemIds(graph, treeRoot.id, allIds, viewFilters, freeText);
     const activeSort = sorting[0];
-    const sortedIds = sortItemIds(snapshot, matchingIds, {
-      ...sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
-    });
+    const sortsRelationship = itemColumnDefinitions.some(
+      (column) => column.id === activeSort?.id && column.kind === 'value' && column.relationship,
+    );
+    const sortedIds = sortItemIds(
+      snapshot,
+      matchingIds,
+      sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
+      sortsRelationship ? namedSortValue(loadedView) : undefined,
+    );
     return sortedIds.flatMap((id) => {
       const item = snapshot.itemsById.get(id);
       return item ? [item] : [];
     });
-  }, [freeText, graph, snapshot, sorting, treeRoot.id, viewFilters]);
+  }, [
+    freeText,
+    graph,
+    itemColumnDefinitions,
+    loadedView,
+    snapshot,
+    sorting,
+    treeRoot.id,
+    viewFilters,
+  ]);
   // The root collection's filters are the view filters.
   const filterControls = tableFilterControls({
     node: treeRoot,
@@ -191,12 +228,18 @@ export function RootTable({
       createContentTableColumns({
         definitions: itemColumnDefinitions,
         actionColumnWidth,
-        renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
+        renderValue: (value, column) => (
+          <CellValue
+            value={value}
+            richText={column.richText}
+            text={cellText(column, value, () => loadedItemsById(loadedView))}
+          />
+        ),
         renderStatus: (item) => (
           <PublicationStatusCell item={item} reference={{ ...reference, itemZuid: item.id }} />
         ),
       }),
-    [actionColumnWidth, itemColumnDefinitions, reference],
+    [actionColumnWidth, itemColumnDefinitions, loadedView, reference],
   );
 
   const table = useContentTable({
@@ -257,15 +300,24 @@ export function RootTable({
     <ScrollDockProvider pageHeader={pageHeader}>
       <section
         className={`relative overflow-visible ${panelClassName}`}
-        aria-label={`${schema.label} collection`}
+        aria-label={`${title} collection`}
       >
         <div className={headerClassName}>
           <div className="min-w-36">
-            <h2 className="m-0 text-[17px] font-bold tracking-[-0.02em]">{schema.label}</h2>
-            <span className="mt-0.5 block text-[10px] text-muted-foreground">
-              {resultsPending
-                ? `${snapshot.items.length} items`
-                : `${filteredItems.length} of ${snapshot.items.length} items`}
+            <h2
+              ref={headingRef}
+              tabIndex={-1}
+              className="m-0 text-[17px] font-bold tracking-[-0.02em] outline-none"
+            >
+              {title}
+            </h2>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              <span>
+                {resultsPending
+                  ? plural(snapshot.items.length, 'item', 'items')
+                  : shownCount(filteredItems.length, snapshot.items.length, 'item', 'items')}
+              </span>
+              <HiddenSortNote table={table} columns={itemColumnDefinitions} />
             </span>
           </div>
           <div className="flex items-center gap-2 max-lg:w-full">
@@ -288,7 +340,9 @@ export function RootTable({
         ) : null}
         {snapshot.items.length === 0 ? (
           <p className="m-0 p-7 text-center text-sm text-muted-foreground">
-            This collection has no content items.
+            {contentScope.state === 'published'
+              ? 'This collection has no published content items.'
+              : 'This collection has no content items.'}
           </p>
         ) : (
           <>
@@ -297,14 +351,14 @@ export function RootTable({
             <div hidden={resultsPending}>
               <ContentTableGrid
                 table={table}
-                label={schema.label}
+                label={title}
                 reference={reference}
                 canExpand={canExpand}
                 onOpenDetails={onOpenDetails}
                 emptyContent={
                   <div className="flex flex-col items-center gap-2 p-7 text-center text-sm text-muted-foreground">
                     <p className="m-0 font-medium text-foreground">
-                      No items match your search or filters
+                      No items match your search or filters.
                     </p>
                     {viewFilters.length > 0 || freeText !== '' ? (
                       <Button variant="outline" size="sm" onClick={clearSearchAndFilters}>
@@ -335,11 +389,7 @@ export function RootTable({
                   </div>
                 )}
               />
-              <ContentTablePagination
-                table={table}
-                itemCount={filteredItems.length}
-                itemLabel="items"
-              />
+              <ContentTablePagination table={table} itemCount={filteredItems.length} />
             </div>
           </>
         )}

@@ -72,11 +72,13 @@ function edgeStateUpdater(scroller: HTMLElement, frame: HTMLElement) {
     written.set(name, value);
     frame.style.setProperty(name, value);
   };
+  // A few pixels of overflow come from borders and rounding, not hidden columns.
+  const slack = 4;
   return () => {
     write('--grid-scrolled', scroller.scrollLeft > 1);
     write(
       '--grid-more-right',
-      scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft > 1,
+      scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft > slack,
     );
   };
 }
@@ -212,6 +214,7 @@ export function ContentTableGrid({
         style={{ scrollPaddingInlineStart: table.getStartTotalSize() }}
       >
         <Table
+          aria-label={label}
           className="border-separate border-spacing-0 text-xs"
           style={{
             width: `max(100%, ${table.getTotalSize()}px)`,
@@ -239,6 +242,7 @@ export function ContentTableGrid({
                   return (
                     <TableHead
                       key={header.id}
+                      aria-sort={ariaSort(header.column.getIsSorted())}
                       className={`group/head h-9 max-w-[520px] border-b border-divider-subtle bg-surface-header px-3 py-2 text-left align-middle text-[11px] font-bold tracking-[0.045em] whitespace-nowrap text-foreground/75 uppercase ${
                         index < stickyColumns.length ? `z-4 ${placement.className}` : 'relative'
                       }`}
@@ -390,12 +394,39 @@ interface ContentColumnsMenuProps {
   readonly label: string;
 }
 
+/**
+ * " · sorted by Modified ↓" when the table is sorted by a hidden column, like the default
+ * Modified, which otherwise gives the order no visible reason. Nothing otherwise.
+ */
+export function HiddenSortNote({
+  table,
+  columns,
+}: {
+  readonly table: ContentTableInstance;
+  readonly columns: readonly ContentItemColumn[];
+}) {
+  const sort = table.state.sorting[0];
+  const column = sort ? table.getColumn(sort.id) : undefined;
+  // A single row has no order worth explaining.
+  if (!sort || !column || column.getIsVisible() || table.getRowModel().rows.length < 2) {
+    return null;
+  }
+  const label = columns.find((candidate) => candidate.id === sort.id)?.label ?? sort.id;
+  return (
+    <>
+      {' · sorted by '}
+      {label} <span aria-hidden="true">{sort.desc ? '↓' : '↑'}</span>
+      <span className="sr-only">{sort.desc ? 'descending' : 'ascending'}</span>
+    </>
+  );
+}
+
 export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="outline" aria-label={label}>
+          <Button variant="outline" size="sm" aria-label={label} data-columns-menu>
             <SlidersHorizontal size={14} /> Columns
           </Button>
         }
@@ -421,21 +452,20 @@ export function ContentColumnsMenu({ table, columns, label }: ContentColumnsMenu
 interface ContentTablePaginationProps {
   readonly table: ContentTableInstance;
   readonly itemCount: number;
-  readonly itemLabel: string;
+}
+
+function ariaSort(sorted: false | 'asc' | 'desc'): 'ascending' | 'descending' | undefined {
+  if (!sorted) return undefined;
+  return sorted === 'asc' ? 'ascending' : 'descending';
 }
 
 const pageSizes = [25, 50, 100] as const;
 
-export function ContentTablePagination({
-  table,
-  itemCount,
-  itemLabel,
-}: ContentTablePaginationProps) {
+export function ContentTablePagination({ table, itemCount }: ContentTablePaginationProps) {
+  // The table header shows the count; this row only appears when paging is possible.
+  if (table.getPageCount() <= 1 && itemCount <= pageSizes[0]) return null;
   return (
     <div className="flex min-h-12 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-      <span className="mr-auto">
-        {itemCount} {itemLabel}
-      </span>
       {table.getPageCount() > 1 ? (
         <>
           <Button

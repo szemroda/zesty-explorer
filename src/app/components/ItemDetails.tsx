@@ -1,5 +1,5 @@
 import { Copy, ExternalLink, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { itemDisplayLabel, managerItemUrl } from '../content-item-presentation';
@@ -13,6 +13,7 @@ import {
 } from '../item-version-comparison';
 import {
   authorLabel,
+  formattedDate,
   matchesVersionPreviewOption,
   savedDescription,
 } from '../item-version-preview';
@@ -21,7 +22,7 @@ import {
   ModeToggle,
   ResourceNotice,
   VersionBadges,
-  VersionCard,
+  VersionCardList,
   SavedVersionsSidebar,
   VersionPairSelect,
   type HistoryMode,
@@ -30,6 +31,9 @@ import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { RichText, richTextBlockClassName } from './RichText';
+import { cn } from '../lib/utils';
+import { parseRichText } from '../rich-text';
 
 interface ItemDetailsProps {
   readonly api: ItemVersionApi;
@@ -65,14 +69,46 @@ function CopyValue({ value, name }: { readonly value: unknown; readonly name: st
   );
 }
 
+const htmlTag = /<\/?[a-z][^>]*>/i;
+
+/**
+ * One value as it reads best: HTML formatted like the table's rich text preview, text with its
+ * line breaks, structures as indented JSON, and empty values named. Copy still copies the source.
+ */
+function FieldValue({ value }: { readonly value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground italic">null</span>;
+  }
+  if (value === '') return <span className="text-muted-foreground italic">empty text</span>;
+  if (typeof value === 'string') {
+    const body = htmlTag.test(value) ? parseRichText(value) : undefined;
+    if (body) {
+      return (
+        <div className={cn(richTextBlockClassName, 'text-xs leading-5')}>
+          <RichText body={body} layout="block" />
+        </div>
+      );
+    }
+    return <span className="whitespace-pre-wrap">{value}</span>;
+  }
+  if (typeof value === 'object') {
+    return (
+      <pre className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-code-content">
+        {formatted(value)}
+      </pre>
+    );
+  }
+  return formatted(value);
+}
+
 function ValuesList({ values }: { readonly values: Readonly<Record<string, unknown>> }) {
   return (
     <dl className="m-0 divide-y divide-border border-y border-border">
       {Object.entries(values).map(([name, value]) => (
         <div className="group relative grid grid-cols-[150px_1fr] gap-4 px-3 py-3 pr-10" key={name}>
-          <dt className="text-xs text-muted-foreground">{name}</dt>
+          <dt className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">{name}</dt>
           <dd className="m-0 min-w-0 text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
-            {formatted(value)}
+            <FieldValue value={value} />
           </dd>
           <CopyValue name={name} value={value} />
         </div>
@@ -98,6 +134,8 @@ function ItemDetailsPanel({
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<HistoryMode>('view');
   const [chosenPair, setChosenPair] = useState<VersionNumberPair>();
+  // Focus starts in the version search, not on the Manager link, where Enter would leave the app.
+  const searchInput = useRef<HTMLInputElement>(null);
   const preview = useItemVersionPreview({
     api,
     reference,
@@ -141,6 +179,7 @@ function ItemDetailsPanel({
       <DialogContent
         className="grid h-[min(820px,calc(100vh-32px))] w-[min(1120px,calc(100vw-32px))] grid-rows-[65px_minmax(0,1fr)] gap-0 overflow-hidden p-0"
         aria-labelledby="details-title"
+        initialFocus={searchInput}
         finalFocus={finalFocus}
         showCloseButton={false}
       >
@@ -179,7 +218,8 @@ function ItemDetailsPanel({
         <div className="grid min-h-0 grid-cols-[285px_minmax(0,1fr)]">
           <SavedVersionsSidebar
             isLoading={preview.history.isLoading}
-            total={preview.options.length}
+            total={preview.history.error ? undefined : preview.options.length}
+            searchRef={searchInput}
             search={mode === 'view' ? search : undefined}
             onSearchChange={setSearch}
           >
@@ -214,14 +254,11 @@ function ItemDetailsPanel({
               ) : null
             ) : (
               <>
-                {visibleOptions.map((option) => (
-                  <VersionCard
-                    key={option.number}
-                    option={option}
-                    selected={selected?.number === option.number}
-                    onSelect={() => preview.selectVersion(option.number)}
-                  />
-                ))}
+                <VersionCardList
+                  options={visibleOptions}
+                  selectedNumber={selected?.number}
+                  onSelect={preview.selectVersion}
+                />
                 {!preview.history.isLoading && visibleOptions.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                     No saved versions match this search.
@@ -253,10 +290,26 @@ function ItemDetailsPanel({
                     <h2 className="text-2xl font-bold">Version {selected?.number ?? '—'}</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {savedDescription(selected?.savedAt)} ·{' '}
-                      {selected ? authorLabel(selected) : 'Author unavailable'}
+                      {/* Until history loads, the item in view has no author to name yet. */}
+                      {preview.history.isLoading
+                        ? 'Loading author…'
+                        : selected
+                          ? authorLabel(selected)
+                          : 'Author unavailable'}
+                      {selected?.scheduledAt ? (
+                        <span className="text-amber-300">
+                          {' '}
+                          · Publishes {formattedDate(selected.scheduledAt)}
+                        </span>
+                      ) : null}
                     </p>
+                    {/* A row of their own, so moving between versions never shifts them. */}
+                    {/* Kept one badge tall when empty, so stepping through versions never shifts the
+                        fields below. */}
+                    <div className="mt-2 min-h-5.5">
+                      {selected ? <VersionBadges option={selected} /> : null}
+                    </div>
                   </div>
-                  {selected ? <VersionBadges option={selected} /> : null}
                 </>
               )}
             </div>
@@ -273,13 +326,33 @@ function ItemDetailsPanel({
                   <TabsTrigger value="fields">Fields</TabsTrigger>
                   <TabsTrigger value="raw">Raw JSON</TabsTrigger>
                 </TabsList>
-                <ModeToggle label="Item history mode" mode={mode} onChange={selectMode} />
+                <ModeToggle
+                  label="Item history mode"
+                  mode={mode}
+                  onChange={selectMode}
+                  compareDisabled={!historyLoaded || preview.options.length < 2}
+                />
               </div>
               <TabsContent value="raw">
                 {mode === 'view' ? (
-                  <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre-wrap text-code-content">
-                    {JSON.stringify(preview.selectedItem.raw, null, 2)}
-                  </pre>
+                  <div className="grid gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="justify-self-end"
+                      onClick={() =>
+                        void copyText(
+                          JSON.stringify(preview.selectedItem.raw, null, 2),
+                          'Raw JSON copied',
+                        )
+                      }
+                    >
+                      <Copy size={13} aria-hidden="true" /> Copy JSON
+                    </Button>
+                    <pre className="overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-6 whitespace-pre text-code-content">
+                      {JSON.stringify(preview.selectedItem.raw, null, 2)}
+                    </pre>
+                  </div>
                 ) : pair ? (
                   <RawJsonComparison
                     key={`${pair.before.number}-${pair.after.number}`}

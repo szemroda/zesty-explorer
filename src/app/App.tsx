@@ -86,7 +86,6 @@ import {
   refreshActivePublicationStatuses,
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
-import { Badge } from './components/ui/badge';
 import { Checkbox } from './components/ui/checkbox';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
@@ -103,8 +102,9 @@ import { Input } from './components/ui/input';
 import { Toaster } from './components/ui/sonner';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import { SharedRichTextPreview } from './components/RichText';
-import { SharedTooltip, TooltipProvider } from './components/ui/tooltip';
+import { SharedTooltip, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs';
+import { cn } from './lib/utils';
 
 interface AppProps {
   readonly api?: ZestyApi;
@@ -314,6 +314,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     const root = rootCollectionInput.current;
     if (root && !root.disabled) root.focus();
     else instancePickerInput.current?.focus();
+  }, []);
+  // Opening a root from the picker hands focus to the collection heading once the table shows,
+  // so keyboard and screen reader users land in the view they asked for. Focus the user has
+  // already moved elsewhere while the table loaded stays where it is.
+  const pendingViewFocus = useRef(false);
+  const focusOpenedView = useCallback((heading: HTMLHeadingElement | null) => {
+    if (!heading || !pendingViewFocus.current) return;
+    pendingViewFocus.current = false;
+    if (document.activeElement === null || document.activeElement === document.body) {
+      heading.focus();
+    }
   }, []);
   const [relationshipSchemaSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
   // When Refresh last made every relationship schema stale.
@@ -608,17 +619,18 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }
 
-  // Typing only edits the draft. Paste, blur, and submit commit a complete reference.
+  // Typing only edits the draft. Paste, blur, and submit commit a complete reference. A problem
+  // shows on the field without taking focus; submit moves focus there itself.
   function applyPastedUrl(value: string): InstanceReference | undefined {
     if (!value.trim()) return undefined;
     const parsed = parseInstanceReference(value);
     if (!parsed.ok) {
-      startFormProblem.report('pasted-url', parsed.error.message);
+      startFormProblem.report('pasted-url', parsed.error.message, { focus: false });
       return undefined;
     }
     const problem = pastedReferenceProblem(parsed.value);
     if (problem) {
-      startFormProblem.report('pasted-url', problem);
+      startFormProblem.report('pasted-url', problem, { focus: false });
       return undefined;
     }
     if (
@@ -641,6 +653,19 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setStep(reference ? 'view' : 'credentials');
   }
 
+  // A root opened before its instance's catalog loaded keeps its model ZUID as its name, and views
+  // that predate catalog labels do too. Show the catalog label for those instead.
+  const rootName = !treeRoot
+    ? ''
+    : treeRoot.name !== treeRoot.reference.modelZuid
+      ? treeRoot.name
+      : (catalogQuery.catalog?.collections.find(
+          (collection) =>
+            instanceKey(collection.reference) === instanceKey(treeRoot.reference) &&
+            collection.reference.modelZuid === treeRoot.reference.modelZuid,
+        )?.label ??
+        loadedView?.schemas.get(treeRoot.id)?.label ??
+        treeRoot.name);
   const rootPickerCollections = useMemo(() => {
     const collections = [...(catalogQuery.catalog?.collections ?? [])];
     if (!catalogInstance) return collections;
@@ -668,7 +693,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     event.preventDefault();
     const trimmedUrl = pastedUrl.trim();
     const pasted = trimmedUrl ? applyPastedUrl(trimmedUrl) : undefined;
-    if (trimmedUrl && !pasted) return;
+    if (trimmedUrl && !pasted) {
+      pastedUrlInput.current?.focus();
+      return;
+    }
     const targetInstance = pasted ?? catalogInstance;
     if (!targetInstance) {
       startFormProblem.report('instance', 'Choose an instance or paste a Zesty URL.');
@@ -686,6 +714,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       ) ??
       (modelZuid ? suggestedRoot({ ...targetInstance, suggestedModelZuid: modelZuid }) : undefined);
     if (!selected) {
+      // While collections load, the picker shows a spinner; asking for a choice would be wrong.
+      if (catalogQuery.isLoading) return;
       startFormProblem.report(
         'root-collection',
         'Choose a root collection or paste a collection URL.',
@@ -727,6 +757,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setTreeRoot(next);
     relatedBuild.start(addRelated ? next : undefined);
     setSelectedItemId(selectedReference.itemZuid);
+    // An item deep link opens its details, which take focus instead.
+    pendingViewFocus.current = !selectedReference.itemZuid;
     startFormProblem.clear();
     setStep('view');
   }
@@ -874,9 +906,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const sharedActions = (
     <>
-      <Button variant="outline" size="sm" onClick={copyLink}>
-        <Copy size={14} aria-hidden="true" /> Copy link
-      </Button>
+      {/* Below xl the label hides so the header stays on one row. */}
+      <TooltipTrigger
+        text="Copy a link to this view, without your session token"
+        render={<Button variant="outline" size="sm" aria-label="Copy link" onClick={copyLink} />}
+      >
+        <Copy size={14} aria-hidden="true" /> <span className="max-xl:hidden">Copy link</span>
+      </TooltipTrigger>
       {viewOptions}
     </>
   );
@@ -966,7 +1002,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           <img src="/favicon.svg" alt="" className="size-9" />
           <div>
             <h1 className="text-sm font-semibold">Zesty Explorer</h1>
-            <span className="text-muted-foreground text-xs">Read-only content browser</span>
+            <span className="text-muted-foreground text-xs max-xl:hidden">
+              Read-only content browser
+            </span>
           </div>
           {showTabs ? (
             <Tabs
@@ -1045,30 +1083,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               />
               {sharedActions}
             </>
-          ) : (
-            <Badge variant="outline">No collection open</Badge>
-          )}
+          ) : null}
         </div>
       </header>
 
+      {/* Until a collection is open, the setup cards have the page to themselves. */}
       <div
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)]"
+        className={cn(
+          'grid min-h-0 flex-1 grid-cols-1',
+          treeRoot && 'lg:grid-cols-[16rem_minmax(0,1fr)]',
+        )}
         hidden={visibleTab !== 'explorer'}
       >
-        <aside
-          className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
-          aria-label="Collection tree"
-        >
-          {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
-          {treeRoot ? (
+        {treeRoot ? (
+          <aside
+            className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
+            aria-label="Collection tree"
+          >
+            {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
             <TreeEditor
-              root={{
-                ...treeRoot,
-                name:
-                  treeRoot.name === treeRoot.reference.modelZuid
-                    ? (loadedView?.schemas.get(treeRoot.id)?.label ?? treeRoot.name)
-                    : treeRoot.name,
-              }}
+              root={rootName === treeRoot.name ? treeRoot : { ...treeRoot, name: rootName }}
               schemas={loadedView?.schemas ?? noNodeSchemas}
               catalog={catalogQuery.catalog?.collections ?? []}
               catalogError={catalogQuery.error}
@@ -1089,35 +1123,30 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 )
               }
             />
-          ) : (
-            <div className="text-muted-foreground flex h-full min-h-40 flex-col items-center justify-center gap-2 px-4 text-center text-sm">
-              <Database size={18} />
-              <p>Your collections will appear here.</p>
-            </div>
-          )}
-          {relatedBuild.pending ? (
-            <div
-              className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
-              role="status"
-            >
-              <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                Finding related collections…
-                {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-1.5 text-xs"
-                onClick={relatedBuild.cancel}
+            {relatedBuild.pending ? (
+              <div
+                className="text-muted-foreground mt-3 flex items-center gap-2 px-2 text-xs"
+                role="status"
               >
-                Cancel
-              </Button>
-            </div>
-          ) : null}
-        </aside>
+                <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  Finding related collections…
+                  {schemaIndex.total > 0 ? ` ${schemaIndex.settled} of ${schemaIndex.total}` : ''}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-xs"
+                  onClick={relatedBuild.cancel}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
 
-        <section className="min-w-0 p-4 lg:p-6" aria-live="polite">
+        <section className="min-w-0 p-4 lg:p-6">
           {encodedView && encodedView.length > 8_000 ? (
             <p
               className="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm"
@@ -1170,7 +1199,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 onSubmit={confirmRoot}
               >
                 <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                  Choose a root · {deploymentLabels[deployment]}
+                  {reference ? 'Choose a root' : 'Step 2 of 2'} · {deploymentLabels[deployment]}
                 </p>
                 <h2 className="text-xl font-semibold" id="root-picker-title">
                   Choose an instance and root collection
@@ -1183,71 +1212,75 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   error={startFormProblem.messageFor('instance')}
                   inputRef={instancePickerInput}
                 />
-                {catalogInstance ? (
-                  <>
-                    {catalogQuery.error ? (
-                      <div
-                        className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
-                        role="alert"
-                      >
-                        <p>{catalogQuery.error.message}</p>
-                        <ErrorTechnicalDetails error={catalogQuery.error} />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => void catalogQuery.refresh()}
-                        >
-                          Retry catalog
-                        </Button>
-                      </div>
-                    ) : null}
-                    {catalogQuery.catalog && catalogQuery.catalog.collections.length === 0 ? (
-                      <p
-                        className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
-                        role="status"
-                      >
-                        This session returned an empty collection catalog.
-                      </p>
-                    ) : null}
-                    <CollectionPicker
-                      label="Root collection"
-                      collections={rootPickerCollections}
-                      value={selectedRootZuid}
-                      onChange={(collection) => {
-                        setSelectedRootZuid(collection?.reference.modelZuid);
-                        startFormProblem.clear('root-collection');
-                      }}
-                      disabled={catalogQuery.isLoading && rootPickerCollections.length === 0}
-                      loading={catalogQuery.isLoading}
-                      error={startFormProblem.messageFor('root-collection')}
-                      inputRef={rootCollectionInput}
-                    />
-                    {/* Always rendered: the form must not shift while a pasted URL applies. */}
-                    <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
-                      <Checkbox
-                        className="mt-0.5"
-                        checked={addRelatedOnOpen && !keepsOpenTree}
-                        disabled={keepsOpenTree}
-                        onCheckedChange={setAddRelatedOnOpen}
-                      />
-                      <span className="grid gap-0.5">
-                        <span className="font-medium">Add related collections</span>
-                        <span className="text-muted-foreground text-xs">
-                          Builds the collection tree from Zesty relationships. You can remove or add
-                          collections afterwards.
-                        </span>
-                      </span>
-                    </label>
-                    {catalogQuery.catalog?.warning ? (
-                      <div
-                        className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
-                        role="status"
-                      >
-                        <p>{catalogQuery.catalog.warning.message}</p>
-                        <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
-                      </div>
-                    ) : null}
-                  </>
+                {/* The form keeps its shape before an instance is chosen, so applying a URL on blur
+                    never moves the buttons under a click that is still in progress. */}
+                {catalogInstance && catalogQuery.error ? (
+                  <div
+                    className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+                    role="alert"
+                  >
+                    <p>{catalogQuery.error.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.error} />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void catalogQuery.refresh()}
+                    >
+                      Retry catalog
+                    </Button>
+                  </div>
+                ) : null}
+                {catalogInstance &&
+                catalogQuery.catalog &&
+                catalogQuery.catalog.collections.length === 0 ? (
+                  <p
+                    className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
+                    role="status"
+                  >
+                    This session returned an empty collection catalog.
+                  </p>
+                ) : null}
+                <CollectionPicker
+                  label="Root collection"
+                  description="Its items become the top-level table of the view."
+                  placeholder={catalogInstance ? undefined : 'Choose an instance first'}
+                  collections={rootPickerCollections}
+                  value={selectedRootZuid}
+                  onChange={(collection) => {
+                    setSelectedRootZuid(collection?.reference.modelZuid);
+                    startFormProblem.clear('root-collection');
+                  }}
+                  disabled={
+                    !catalogInstance ||
+                    (catalogQuery.isLoading && rootPickerCollections.length === 0)
+                  }
+                  loading={Boolean(catalogInstance) && catalogQuery.isLoading}
+                  error={startFormProblem.messageFor('root-collection')}
+                  inputRef={rootCollectionInput}
+                />
+                <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={addRelatedOnOpen && !keepsOpenTree}
+                    disabled={keepsOpenTree}
+                    onCheckedChange={setAddRelatedOnOpen}
+                  />
+                  <span className="grid gap-0.5">
+                    <span className="font-medium">Add related collections</span>
+                    <span className="text-muted-foreground text-xs">
+                      Builds the collection tree from Zesty relationships. You can remove or add
+                      collections afterwards.
+                    </span>
+                  </span>
+                </label>
+                {catalogInstance && catalogQuery.catalog?.warning ? (
+                  <div
+                    className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
+                    role="status"
+                  >
+                    <p>{catalogQuery.catalog.warning.message}</p>
+                    <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
+                  </div>
                 ) : null}
                 <Field className="border-t pt-4" error={startFormProblem.messageFor('pasted-url')}>
                   <FieldLabel>Or paste a Zesty URL</FieldLabel>
@@ -1255,7 +1288,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     ref={pastedUrlInput}
                     type="url"
                     value={pastedUrl}
-                    placeholder="https://8-….manager.zesty.io/content/6-…"
+                    placeholder="https://8-xxxxxx.manager.zesty.io/content/6-xxxxxx"
                     onChange={(event) => {
                       const value = event.target.value;
                       setPastedUrl(value);
@@ -1281,7 +1314,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             </Card>
           ) : null}
 
-          {screen === 'view' && loadStatus.kind === 'loading-root' ? <RootTableSkeleton /> : null}
+          {screen === 'view' && loadStatus.kind === 'loading-root' ? (
+            <RootTableSkeleton title={rootName} />
+          ) : null}
           {screen === 'view' && rootFailure ? (
             <Card
               className="border-destructive/40 bg-destructive/10 mx-auto my-[8vh] max-w-2xl"
@@ -1336,9 +1371,11 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 api={api}
                 sessionToken={activeToken}
                 credentialRevision={credentialRevision}
+                contentState={contentState}
               >
                 <RootTable
                   key={`${treeRoot.reference.instanceZuid}:${treeRoot.reference.modelZuid}:${treeRoot.id}`}
+                  title={rootName}
                   schema={rootSchema}
                   snapshot={rootSnapshot}
                   reference={treeRoot.reference}
@@ -1352,6 +1389,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   onRetry={() => void refreshCollections()}
                   onPresentationChange={changePresentation}
                   pageHeader={pageHeader}
+                  headingRef={focusOpenedView}
                 />
               </PublicationStatusProvider>
             </>

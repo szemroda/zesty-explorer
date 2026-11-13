@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentItem, ContentItemReference } from '../../domain';
+import type { ContentItem, ContentItemReference, ContentState } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
 import { memoryCooldownStorage, memoryRequestSlots } from '../../test/request-budget';
 import { createRequestBudget } from '../../zesty-api/request-budget';
@@ -25,11 +25,16 @@ const reference: ContentItemReference = {
   managerBaseUrl: 'https://8-instance.manager.zesty.io',
 };
 
-function renderCell(api: ItemVersionApi) {
+function renderCell(api: ItemVersionApi, contentState: ContentState = 'published') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+      <PublicationStatusProvider
+        api={api}
+        sessionToken="token"
+        credentialRevision="revision"
+        contentState={contentState}
+      >
         <PublicationStatusCell item={item} reference={reference} />
       </PublicationStatusProvider>
     </QueryClientProvider>,
@@ -54,13 +59,13 @@ describe('publication status cell', () => {
     });
 
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
-      'v8',
+      /^v8$/,
     );
     expect(screen.getByRole('img', { name: 'Currently published version v5' })).toHaveTextContent(
-      'v5',
+      /^v5$/,
     );
     expect(screen.getByRole('img', { name: /Version v7 scheduled to publish/ })).toHaveTextContent(
-      'v7',
+      /^v7$/,
     );
     expect(authors).not.toHaveBeenCalled();
   });
@@ -129,7 +134,12 @@ describe('publication status cell', () => {
       ));
     const view = (root: readonly Row[], nested: readonly Row[]) => (
       <QueryClientProvider client={client}>
-        <PublicationStatusProvider api={api} sessionToken="token" credentialRevision="revision">
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState="published"
+        >
           {table('root', root)}
           {table('nested', nested)}
         </PublicationStatusProvider>
@@ -148,18 +158,53 @@ describe('publication status cell', () => {
     expect(loaded).toEqual(['7-root-3', '7-nested-1', '7-nested-2', '7-root-1', '7-root-2']);
   });
 
-  it('keeps separate badges when the latest version is also published', async () => {
+  it('shows one badge when the latest saved version is also published', async () => {
     renderCell({
       loadItemVersions: () => Effect.succeed([{ number: 8, item }]),
       loadItemPublishings: () => Effect.succeed([{ version: 8, active: true }]),
       loadInstanceUsers: () => Effect.succeed([]),
     });
 
+    expect(
+      await screen.findByRole('img', {
+        name: 'Version v8 is the latest saved and currently published version',
+      }),
+    ).toHaveTextContent(/^v8$/);
+    expect(screen.getAllByRole('img')).toHaveLength(1);
+  });
+
+  it('reads latest saved items without their version history', async () => {
+    const loadItemVersions = vi.fn(() => Effect.succeed([]));
+    renderCell(
+      {
+        loadItemVersions,
+        loadItemPublishings: () => Effect.succeed([{ version: 5, active: true }]),
+        loadInstanceUsers: () => Effect.succeed([]),
+      },
+      'latest',
+    );
+
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
-      'v8',
+      /^v8$/,
     );
-    expect(screen.getByRole('img', { name: 'Currently published version v8' })).toHaveTextContent(
-      'v8',
-    );
+    expect(screen.getByRole('img', { name: 'Currently published version v5' })).toBeVisible();
+    expect(loadItemVersions).not.toHaveBeenCalled();
+  });
+
+  it('shows a scheduled latest version once, as scheduled', async () => {
+    renderCell({
+      loadItemVersions: () => Effect.succeed([{ number: 8, item }]),
+      loadItemPublishings: () =>
+        Effect.succeed([
+          { version: 5, active: true },
+          { version: 8, active: false, publishAt: '2099-10-01T12:00:00Z' },
+        ]),
+      loadInstanceUsers: () => Effect.succeed([]),
+    });
+
+    expect(
+      await screen.findByRole('img', { name: /^Latest saved version v8 scheduled to publish/ }),
+    ).toHaveTextContent(/^v8$/);
+    expect(screen.getAllByRole('img')).toHaveLength(2);
   });
 });

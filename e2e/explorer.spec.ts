@@ -420,6 +420,104 @@ test('reads the view in a language chosen from the instance languages', async ({
   await expect(page.getByRole('combobox', { name: 'Content language' })).toContainText('de-DE');
 });
 
+test('picks the instance and root with the keyboard alone', async ({ page }) => {
+  await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.keyboard.press('Enter');
+
+  // Enter takes the first match, and focus stays in the field for the next Tab.
+  const instance = page.getByRole('combobox', { name: 'Instance' });
+  await expect(instance).toBeFocused();
+  await expect(instance).toHaveAttribute('placeholder', 'Search instances by name or ZUID');
+  await page.keyboard.type('Fixture');
+  await page.keyboard.press('Enter');
+  await expect(instance).toHaveValue('Fixture site');
+  await expect(instance).toBeFocused();
+
+  const root = page.getByRole('combobox', { name: 'Root collection' });
+  await expect(root).toBeEnabled();
+  await root.focus();
+  await page.keyboard.type('root');
+  await page.keyboard.press('Enter');
+  await expect(root).toHaveValue('6-rootmodel');
+  await expect(root).toBeFocused();
+
+  // An invalid URL shows its problem when Tab leaves the field, and Tab still moves on.
+  const url = page.getByLabel('Or paste a Zesty URL');
+  await url.fill('oops');
+  await page.keyboard.press('Tab');
+  await expect(url).toHaveAttribute('aria-invalid', 'true');
+  await expect(url).not.toBeFocused();
+
+  // Opening hands focus to the collection that opened.
+  await url.fill('');
+  await page.getByRole('button', { name: 'Open root collection' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeFocused();
+});
+
+test('renames a collection from its menu without leaving the keyboard', async ({ page }) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Rename' }).press('Enter');
+
+  await expect(page.getByRole('textbox', { name: 'Rename 6-rootmodel' })).toBeFocused();
+  await page.keyboard.type('Stories');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
+
+  // Escape cancels: the typed name is dropped.
+  await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Rename' }).press('Enter');
+  await page.keyboard.type('Discarded');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Actions for Stories' })).toBeFocused();
+});
+
+test('opens item details in the version search, and Escape clears a search before closing', async ({
+  page,
+}) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await page
+    .getByRole('button', { name: /^Open details for/ })
+    .first()
+    .click();
+  const versionSearch = page.getByRole('searchbox', { name: 'Search saved versions' });
+  await expect(versionSearch).toBeFocused();
+  await page.keyboard.type('v2');
+  await page.keyboard.press('Escape');
+  await expect(versionSearch).toHaveValue('');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+});
+
+test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {
+  await installFakeApi(page);
+  await page.goto('/');
+  await page.getByLabel('Zesty session token').fill('synthetic-session-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByLabel('Zesty session token')).toBeFocused();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Typed, not pasted: the URL applies as the click leaves the field, and the form keeps its
+  // shape, so that click still lands on its button.
+  await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByLabel('Zesty session token')).toBeFocused();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Or paste a Zesty URL').fill('');
+  await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
+  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
+});
+
 test('opens an item deep link through the pasted URL fallback', async ({ page }) => {
   const state = await installFakeApi(page);
   await page.goto('/');
@@ -447,7 +545,7 @@ test('opens, filters, paginates, refreshes, and recovers from authentication fai
   await chooseSelectOption(page, 'View filter condition', '>');
   await page.getByLabel('View filter value').fill('100');
   await page.getByLabel('View filter value').press('Enter');
-  await expect(page.getByText('4 items')).toBeVisible();
+  await expect(page.getByText('4 of 105 items')).toBeVisible();
 
   await page.getByRole('button', { name: /^Remove filter Score/ }).click();
   await page.getByRole('button', { name: 'Next' }).last().click();
@@ -577,7 +675,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await children.getByRole('button', { name: 'Next' }).click();
   await expect(children.getByText('Page 2 of 2')).toBeVisible();
   await search(page, 'Add Children filter', 'Children table filter', 'no matching item');
-  await expect(children.getByText('0 related items', { exact: true }).last()).toBeVisible();
+  await expect(children.getByText('0 of 30 related items', { exact: true })).toBeVisible();
   await children
     .getByRole('button', { name: 'Remove filter Any field contains “no matching item”' })
     .click();
@@ -586,7 +684,7 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await detailsTrigger.focus();
   await detailsTrigger.press('Enter');
   await expect(page.getByRole('dialog', { name: 'First story' })).toBeVisible();
-  const versionTwo = page.getByRole('button', { name: /Version 2/ });
+  const versionTwo = page.getByRole('radio', { name: /Version 2/ });
   await expect(versionTwo).toContainText('Latest saved');
   await expect(versionTwo).toContainText('Currently published');
   await expect(versionTwo).toContainText('Anna Kowalska');
@@ -630,9 +728,10 @@ test('loads the publication status of an expanded row before the rest of the roo
   // The root page's 100 badges take about 30 seconds of paced requests, so they are still loading.
   await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
-  await expect(children.getByRole('img', { name: 'Latest saved version v2' })).toHaveCount(25, {
-    timeout: 15_000,
-  });
+  // Only rows on or near the screen load their status, so the first child rows are enough.
+  await expect(
+    children.getByRole('img', { name: 'Currently published version v2' }).first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('status', { name: 'Loading publication status' })).not.toHaveCount(0);
 });
 
@@ -648,7 +747,7 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   await page.getByRole('option', { name: /Active/ }).click();
   await page.getByRole('checkbox', { name: /^true/ }).click();
   await page.getByRole('button', { name: /Add filter/ }).click();
-  await expect(page.getByText('1 items')).toBeVisible();
+  await expect(page.getByText('1 of 105 items')).toBeVisible();
 
   await page.getByRole('button', { name: 'Copy link' }).click();
   const copiedToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Link copied' });
@@ -664,7 +763,7 @@ test('uses descendant filters and restores a non-secret link in another tab', as
   ).toBeVisible();
   await restored.getByLabel('Zesty session token').fill('synthetic-session-token');
   await restored.getByRole('button', { name: 'Continue' }).click();
-  await expect(restored.getByText('1 items')).toBeVisible();
+  await expect(restored.getByText('1 of 105 items')).toBeVisible();
   await expect(
     restored.getByRole('button', { name: 'Edit filter Children: Active is true' }),
   ).toBeVisible();
@@ -777,8 +876,11 @@ function coveredCells(row: Locator) {
   return row.locator(':scope > th, :scope > td').evaluateAll((cells) =>
     cells.flatMap((cell) => {
       const { left, right, top, bottom } = cell.getBoundingClientRect();
-      const x = (left + Math.min(right, window.innerWidth)) / 2;
-      if (x >= window.innerWidth) return [];
+      // Cells past the table's own horizontal scroller are clipped, not covered.
+      const scroller = cell.closest('[class*="overflow-x-auto"]');
+      const edge = Math.min(window.innerWidth, scroller?.getBoundingClientRect().right ?? Infinity);
+      if (left >= edge) return [];
+      const x = (left + Math.min(right, edge)) / 2;
       const hit = document.elementFromPoint(x, (top + bottom) / 2);
       return hit && cell.parentElement?.contains(hit) ? [] : [cell.textContent];
     }),

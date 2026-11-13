@@ -298,7 +298,13 @@ export function filterNodeItemIds(
   );
 }
 
-function sortableValue(item: ContentItem | undefined, fieldPath: FieldPath): Scalar | undefined {
+/** The value an item sorts by: the scalar at `fieldPath`, or undefined to sort it last. */
+export type SortValue = (item: ContentItem | undefined, fieldPath: FieldPath) => Scalar | undefined;
+
+export function sortableValue(
+  item: ContentItem | undefined,
+  fieldPath: FieldPath,
+): Scalar | undefined {
   if (!item) return undefined;
   const resolved = resolveFieldPath(item, fieldPath);
   if (resolved.kind !== 'scalar' || resolved.value === '') return undefined;
@@ -315,12 +321,13 @@ export function sortItemIds(
   snapshot: CollectionSnapshot,
   itemIds: readonly ItemZuid[],
   sort: SortState,
+  valueOf: SortValue = sortableValue,
 ): readonly ItemZuid[] {
   return itemIds
     .map((id, index) => ({
       id,
       index,
-      value: sortableValue(snapshot.itemsById.get(id), sort.fieldPath),
+      value: valueOf(snapshot.itemsById.get(id), sort.fieldPath),
     }))
     .sort((left, right) => {
       if (left.value === undefined && right.value === undefined) return left.index - right.index;

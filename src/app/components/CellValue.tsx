@@ -6,14 +6,16 @@ interface CellValueProps {
   readonly value: unknown;
   /** Show a string value as formatted WYSIWYG HTML; markup that shows nothing reads as empty. */
   readonly richText: boolean;
+  /** Text to show instead of the stored value, from cellText. */
+  readonly text?: string | undefined;
 }
 
-export function CellValue({ value, richText }: CellValueProps) {
+export function CellValue({ value, richText, text: shown }: CellValueProps) {
   if (richText && typeof value === 'string') {
     const body = parseRichText(value);
     if (body) return <RichTextCell html={value} body={body} />;
   }
-  const text = formatContentValue(value);
+  const text = shown ?? formatContentValue(value);
   return (
     <span
       className={

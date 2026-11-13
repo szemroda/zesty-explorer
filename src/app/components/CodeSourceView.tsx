@@ -3,6 +3,7 @@
 import {
   Braces,
   CircleHelp,
+  Copy,
   Database,
   ExternalLink,
   Globe,
@@ -14,7 +15,16 @@ import {
   Split,
   Variable,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type { CodeFileZuid, ModelZuid } from '../../domain';
 import {
   matchingLines,
@@ -32,6 +42,8 @@ import {
   type CollectionTone,
   type ToneLookup,
 } from '../code-presentation';
+import { copyText } from '../copy-text';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -42,6 +54,8 @@ export type SourcePresentation = 'formatted' | 'saved';
 
 interface CodeSourceViewProps {
   readonly analysis: CodeAnalysis;
+  /** The source as saved, for Copy. */
+  readonly code: string;
   readonly saved: readonly DisplayLine[];
   readonly formatted: readonly DisplayLine[];
   readonly presentation: SourcePresentation;
@@ -74,6 +88,7 @@ function toneForTarget(
 
 export function CodeSourceView({
   analysis,
+  code,
   saved,
   formatted,
   presentation,
@@ -97,18 +112,29 @@ export function CodeSourceView({
   const { usage, steps } = analysis;
   const togglePin = (target: string) =>
     setPinned((current) => (current === target ? undefined : target));
-  const entryProps = (target: string) => ({
-    active: active === target,
-    pinned: pinned === target,
-    onEnter: () => setHovered(target),
-    onLeave: () => setHovered(undefined),
-    onSelect: () => togglePin(target),
-  });
-
-  // Pinning scrolls the first matching line into view, in either presentation.
-  useEffect(() => {
-    if (!pinned) return;
-    const first = Math.min(...matchingLines(lines, pinned));
+  // Each card is one Tab stop: the last focused entry, else the pinned one, else the first.
+  // Arrow keys move between its entries, and an entry's own action follows it in Tab order.
+  const [focusedTarget, setFocusedTarget] = useState<string>();
+  const tabStopOf = (targets: readonly string[]) =>
+    [focusedTarget, pinned].find((target) => target !== undefined && targets.includes(target)) ??
+    targets[0];
+  const tabStops: Readonly<Record<Card, string | undefined>> = {
+    usage: tabStopOf([
+      ...usage.collections.map((entry) => entry.ref),
+      ...[
+        ...usage.inputs,
+        ...usage.variables,
+        ...usage.snippets,
+        ...usage.remote,
+        ...usage.unrecognized,
+      ].map((entry) => entry.target),
+    ]),
+    steps: tabStopOf(steps.map((step) => step.target)),
+  };
+  const keysHint = useId();
+  // Brings a target's first line into view unless it already is.
+  const reveal = (target: string) => {
+    const first = Math.min(...matchingLines(lines, target));
     const container = codeRef.current;
     const line = container?.querySelector<HTMLElement>(`[data-line="${first}"]`);
     if (!container || !line) return;
@@ -121,7 +147,46 @@ export function CodeSourceView({
         top: Math.max(0, top - container.clientHeight / 4),
         behavior: 'smooth',
       });
+  };
+  const entryProps = (target: string, card: Card) => ({
+    active: active === target,
+    pinned: pinned === target,
+    tabbable: tabStops[card] === target,
+    keysHint,
+    onEnter: () => setHovered(target),
+    onLeave: () => setHovered(undefined),
+    // Focus previews like hover does, and scrolls to the lines, since a keyboard can't look.
+    onFocus: () => {
+      setFocusedTarget(target);
+      reveal(target);
+    },
+    onSelect: () => togglePin(target),
+  });
+  const usageProps = (target: string) => entryProps(target, 'usage');
+
+  // Pinning scrolls the first matching line into view, in either presentation.
+  const revealPinned = useEffectEvent((target: string) => reveal(target));
+  useEffect(() => {
+    if (pinned) revealPinned(pinned);
   }, [pinned, lines]);
+
+  // A click in the source pins without moving focus here, so Escape also clears a pin from
+  // anywhere on the page; menus and dialogs handle their own Escape first.
+  useEffect(() => {
+    if (!pinned) return;
+    const clear = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      // Escape in a text field leaves the field; it should not clear a highlight out of view.
+      if (target?.closest('[role="dialog"], [role="listbox"], [role="menu"], input, textarea')) {
+        return;
+      }
+      setPinned(undefined);
+      setHovered(undefined);
+    };
+    document.addEventListener('keydown', clear);
+    return () => document.removeEventListener('keydown', clear);
+  }, [pinned]);
 
   const unrecognizedCount = usage.unrecognized.length;
   const nothingUsed =
@@ -134,7 +199,18 @@ export function CodeSourceView({
     0;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4">
+    // Below xl a 340px side column would leave the source a third of the width, so the
+    // explanations move under it, side by side.
+    <div
+      // Escape clears a pinned highlight, wherever focus is in the source or its explanations.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !active) return;
+        event.stopPropagation();
+        setPinned(undefined);
+        setHovered(undefined);
+      }}
+      className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,3fr)_minmax(13rem,2fr)]"
+    >
       <section
         className="border-border bg-surface-recessed flex min-h-0 flex-col overflow-hidden rounded-xl border"
         aria-label="Source"
@@ -150,14 +226,28 @@ export function CodeSourceView({
             <ToggleGroupItem value="formatted">Formatted</ToggleGroupItem>
             <ToggleGroupItem value="saved">As saved</ToggleGroupItem>
           </ToggleGroup>
-          <span className="text-muted-foreground text-xs">
+          <span className="text-muted-foreground ml-auto text-xs">
             {saved.length} {saved.length === 1 ? 'line' : 'lines'} saved → {formatted.length}{' '}
             formatted
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Copy source as saved"
+            onClick={() => void copyText(code, 'Source copied', 'As saved, not formatted.')}
+          >
+            {/* Formatted is what shows, but Copy takes the source as saved, so it says so. */}
+            <Copy size={13} aria-hidden="true" />{' '}
+            {presentation === 'formatted' ? 'Copy as saved' : 'Copy'}
+          </Button>
         </div>
+        {/* A Tab stop of its own, so the keyboard can scroll long source. */}
         <div
           ref={codeRef}
-          className="relative min-h-0 flex-1 overflow-auto py-2 font-mono text-[12.5px] leading-6 [tab-size:2]"
+          role="region"
+          aria-label="Source lines"
+          tabIndex={0}
+          className="focus-visible:ring-ring/45 relative min-h-0 flex-1 overflow-auto py-2 font-mono text-[12.5px] leading-6 outline-none [tab-size:2] focus-visible:ring-2 focus-visible:ring-inset"
           data-testid="code-lines"
         >
           {lines.map((line, index) => {
@@ -196,16 +286,20 @@ export function CodeSourceView({
         </div>
       </section>
 
-      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.25fr)] gap-4">
+      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.25fr)] gap-4 max-xl:grid-cols-2 max-xl:grid-rows-1">
         <aside
           className="border-border bg-card flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border p-4"
           aria-label="What this code uses"
+          onKeyDown={moveBetweenEntries}
         >
           <div>
             <h3 className="text-sm font-semibold">What this code uses</h3>
             <p className="text-muted-foreground mt-1 text-xs">
-              Hover or click an entry to find it in the source.
+              Hover, click, or arrow to an entry to find it in the source; Esc clears it.
             </p>
+            <span id={keysHint} hidden>
+              Arrow keys move between entries.
+            </span>
           </div>
           {nothingUsed ? (
             <p className="text-muted-foreground text-xs">
@@ -225,7 +319,7 @@ export function CodeSourceView({
                 return (
                   <UsageEntry
                     key={ref}
-                    {...entryProps(ref)}
+                    {...usageProps(ref)}
                     actions={
                       <button
                         type="button"
@@ -237,11 +331,18 @@ export function CodeSourceView({
                       </button>
                     }
                   >
+                    {/* The code name fills what the label leaves and truncates; badges that
+                        do not fit beside the label wrap under it instead of squeezing it. */}
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={cn('size-2 rounded-full', tone.dot)} aria-hidden="true" />
-                      <strong className={tone.text}>{collection.label}</strong>
-                      <code className="text-muted-foreground text-[11px]">{collection.name}</code>
-                      <span className="ml-auto flex gap-1">
+                      <span
+                        className={cn('size-2 shrink-0 rounded-full', tone.dot)}
+                        aria-hidden="true"
+                      />
+                      <strong className={cn('shrink-0', tone.text)}>{collection.label}</strong>
+                      <code className="text-muted-foreground min-w-0 flex-1 basis-0 truncate text-[11px]">
+                        {collection.name}
+                      </code>
+                      <span className="ml-auto flex shrink-0 gap-1">
                         {access.map((kind) => (
                           <Badge key={kind} variant="outline">
                             {accessLabels[kind]}
@@ -274,14 +375,14 @@ export function CodeSourceView({
             title="Request parameters"
             entries={usage.inputs}
             className="text-orange-300"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
           <PlainEntries
             icon={<Variable size={14} />}
             title="Variables"
             entries={usage.variables}
             className="text-orange-200"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
 
           {usage.snippets.length ? (
@@ -293,7 +394,7 @@ export function CodeSourceView({
               {usage.snippets.map((snippet) => (
                 <UsageEntry
                   key={snippet.target}
-                  {...entryProps(snippet.target)}
+                  {...usageProps(snippet.target)}
                   actions={
                     <OpenSnippetButton
                       snippet={snippet}
@@ -316,7 +417,7 @@ export function CodeSourceView({
             title="Remote requests"
             entries={usage.remote}
             className="break-all text-[11px] text-emerald-300/85"
-            entryProps={entryProps}
+            entryProps={usageProps}
           />
 
           {unrecognizedCount ? (
@@ -330,7 +431,7 @@ export function CodeSourceView({
                 wrong.
               </p>
               {usage.unrecognized.map((entry) => (
-                <UsageEntry key={entry.target} {...entryProps(entry.target)}>
+                <UsageEntry key={entry.target} {...usageProps(entry.target)}>
                   <code className="text-code-content break-all">{entry.label}</code>
                   {entry.detail ? (
                     <p className="text-muted-foreground mt-0.5 text-[11px]">{entry.detail}</p>
@@ -344,6 +445,7 @@ export function CodeSourceView({
         <section
           className="border-border bg-card flex min-h-0 flex-col gap-3 overflow-auto rounded-xl border p-4"
           aria-label="How it works"
+          onKeyDown={moveBetweenEntries}
         >
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
@@ -371,7 +473,7 @@ export function CodeSourceView({
               {steps.map((step) => (
                 <li key={step.target} style={{ paddingLeft: `${step.depth * 14}px` }}>
                   <UsageEntry
-                    {...entryProps(step.target)}
+                    {...entryProps(step.target, 'steps')}
                     actions={
                       step.snippet ? (
                         <OpenSnippetButton
@@ -397,6 +499,19 @@ export function CodeSourceView({
       </div>
     </div>
   );
+}
+
+type Card = 'usage' | 'steps';
+
+// Arrow keys, Home and End move focus between a card's entries.
+function moveBetweenEntries(event: ReactKeyboardEvent<HTMLElement>) {
+  const move = listKeys[event.key];
+  if (!move) return;
+  const entries = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-entry]')];
+  const index = entries.indexOf(event.target as HTMLElement);
+  if (index < 0) return;
+  event.preventDefault();
+  entries[move(index, entries.length)]?.focus();
 }
 
 export function IndentGuides({ count }: { readonly count: number }) {
@@ -430,7 +545,8 @@ export function LineTokens({
   readonly line: DisplayLine;
   readonly saved: boolean;
   readonly toneFor: ToneLookup;
-  readonly onSelect: (target: string) => void;
+  /** Unset where tokens only explain themselves, e.g. in code history. */
+  readonly onSelect?: (target: string) => void;
 }) {
   return line.tokens.map((token, index) => {
     if (saved && index === 0 && token.kind === 'text') {
@@ -459,7 +575,7 @@ function TokenSpan({
 }: {
   readonly token: DisplayToken;
   readonly toneFor: ToneLookup;
-  readonly onSelect: (target: string) => void;
+  readonly onSelect: ((target: string) => void) | undefined;
 }) {
   const collection = refCollection(token.ref);
   const tone = collection ? toneFor(collection) : undefined;
@@ -469,13 +585,13 @@ function TokenSpan({
     tone && (token.kind === 'alias' || token.kind === 'field') && tone.text,
   );
   if (!token.hint) return <span className={className}>{token.text}</span>;
-  const ref = token.ref;
+  const ref = onSelect ? token.ref : undefined;
   return (
     <TooltipTrigger
       text={token.hint}
       render={<span />}
       className={cn(className, ref ? 'cursor-pointer hover:brightness-125' : 'cursor-help')}
-      {...(ref ? { onClick: () => onSelect(ref) } : {})}
+      {...(ref && onSelect ? { onClick: () => onSelect(ref) } : {})}
     >
       {token.text}
     </TooltipTrigger>
@@ -575,8 +691,13 @@ function StepContent({ step, toneFor }: { readonly step: Step; readonly toneFor:
 interface UsageEntryState {
   readonly active: boolean;
   readonly pinned: boolean;
+  /** Whether this entry is its card's Tab stop. */
+  readonly tabbable: boolean;
+  /** The id of the text that says arrow keys move between entries. */
+  readonly keysHint: string;
   readonly onEnter: () => void;
   readonly onLeave: () => void;
+  readonly onFocus: () => void;
   readonly onSelect: () => void;
 }
 
@@ -608,8 +729,11 @@ function UsageSection({
 function UsageEntry({
   active,
   pinned,
+  tabbable,
+  keysHint,
   onEnter,
   onLeave,
+  onFocus,
   onSelect,
   actions,
   children,
@@ -626,9 +750,14 @@ function UsageEntry({
     >
       <div
         role="button"
-        tabIndex={0}
+        tabIndex={tabbable ? 0 : -1}
+        aria-describedby={keysHint}
+        data-entry=""
         aria-pressed={pinned}
-        onFocus={onEnter}
+        onFocus={() => {
+          onEnter();
+          onFocus();
+        }}
         onBlur={onLeave}
         onClick={onSelect}
         onKeyDown={(event) => {

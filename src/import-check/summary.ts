@@ -1,5 +1,5 @@
 // The checker's summary: groups of findings that reconcile the file's line count with the items
-// expected (lines − won't import − lines that aren't entries = items).
+// expected (lines − won't import − lines that aren't rows = items).
 import { describeFileProblem, isDropped, type ImportCheck, type ReasonGroup } from './analysis';
 
 export type FindingTone = 'rejected' | 'at-risk' | 'quiet';
@@ -108,9 +108,9 @@ export function summarize(check: ImportCheck): FindingGroup[] {
   if (funnel.continuationLines > 0) {
     notEntries.push({
       id: 'multiline',
-      label: 'Line breaks inside cells',
+      label: 'Extra lines from line breaks in cells',
       count: funnel.continuationLines,
-      fix: 'Each of these entries spans several lines but is still one item. Nothing to do.',
+      fix: 'A line break inside a cell continues its row on the next line. Each row is still one item. Nothing to do.',
       tone: 'quiet',
       lines: new Set(check.multilineRows.map((row) => row.record.line)),
     });
@@ -127,7 +127,7 @@ export function summarize(check: ImportCheck): FindingGroup[] {
     },
     {
       id: 'not-entries',
-      title: 'Lines that aren’t entries',
+      title: 'Lines that aren’t rows',
       deducted: funnel.skippedBlankLines + funnel.continuationLines,
       findings: notEntries,
     },

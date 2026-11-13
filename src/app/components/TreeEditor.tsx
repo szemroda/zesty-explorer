@@ -704,6 +704,13 @@ function TreeNodeRow({
   const [editing, setEditing] = useState(false);
   const [addingOther, setAddingOther] = useState(false);
   const [name, setName] = useState(node.name);
+  // Rename hands focus to the name field instead of back to the menu button, and Enter or Escape
+  // hands it back.
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  // Set when the chosen action places focus itself, so the closing menu leaves it there.
+  const placesFocus = useRef(false);
+  // Escape moves focus away, which blurs the field; the blur must not save the cancelled name.
+  const renameCancelled = useRef(false);
 
   return (
     <li>
@@ -718,16 +725,26 @@ function TreeNodeRow({
             className="h-7 min-w-0 flex-1"
             aria-label={`Rename ${node.name}`}
             value={name}
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => {
-              onRename(node.id, name);
+              if (!renameCancelled.current) onRename(node.id, name);
+              renameCancelled.current = false;
               setEditing(false);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Enter') {
+                // Without this, Enter's keypress would also press the button focused below.
+                event.preventDefault();
+                event.currentTarget.blur();
+                actionsButton.current?.focus();
+              }
               if (event.key === 'Escape') {
+                renameCancelled.current = true;
                 setName(node.name);
                 setEditing(false);
+                actionsButton.current?.focus();
               }
             }}
           />
@@ -752,6 +769,8 @@ function TreeNodeRow({
           <DropdownMenuTrigger
             render={
               <Button
+                ref={actionsButton}
+                data-node-actions
                 variant="ghost"
                 size="icon"
                 className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
@@ -761,8 +780,22 @@ function TreeNodeRow({
           >
             <MoreHorizontal size={15} />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="right" keepMounted>
-            <DropdownMenuItem onClick={() => setEditing(true)}>
+          <DropdownMenuContent
+            align="start"
+            side="right"
+            keepMounted
+            finalFocus={() => {
+              const restore = !placesFocus.current;
+              placesFocus.current = false;
+              return restore;
+            }}
+          >
+            <DropdownMenuItem
+              onClick={() => {
+                placesFocus.current = true;
+                setEditing(true);
+              }}
+            >
               <Pencil size={12} /> <span>Rename</span>
             </DropdownMenuItem>
             {node.id === root.id ? (
@@ -779,7 +812,26 @@ function TreeNodeRow({
               />
             ) : null}
             {node.id !== root.id ? (
-              <DropdownMenuItem variant="destructive" onClick={() => onRemove(node.id)}>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  // Removal takes this row away; focus moves to the next node, the previous
+                  // one, or the parent.
+                  const row = actionsButton.current?.closest('li');
+                  const next = [
+                    row?.nextElementSibling,
+                    row?.previousElementSibling,
+                    row?.parentElement?.closest('li'),
+                  ]
+                    .map((candidate) =>
+                      candidate?.querySelector<HTMLButtonElement>('[data-node-actions]'),
+                    )
+                    .find((button) => button);
+                  placesFocus.current = true;
+                  onRemove(node.id);
+                  requestAnimationFrame(() => next?.focus());
+                }}
+              >
                 <Trash2 size={12} /> <span>Remove</span>
               </DropdownMenuItem>
             ) : null}

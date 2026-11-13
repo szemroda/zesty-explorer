@@ -1,6 +1,6 @@
 // The saved versions list and version pickers shared by item history and code history.
 import { Check, Clock3, History, LoaderCircle, Search } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode, type Ref } from 'react';
 import type { ExplorerError } from '../../domain';
 import { describeExplorerError } from '../error-message';
 import type { VersionNumberPair, VersionPair } from '../item-version-comparison';
@@ -29,25 +29,89 @@ export function VersionBadges({ option }: { readonly option: SavedVersionOption 
       {option.scheduledAt ? (
         <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-300">Scheduled</Badge>
       ) : null}
-      {option.currentInView ? <Badge variant="outline">Current in view</Badge> : null}
+      {option.currentInView ? <Badge variant="outline">Shown in tables</Badge> : null}
     </div>
   );
 }
 
-export function VersionCard({
+const versionKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
+  ArrowDown: (index, count) => Math.min(index + 1, count - 1),
+  ArrowRight: (index, count) => Math.min(index + 1, count - 1),
+  ArrowUp: (index) => Math.max(index - 1, 0),
+  ArrowLeft: (index) => Math.max(index - 1, 0),
+  Home: () => 0,
+  End: (_, count) => count - 1,
+};
+
+/**
+ * Saved versions as one radio group: a single Tab stop, and arrow keys, Home and End move the
+ * selection, so a long history does not cost a Tab per version.
+ */
+export function VersionCardList({
+  options,
+  selectedNumber,
+  onSelect,
+}: {
+  readonly options: readonly SavedVersionOption[];
+  readonly selectedNumber: number | undefined;
+  readonly onSelect: (number: number) => void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  // The selected card takes Tab, or the first one while a search hides the selection.
+  const tabStop = options.some((option) => option.number === selectedNumber)
+    ? selectedNumber
+    : options[0]?.number;
+  return (
+    <div
+      ref={list}
+      role="radiogroup"
+      aria-label="Saved versions"
+      className="space-y-2"
+      onKeyDown={(event) => {
+        const move = versionKeys[event.key];
+        const index = options.findIndex(
+          (option) => String(option.number) === (event.target as HTMLElement).dataset.version,
+        );
+        if (!move || index < 0) return;
+        event.preventDefault();
+        const next = options[move(index, options.length)];
+        if (!next) return;
+        onSelect(next.number);
+        list.current?.querySelector<HTMLElement>(`[data-version="${next.number}"]`)?.focus();
+      }}
+    >
+      {options.map((option) => (
+        <VersionCard
+          key={option.number}
+          option={option}
+          selected={option.number === selectedNumber}
+          tabbable={option.number === tabStop}
+          onSelect={() => onSelect(option.number)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function VersionCard({
   option,
   selected,
+  tabbable,
   onSelect,
 }: {
   readonly option: SavedVersionOption;
   readonly selected: boolean;
+  readonly tabbable: boolean;
   readonly onSelect: () => void;
 }) {
   return (
     <button
       type="button"
-      aria-pressed={selected}
-      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/50 ${
+      role="radio"
+      aria-checked={selected}
+      tabIndex={tabbable ? 0 : -1}
+      data-version={option.number}
+      className={`relative w-full rounded-lg border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-foreground/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
         selected
           ? 'border-primary/70 bg-primary/10'
           : 'border-transparent hover:border-border hover:bg-accent/40'
@@ -59,7 +123,8 @@ export function VersionCard({
         {selected ? <Check className="text-primary" size={16} aria-hidden="true" /> : null}
       </span>
       <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
-        {formattedDate(option.savedAt)} · {authorLabel(option)}
+        {formattedDate(option.savedAt)} ·{' '}
+        <span className="whitespace-nowrap">{authorLabel(option)}</span>
       </span>
       <span className="mt-2 block">
         <VersionBadges option={option} />
@@ -198,10 +263,13 @@ export function ModeToggle({
   label,
   mode,
   onChange,
+  compareDisabled = false,
 }: {
   readonly label: string;
   readonly mode: HistoryMode;
   readonly onChange: (mode: HistoryMode) => void;
+  /** Set once the history is known to hold fewer than two versions. */
+  readonly compareDisabled?: boolean;
 }) {
   return (
     <ToggleGroup
@@ -213,7 +281,12 @@ export function ModeToggle({
       }}
     >
       {HISTORY_MODES.map(({ value, label }) => (
-        <ToggleGroupItem key={value} value={value} className="px-3">
+        <ToggleGroupItem
+          key={value}
+          value={value}
+          className="px-3"
+          disabled={value === 'compare' && compareDisabled}
+        >
           {label}
         </ToggleGroupItem>
       ))}
@@ -227,13 +300,17 @@ export function SavedVersionsSidebar({
   total,
   search,
   onSearchChange,
+  searchRef,
   children,
 }: {
   readonly isLoading: boolean;
-  readonly total: number;
+  /** Undefined when the versions could not load, so no count is claimed. */
+  readonly total: number | undefined;
   /** Undefined hides the search, e.g. while the column holds the compared versions. */
   readonly search: string | undefined;
   readonly onSearchChange: (search: string) => void;
+  /** The search field, which the dialog focuses when it opens. */
+  readonly searchRef?: Ref<HTMLInputElement>;
   readonly children: ReactNode;
 }) {
   return (
@@ -247,7 +324,9 @@ export function SavedVersionsSidebar({
           <span className="flex items-center gap-2 text-xs font-bold tracking-wide uppercase">
             <History className="text-primary" size={14} aria-hidden="true" /> Saved versions
           </span>
-          <span className="text-xs text-muted-foreground">{isLoading ? '…' : total} total</span>
+          <span className="text-xs text-muted-foreground">
+            {isLoading ? '…' : (total ?? '—')} total
+          </span>
         </div>
         {search === undefined ? null : (
           <label className="relative block">
@@ -257,12 +336,20 @@ export function SavedVersionsSidebar({
               aria-hidden="true"
             />
             <Input
+              ref={searchRef}
               className="pl-9 text-xs"
               type="search"
               aria-label="Search saved versions"
               placeholder="Search version, author, or status"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
+              onKeyDown={(event) => {
+                // Escape clears a search first; only an empty search lets it close the dialog.
+                if (event.key !== 'Escape' || search === '') return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSearchChange('');
+              }}
             />
           </label>
         )}

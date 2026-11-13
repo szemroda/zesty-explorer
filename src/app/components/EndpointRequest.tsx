@@ -5,6 +5,7 @@
 import { Effect, Either } from 'effect';
 import {
   ArrowRight,
+  Copy,
   ExternalLink,
   FileCode2,
   LoaderCircle,
@@ -14,7 +15,15 @@ import {
   RotateCw,
   X,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { CodeFile, CodeState, InstanceReference } from '../../domain';
 import { queryParameterNames } from '../../parsley';
 import {
@@ -26,9 +35,16 @@ import {
 } from '../../zesty-api';
 import { endpointPath, endpointUrl, wildcardCount, type QueryParameter } from '../endpoint-address';
 import type { WebEngineBaseUrlsResult } from '../hooks/useCodeFiles';
+import { copyText } from '../copy-text';
 import { cn } from '../lib/utils';
 import { tokenClasses } from '../code-presentation';
-import { bodyFormat, bodyTokens, formattedBody, type BodyFormat } from '../response-body';
+import {
+  bodyFormat,
+  bodyTokens,
+  errorPageText,
+  formattedBody,
+  type BodyFormat,
+} from '../response-body';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
@@ -97,6 +113,14 @@ export function EndpointRequest({
   }>();
   // Switching endpoint, code state, or instance unmounts the panel and cancels its request.
   const controller = useRef<AbortController>(undefined);
+  // Send and Cancel replace each other; focus follows to the replacement when the outgoing
+  // button held it, and stays put when the user has moved on.
+  const sendButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const handOver = (from: RefObject<HTMLButtonElement | null>, to: typeof from) => {
+    if (document.activeElement !== from.current) return;
+    requestAnimationFrame(() => to.current?.focus());
+  };
   useEffect(() => () => controller.current?.abort(), []);
 
   const detected = useMemo(() => queryParameterNames(file, files), [file, files]);
@@ -130,6 +154,23 @@ export function EndpointRequest({
           : undefined;
   // A pending request hides the last result, so a resent request never shows stale content.
   const result = sendingUrl ? undefined : form.result;
+  const response = result?.kind === 'response' ? result.response : undefined;
+  const stale = result !== undefined && result.url !== url;
+  // An error page's reason, such as a Parsley error, sits deep in its markup.
+  const errorText = useMemo(
+    () => (response && response.status >= 400 ? errorPageText(response.body) : undefined),
+    [response],
+  );
+  // Announced from the always-present bar, so a result is heard even while Source shows.
+  const announcement = sendingUrl
+    ? 'Sending request'
+    : stale && pane === 'response'
+      ? 'Response to an earlier request. Send to update it.'
+      : response
+        ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds${errorText ? `. The page says: ${errorText}` : ''}`
+        : result?.kind === 'failure'
+          ? 'Request failed'
+          : '';
 
   const updateParameter = (id: number, change: Partial<QueryParameter>) =>
     setForm((current) => ({
@@ -164,12 +205,14 @@ export function EndpointRequest({
   const send = () => {
     if (!url || !sentUrl || blocked || sendingUrl) return;
     setPane('response');
+    handOver(sendButton, cancelButton);
     setSendingUrl(url);
     const request = new AbortController();
     controller.current = request;
     Effect.runPromise(Effect.either(requestEndpoint(sentUrl)), { signal: request.signal }).then(
       (outcome) => {
         if (request.signal.aborted) return;
+        handOver(cancelButton, sendButton);
         setSendingUrl(undefined);
         const result: RequestResult = Either.isRight(outcome)
           ? { kind: 'response', url, response: outcome.right }
@@ -182,6 +225,7 @@ export function EndpointRequest({
   };
   const cancel = () => {
     controller.current?.abort();
+    handOver(cancelButton, sendButton);
     setSendingUrl(undefined);
   };
 
@@ -214,7 +258,12 @@ export function EndpointRequest({
           <ToggleGroupItem value="response">
             <Radio size={14} aria-hidden="true" /> Response
             {result?.kind === 'response' ? (
-              <span className={cn('ml-1', statusTone(result.response.status))}>
+              <span
+                className={cn(
+                  'ml-1',
+                  result.url === url ? statusTone(result.response.status) : 'text-muted-foreground',
+                )}
+              >
                 {result.response.status}
               </span>
             ) : null}
@@ -222,7 +271,8 @@ export function EndpointRequest({
         </ToggleGroup>
         <span className="text-muted-foreground text-[11px] font-bold">GET</span>
 
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto font-mono text-[13px] whitespace-nowrap [scrollbar-width:none]">
+        {/* The scrollbar is hidden, so the last 1.5rem fades to show that more may follow. */}
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto pr-6 font-mono text-[13px] whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]">
           {baseUrls && baseUrls.length > 1 ? (
             <select
               className="text-muted-foreground hover:text-foreground cursor-pointer bg-transparent outline-none"
@@ -239,9 +289,28 @@ export function EndpointRequest({
               ))}
             </select>
           ) : (
-            <span className={cn('text-muted-foreground', baseUrls && !baseUrl && 'text-amber-300')}>
-              {baseUrl ?? (baseUrls ? 'no live domain' : 'https://…')}
-            </span>
+            // Below xl the origin folds to "…", so the path and its parameters keep the room.
+            // It is a Tab stop so a keyboard can show the host in the tooltip before Send.
+            <TooltipTrigger
+              text={baseUrl ?? 'No live domain'}
+              render={
+                <span
+                  className={cn(
+                    'text-muted-foreground focus-visible:ring-ring/45 rounded-sm outline-none focus-visible:ring-2',
+                    baseUrls && !baseUrl && 'text-amber-300',
+                  )}
+                  tabIndex={0}
+                />
+              }
+            >
+              <span className="max-xl:hidden">
+                {baseUrl ?? (baseUrls ? 'no live domain' : 'https://…')}
+              </span>
+              <span className="xl:hidden" aria-hidden="true">
+                …
+              </span>
+              <span className="sr-only xl:hidden">{baseUrl ?? 'No live domain'}</span>
+            </TooltipTrigger>
           )}
           {pathParts.map(({ text, wildcard }, index) => (
             <Fragment key={index}>
@@ -283,7 +352,19 @@ export function EndpointRequest({
                 type="button"
                 className="text-muted-foreground hover:text-foreground ml-0.5 hidden group-focus-within:inline-flex group-hover:inline-flex"
                 aria-label={`Remove ?${parameter.name}`}
-                onClick={() => removeParameter(parameter.id)}
+                onClick={(event) => {
+                  // The chip leaves; focus moves to the next parameter, the previous one, or Add.
+                  const chip = event.currentTarget.parentElement;
+                  const next =
+                    [chip?.nextElementSibling, chip?.previousElementSibling]
+                      .map((sibling) => sibling?.querySelector('input'))
+                      .find((input) => input) ??
+                    chip
+                      ?.closest('form')
+                      ?.querySelector<HTMLElement>('[aria-label="Add a query parameter"]');
+                  removeParameter(parameter.id);
+                  requestAnimationFrame(() => next?.focus());
+                }}
               >
                 <X size={12} aria-hidden="true" />
               </button>
@@ -329,7 +410,11 @@ export function EndpointRequest({
         </div>
 
         <TooltipTrigger
-          text="Open in a new tab"
+          text={
+            addsPassword
+              ? 'Open in a new tab, without the preview password: a locked preview asks for it there'
+              : 'Open in a new tab'
+          }
           render={
             <a
               className={cn(
@@ -349,6 +434,7 @@ export function EndpointRequest({
         {sendingUrl ? (
           <Button
             key="cancel"
+            ref={cancelButton}
             type="button"
             variant="outline"
             size="sm"
@@ -361,6 +447,7 @@ export function EndpointRequest({
         ) : (
           <Button
             key="send"
+            ref={sendButton}
             type="submit"
             size="sm"
             className="h-7 rounded-full"
@@ -392,12 +479,15 @@ export function EndpointRequest({
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        {pane === 'source' ? (
-          children
-        ) : (
-          <ResponsePane result={result} sendingUrl={sendingUrl} onCancel={cancel} />
-        )}
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
+      {/* Both panes stay mounted, so switching keeps the source's scroll and highlight. */}
+      <div className="min-h-0 flex-1" hidden={pane !== 'source'}>
+        {children}
+      </div>
+      <div className="min-h-0 flex-1" hidden={pane !== 'response'}>
+        <ResponsePane result={result} stale={stale} errorText={errorText} sendingUrl={sendingUrl} />
       </div>
     </div>
   );
@@ -407,12 +497,16 @@ type BodyPresentation = 'formatted' | 'received';
 
 function ResponsePane({
   result,
+  stale,
+  errorText,
   sendingUrl,
-  onCancel,
 }: {
   readonly result: RequestResult | undefined;
+  /** Whether the result is for an address other than the form's current one. */
+  readonly stale: boolean;
+  /** An error page's words, read from its markup. */
+  readonly errorText: string | undefined;
   readonly sendingUrl: string | undefined;
-  readonly onCancel: () => void;
 }) {
   const [presentation, setPresentation] = useState<BodyPresentation>('formatted');
   const response = result?.kind === 'response' ? result.response : undefined;
@@ -428,19 +522,33 @@ function ResponsePane({
       className="border-border bg-surface-recessed flex h-full min-h-0 flex-col overflow-hidden rounded-xl border"
       aria-label="Response"
     >
+      {stale ? (
+        <p className="border-border border-b bg-amber-400/10 px-4 py-1.5 text-xs text-amber-200">
+          Response to an earlier request. Send to update it.
+        </p>
+      ) : null}
       {result ? (
-        <div className="bg-surface-header border-border flex min-h-11 items-center gap-4 border-b px-4 py-1.5 text-xs">
+        // Items wrap rather than clip at narrow widths; an older request's URL takes a row.
+        <div className="bg-surface-header border-border flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-1.5 text-xs">
           {response ? (
             <>
-              <strong className={statusTone(response.status)}>
+              {/* Each item keeps its words together; only the URL shrinks. */}
+              <strong className={cn('shrink-0 whitespace-nowrap', statusTone(response.status))}>
                 {response.status} {response.statusText}
               </strong>
-              <span className="text-muted-foreground">{response.durationMs} ms</span>
-              <span className="text-muted-foreground">{formatBytes(response.bytes)}</span>
-              <span className="text-muted-foreground">{response.contentType}</span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {response.durationMs} ms
+              </span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {formatBytes(response.bytes)}
+              </span>
+              <span className="text-muted-foreground shrink-0 whitespace-nowrap">
+                {response.contentType}
+              </span>
               {formatted !== undefined ? (
                 <ToggleGroup
                   aria-label="Response presentation"
+                  className="shrink-0 whitespace-nowrap"
                   value={[presentation]}
                   onValueChange={([next]) => {
                     if (next) setPresentation(next);
@@ -459,13 +567,39 @@ function ResponsePane({
                 : 'No readable response'}
             </strong>
           )}
-          <TooltipTrigger
-            text={result.url}
-            render={<code className="text-muted-foreground ml-auto truncate" tabIndex={0} />}
-          >
-            {result.url}
-          </TooltipTrigger>
+          {/* The address bar shows the current URL, so this one shows only when it differs. */}
+          {stale ? (
+            <TooltipTrigger
+              text={result.url}
+              render={
+                <code
+                  className="text-muted-foreground truncate max-xl:order-first max-xl:basis-full xl:ml-auto"
+                  tabIndex={0}
+                />
+              }
+            >
+              {result.url}
+            </TooltipTrigger>
+          ) : null}
+          {response ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('-mr-2 shrink-0', stale ? 'max-xl:ml-auto' : 'ml-auto')}
+              aria-label="Copy response as received"
+              onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
+            >
+              <Copy size={13} aria-hidden="true" /> Copy
+              {body === formatted ? <span className="max-xl:hidden"> as received</span> : null}
+            </Button>
+          ) : null}
         </div>
+      ) : null}
+      {errorText ? (
+        <p className="border-border border-b bg-red-500/10 px-4 py-2 text-xs text-red-200">
+          <span className="font-semibold">The page says: </span>
+          {errorText}
+        </p>
       ) : null}
       {response?.rateLimit ? (
         <p
@@ -486,23 +620,26 @@ function ResponsePane({
           {formatBytes(response.bytes)} are shown, and it is cut off at the end.
         </p>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        role="region"
+        aria-label="Response body"
+        tabIndex={0}
+        className="focus-visible:ring-ring/45 min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      >
         {body !== undefined ? (
           <ResponseBody text={body} format={format} />
         ) : result?.kind === 'failure' ? (
           <FailureMessage url={result.url} failure={result.failure} />
         ) : sendingUrl ? (
+          // Cancel lives in the request bar, beside the button that sent the request.
           <Message>
             <span className="inline-flex items-center gap-2">
               <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
               Waiting for <code className="break-all">{sendingUrl}</code>
             </span>
-            <Button variant="outline" size="sm" onClick={onCancel}>
-              Cancel
-            </Button>
           </Message>
         ) : (
-          <Message>Fill in the address bar and send the request to see its response here.</Message>
+          <Message>Send the request to see its response here.</Message>
         )}
       </div>
     </section>
@@ -619,7 +756,10 @@ function AutoWidthInput({
 }) {
   return (
     <input
-      className={cn('placeholder:text-muted-foreground/50 bg-transparent outline-none', className)}
+      className={cn(
+        'placeholder:text-muted-foreground/50 rounded-sm bg-transparent outline-none focus-visible:ring-1 focus-visible:ring-ring/60',
+        className,
+      )}
       style={{ width: `calc(${Math.max(value.length, placeholder.length, 1)}ch + 4px)` }}
       aria-label={ariaLabel}
       placeholder={placeholder}

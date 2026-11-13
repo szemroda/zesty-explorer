@@ -72,7 +72,7 @@ describe('ItemDetails version preview', () => {
 
     const history = screen.getByRole('region', { name: 'Saved versions' });
     expect(within(history).getByRole('status')).toHaveTextContent('Loading saved versions');
-    expect(within(history).queryByRole('button', { name: /Version 1/ })).not.toBeInTheDocument();
+    expect(within(history).queryByRole('radio', { name: /Version 1/ })).not.toBeInTheDocument();
     expect(
       within(history).queryByText('No saved versions match this search.'),
     ).not.toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('ItemDetails version preview', () => {
     renderDetails(api);
 
     const history = await screen.findByRole('region', { name: 'Saved versions' });
-    const versionTwo = await within(history).findByRole('button', { name: /Version 2/ });
+    const versionTwo = await within(history).findByRole('radio', { name: /Version 2/ });
     expect(within(versionTwo).getByText('Latest saved')).toBeInTheDocument();
     expect(within(versionTwo).getByText('Currently published')).toBeInTheDocument();
     expect(within(versionTwo).getByText('Scheduled')).toBeInTheDocument();
@@ -167,6 +167,29 @@ describe('ItemDetails version preview', () => {
     await waitFor(() => expect(onAuthenticationFailure).toHaveBeenCalled());
   });
 
+  it('moves through saved versions with arrow keys from one Tab stop', async () => {
+    const version = (number: number) => ({
+      number,
+      item: { ...currentItem, fields: { title: `Title ${number}` }, metadata: { version: number } },
+    });
+    renderDetails({
+      loadItemVersions: () => Effect.succeed([version(3), version(2)]),
+      loadItemPublishings: () => Effect.succeed([]),
+      loadInstanceUsers: () => Effect.succeed([]),
+    });
+    const versions = await screen.findByRole('radiogroup', { name: 'Saved versions' });
+    const cards = await within(versions).findAllByRole('radio');
+    // The version in view, the oldest here, is the one Tab stop.
+    expect(cards.map((card) => card.tabIndex)).toEqual([-1, -1, 0]);
+
+    cards[2]!.focus();
+    fireEvent.keyDown(cards[2]!, { key: 'ArrowUp' });
+    expect(screen.getByRole('heading', { name: 'Version 2' })).toBeInTheDocument();
+    expect(within(versions).getByRole('radio', { name: /Version 2/ })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Home' });
+    expect(screen.getByRole('heading', { name: 'Version 3' })).toBeInTheDocument();
+  });
+
   it('compares two saved versions as changed fields and a raw JSON diff', async () => {
     const version = (number: number, title: string, raw: Record<string, unknown>) => ({
       number,
@@ -181,7 +204,7 @@ describe('ItemDetails version preview', () => {
       loadItemPublishings: () => Effect.succeed([]),
       loadInstanceUsers: () => Effect.succeed([]),
     });
-    await screen.findByRole('button', { name: /Version 3/ });
+    await screen.findByRole('radio', { name: /Version 3/ });
 
     fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
     const comparison = screen.getByRole('region', { name: 'Version comparison' });

@@ -1,6 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { Effect } from 'effect';
-import type { ContentItem, ContentItemReference, Deployment, InstanceZuid } from '../../domain';
+import type {
+  ContentItem,
+  ContentItemReference,
+  ContentState,
+  Deployment,
+  InstanceZuid,
+} from '../../domain';
 import { withRequestPriority, type ItemVersionApi } from '../../zesty-api';
 import { runExplorerQuery } from './explorer-query';
 import { contentItemVersionNumber } from '../item-version-preview';
@@ -12,6 +18,8 @@ export interface PublicationStatusSource {
   readonly api: ItemVersionApi;
   readonly sessionToken: string;
   readonly credentialRevision: string;
+  /** The view's content state. Latest saved items already carry the latest saved version. */
+  readonly contentState: ContentState;
 }
 
 /** Loads one item's publication status as background work; a higher `group` loads first. */
@@ -22,12 +30,15 @@ export async function loadPublicationStatus(
   group: () => number,
   signal: AbortSignal,
 ): Promise<PublicationStatus> {
+  // The version history only finds a newer save than the item's own version when the view reads
+  // published items; for latest saved items, publishings alone complete the status.
+  const versions =
+    source.contentState === 'latest'
+      ? Effect.succeed([])
+      : source.api.loadItemVersions(reference, source.sessionToken);
   const result = await runExplorerQuery(
     Effect.all(
-      [
-        source.api.loadItemVersions(reference, source.sessionToken),
-        source.api.loadItemPublishings(reference, source.sessionToken),
-      ] as const,
+      [versions, source.api.loadItemPublishings(reference, source.sessionToken)] as const,
       { concurrency: 2 },
     ).pipe(withRequestPriority({ kind: 'background', group })),
     signal,

@@ -2,7 +2,8 @@ import { Check, ChevronsUpDown, LoaderCircle, X } from 'lucide-react';
 import { useMemo, type Ref } from 'react';
 import type { CollectionCatalogEntry, CollectionCatalogGroup, ModelZuid } from '../../domain';
 import { Combobox } from './ui/combobox';
-import { Field, FieldLabel } from './ui/field';
+import { Field, FieldDescription, FieldLabel } from './ui/field';
+import { Input } from './ui/input';
 
 interface PickerGroup {
   readonly value: string;
@@ -11,6 +12,10 @@ interface PickerGroup {
 
 interface CollectionPickerProps {
   readonly label: string;
+  /** Explains the choice below the field. */
+  readonly description?: string;
+  /** Replaces the search prompt, e.g. to say why the field is disabled. */
+  readonly placeholder?: string | undefined;
   readonly collections: readonly CollectionCatalogEntry[];
   readonly value: ModelZuid | undefined;
   readonly onChange: (collection: CollectionCatalogEntry | undefined) => void;
@@ -30,6 +35,8 @@ const groupOrder: readonly CollectionCatalogGroup[] = ['content', 'blocks', 'oth
 
 export function CollectionPicker({
   label,
+  description,
+  placeholder,
   collections,
   value,
   onChange,
@@ -51,9 +58,9 @@ export function CollectionPicker({
   );
 
   return (
-    <Field error={error}>
+    <Field error={error} disabled={disabled}>
       <Combobox.Root
-        key={`${value ?? 'empty'}:${selected?.label ?? ''}`}
+        autoHighlight
         items={groups}
         value={selected ?? null}
         onValueChange={(collection) => onChange(collection ?? undefined)}
@@ -73,8 +80,8 @@ export function CollectionPicker({
         <Combobox.InputGroup className="relative flex items-center">
           <Combobox.Input
             ref={inputRef}
-            className={`border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring data-invalid:border-destructive data-invalid:focus-visible:ring-destructive/30 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${loading ? 'pr-24' : 'pr-16'}`}
-            placeholder={loading ? 'Loading collections…' : 'Search collections'}
+            render={<Input className={loading ? 'pr-24' : 'pr-16'} />}
+            placeholder={loading ? 'Loading collections…' : (placeholder ?? 'Search collections')}
           />
           <div className="absolute right-1 flex items-center gap-0.5">
             {loading ? (
@@ -101,6 +108,7 @@ export function CollectionPicker({
             </Combobox.Trigger>
           </div>
         </Combobox.InputGroup>
+        {description ? <FieldDescription>{description}</FieldDescription> : null}
         <Combobox.Portal>
           <Combobox.Positioner className="z-50" sideOffset={5}>
             <Combobox.Popup className="bg-popover text-popover-foreground max-h-80 min-w-[var(--anchor-width)] overflow-hidden rounded-md border shadow-md">
@@ -112,7 +120,7 @@ export function CollectionPicker({
               <Combobox.List className="max-h-72 overflow-y-auto p-1 outline-none">
                 {(group: PickerGroup) => (
                   <Combobox.Group key={group.value} items={group.items} className="py-1">
-                    <Combobox.GroupLabel className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                    <Combobox.GroupLabel className="text-muted-foreground py-1.5 pr-2 pl-8 text-xs font-medium">
                       {group.value}
                     </Combobox.GroupLabel>
                     <Combobox.Collection>
@@ -122,9 +130,12 @@ export function CollectionPicker({
                           value={collection}
                           className="data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground hover:bg-surface-menu-hover relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                         >
-                          <Combobox.ItemIndicator className="flex size-4 shrink-0 items-center justify-center">
-                            <Check size={14} />
-                          </Combobox.ItemIndicator>
+                          {/* The slot keeps every row's text aligned, selected or not. */}
+                          <span className="flex size-4 shrink-0 items-center justify-center">
+                            <Combobox.ItemIndicator className="flex">
+                              <Check size={14} />
+                            </Combobox.ItemIndicator>
+                          </span>
                           <span className="flex min-w-0 flex-col">
                             <strong className="truncate font-medium">{collection.label}</strong>
                             <span className="text-muted-foreground truncate text-xs">

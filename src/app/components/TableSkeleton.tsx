@@ -4,11 +4,14 @@ import { Skeleton } from './ui/skeleton';
 export function TableSkeleton({ label, rows }: { readonly label: string; readonly rows: number }) {
   return (
     <div role="status" aria-label={label}>
+      {/* Screen readers announce a status by its text, not by its label. */}
+      <span className="sr-only">{label}…</span>
       <div className="h-9 border-b border-divider-subtle bg-surface-header" />
+      {/* Rows as tall as loaded ones, so the table does not jump when items arrive. */}
       {Array.from({ length: rows }, (_, row) => (
         <div
           key={row}
-          className="flex h-11 items-center gap-6 border-b border-divider-subtle px-3 last:border-b-0"
+          className="flex h-[49px] items-center gap-6 border-b border-divider-subtle px-3 last:border-b-0"
         >
           <Skeleton className="h-4 w-14" />
           <Skeleton className="h-4 w-28" />

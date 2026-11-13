@@ -1,11 +1,11 @@
-import { ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { ChevronRight, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { deploymentLabels, type Deployment, type InstanceZuid } from '../../domain';
 import { useFieldProblem } from '../hooks/useFieldProblem';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { Field, FieldLabel } from './ui/field';
+import { Field, FieldDescription, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
@@ -72,7 +72,11 @@ export function SessionTokenForm({
         }}
       >
         <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-          {rejected ? 'Session expired' : instance ? 'Session token needed' : 'Start a view'}
+          {rejected
+            ? 'Token rejected'
+            : instance
+              ? 'Session token needed'
+              : 'Step 1 of 2 · Sign in'}
         </p>
         <h2 className="text-xl font-semibold" id="start-title">
           {rejected
@@ -97,6 +101,7 @@ export function SessionTokenForm({
           <Field>
             <FieldLabel>Zesty deployment</FieldLabel>
             <ToggleGroup<Deployment>
+              className="justify-self-start"
               aria-label="Zesty deployment"
               value={[deployment]}
               onValueChange={(values) => {
@@ -121,7 +126,7 @@ export function SessionTokenForm({
           <div className="relative">
             <Input
               ref={tokenInput}
-              autoFocus={!savedToken}
+              autoFocus
               className="pr-10"
               type={showToken ? 'text' : 'password'}
               value={draft}
@@ -142,17 +147,26 @@ export function SessionTokenForm({
               {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
             </Button>
           </div>
+          <FieldDescription>
+            It carries your Zesty permissions. Explorer keeps it in this browser tab only and never
+            puts it in a view link.
+          </FieldDescription>
         </Field>
         {/* Keyed so each deployment opens the steps exactly when it has no saved token. */}
         <Collapsible key={deployment} defaultOpen={!savedToken}>
-          <CollapsibleTrigger className="text-muted-foreground hover:text-foreground text-left text-xs underline-offset-4 hover:underline">
+          <CollapsibleTrigger className="group text-muted-foreground hover:text-foreground focus-visible:ring-ring/45 -mx-1 inline-flex items-center gap-1 rounded-sm px-1 text-left text-sm font-medium outline-none focus-visible:ring-2">
+            <ChevronRight
+              size={14}
+              aria-hidden
+              className="transition-transform duration-150 group-data-[panel-open]:rotate-90 motion-reduce:transition-none"
+            />
             How to find the token
           </CollapsibleTrigger>
-          <CollapsibleContent className="text-muted-foreground pt-2 text-xs leading-relaxed">
-            <ol className="list-decimal space-y-1 pl-4">
+          <CollapsibleContent className="text-muted-foreground pt-2 text-sm leading-relaxed">
+            <ol className="list-decimal space-y-1.5 pl-5 marker:text-xs">
               <li>
                 <a
-                  className="text-foreground inline-flex items-center gap-1 font-medium underline underline-offset-4"
+                  className="text-foreground focus-visible:ring-ring/45 inline-flex items-center gap-1 rounded-sm font-medium underline underline-offset-4 outline-none focus-visible:ring-2"
                   href={signInUrl}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -171,13 +185,15 @@ export function SessionTokenForm({
               <li>Open Chrome or Edge Developer Tools with F12, or Cmd+Option+I on macOS.</li>
               <li>Go to Application → Cookies and select the Zesty site.</li>
               <li>
-                Type <code className="text-foreground">{cookie}</code> in the filter box and select
-                its row.
+                Type{' '}
+                <code className="bg-muted text-foreground rounded px-1 py-0.5 font-mono text-xs">
+                  {cookie}
+                </code>{' '}
+                in the filter box and select its row.
               </li>
               <li>Copy the whole value under Cookie Value. The table can cut it short.</li>
               <li>Come back here and paste it above.</li>
             </ol>
-            <p className="pt-2">The token carries your Zesty permissions. Do not share it.</p>
           </CollapsibleContent>
         </Collapsible>
         <div className="flex flex-wrap justify-end gap-2">

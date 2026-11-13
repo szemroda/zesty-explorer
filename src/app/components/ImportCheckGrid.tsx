@@ -1,5 +1,5 @@
 import { CornerDownLeft, FileWarning } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { FieldZuid } from '../../domain';
 import {
   describeFileProblem,
@@ -11,6 +11,7 @@ import {
   type RowIssue,
   type RowOutcome,
 } from '../../import-check';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { TooltipTrigger } from './ui/tooltip';
@@ -53,6 +54,17 @@ export function ImportCheckGrid({
   /** Shown instead of “Nothing matches.” when no line is shown. */
   readonly empty?: ReactNode;
 }) {
+  // The lines are one Tab stop: the last focused line, else the selected one, else the first.
+  // Arrow keys, Home and End move between lines.
+  const [focusedLine, setFocusedLine] = useState<number>();
+  const keysHint = useId();
+  const shown = (line: number | undefined) =>
+    line !== undefined && lines.some((entry) => entry.line === line);
+  const tabStop = shown(focusedLine)
+    ? focusedLine
+    : shown(selectedLine)
+      ? selectedLine
+      : lines[0]?.line;
   return (
     <div
       className="min-h-0 flex-1 overflow-auto"
@@ -60,6 +72,9 @@ export function ImportCheckGrid({
       aria-label={`Lines of ${check.fileName}`}
       tabIndex={0}
     >
+      <span id={keysHint} hidden>
+        Arrow keys move between lines; Enter opens a line’s details.
+      </span>
       <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
@@ -67,7 +82,7 @@ export function ImportCheckGrid({
               scope="col"
               className="border-border bg-surface-header text-muted-foreground sticky top-0 left-0 z-30 w-16 border-r border-b px-3 py-2 text-right font-mono font-normal"
             >
-              1
+              <span className="sr-only">Line </span>1<span className="sr-only">, the header</span>
             </th>
             {check.columns.map((column) => (
               <ColumnHeader
@@ -80,12 +95,30 @@ export function ImportCheckGrid({
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody
+          onFocus={(event) => {
+            const line = (event.target as HTMLElement).closest<HTMLElement>('tr[data-line]');
+            if (line) setFocusedLine(Number(line.dataset.line));
+          }}
+          onKeyDown={(event) => {
+            const move = listKeys[event.key];
+            if (!move) return;
+            const buttons = [
+              ...event.currentTarget.querySelectorAll<HTMLElement>('tr[data-line] > th button'),
+            ];
+            const index = buttons.indexOf(event.target as HTMLElement);
+            if (index < 0) return;
+            event.preventDefault();
+            buttons[move(index, buttons.length)]?.focus();
+          }}
+        >
           {lines.map((entry) => (
             <GridRow
               key={entry.line}
               entry={entry}
               check={check}
+              tabbable={entry.line === tabStop}
+              keysHint={keysHint}
               selected={entry.line === selectedLine}
               onSelect={onSelect}
               highlight={highlight}
@@ -132,6 +165,7 @@ function ColumnHeader({
   readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
   const dropped = isDropped(column);
+  const hintId = `import-column-${column.index}-hint`;
   return (
     <th
       scope="col"
@@ -142,15 +176,14 @@ function ColumnHeader({
       )}
     >
       <div className="px-3 pt-2">
-        {/* Only as wide as the name, so the tooltip appears over it, not over a wide column. */}
+        {/* Only as wide as the name, so the tooltip appears over it, not over a wide column.
+            Not a Tab stop: the field select below carries the same text as its description. */}
+        <span id={hintId} className="sr-only">
+          {columnTooltip(column, check)}
+        </span>
         <TooltipTrigger
           text={columnTooltip(column, check)}
-          render={
-            <div
-              tabIndex={0}
-              className="focus-visible:ring-ring/45 inline-flex max-w-full items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2"
-            />
-          }
+          render={<div className="inline-flex max-w-full items-center gap-1.5" />}
         >
           <span
             className={cn(
@@ -171,7 +204,7 @@ function ColumnHeader({
         {column.status === 'shadowed' ? (
           <p className="text-muted-foreground px-1 py-1.5 text-xs italic">Duplicate header</p>
         ) : (
-          <FieldSelect column={column} check={check} onMap={onMap} />
+          <FieldSelect column={column} check={check} hintId={hintId} onMap={onMap} />
         )}
       </div>
     </th>
@@ -182,10 +215,13 @@ function ColumnHeader({
 function FieldSelect({
   column,
   check,
+  hintId,
   onMap,
 }: {
   readonly column: KeptColumn;
   readonly check: ImportCheck;
+  /** The column's explanation, read with the select. */
+  readonly hintId: string;
   readonly onMap: (header: string, field: FieldZuid | undefined) => void;
 }) {
   const { fields } = check.schema;
@@ -205,6 +241,7 @@ function FieldSelect({
         size="sm"
         className={cn('h-7 w-full', isDropped(column) && 'text-muted-foreground')}
         aria-label={`Field for column ${column.header}`}
+        aria-describedby={hintId}
       >
         <SelectValue />
       </SelectTrigger>
@@ -230,6 +267,8 @@ function FieldSelect({
 function GridRow({
   entry,
   check,
+  tabbable,
+  keysHint,
   selected,
   onSelect,
   highlight,
@@ -237,6 +276,8 @@ function GridRow({
 }: {
   readonly entry: FileLine;
   readonly check: ImportCheck;
+  readonly tabbable: boolean;
+  readonly keysHint: string;
   readonly selected: boolean;
   readonly onSelect: (line: number) => void;
   readonly highlight: string | undefined;
@@ -254,16 +295,13 @@ function GridRow({
         ? describeFileProblem(entry.problem)
         : 'Not read as a record.';
     return (
-      <tr
-        data-line={entry.line}
-        aria-selected={selected}
-        className={rowClass}
-        onClick={() => onSelect(entry.line)}
-      >
+      <tr data-line={entry.line} className={rowClass} onClick={() => onSelect(entry.line)}>
         <Gutter
           lines={[entry.line]}
           stripe={blank ? undefined : outcomeStripe.rejected}
           struck={blank}
+          tabbable={tabbable}
+          keysHint={keysHint}
           selected={selected}
           label={`Line ${entry.line}: ${description}`}
         />
@@ -302,17 +340,14 @@ function GridRow({
   const lineNumbers = Array.from({ length: row.record.lineSpan }, (_, index) => entry.line + index);
   const { primary } = row;
   return (
-    <tr
-      data-line={entry.line}
-      aria-selected={selected}
-      className={rowClass}
-      onClick={() => onSelect(entry.line)}
-    >
+    <tr data-line={entry.line} className={rowClass} onClick={() => onSelect(entry.line)}>
       <Gutter
         lines={lineNumbers}
         stripe={problem ? outcomeStripe.rejected : outcomeStripe[row.outcome]}
+        tabbable={tabbable}
+        keysHint={keysHint}
         selected={selected}
-        label={`Row ${row.row}, ${lineRange(row).toLowerCase()}: ${outcomeWord[row.outcome]}${
+        label={`${lineRange(row)}, row ${row.row}: ${outcomeWord[row.outcome]}${
           primary ? `. ${primary.message}` : ''
         }`}
       />
@@ -339,12 +374,17 @@ function Gutter({
   lines,
   stripe,
   struck = false,
+  tabbable,
+  keysHint,
   selected,
   label,
 }: {
   readonly lines: readonly number[];
   readonly stripe: string | undefined;
   readonly struck?: boolean;
+  readonly tabbable: boolean;
+  /** The id of the text that explains the arrow keys. */
+  readonly keysHint: string;
   readonly selected: boolean;
   readonly label: string;
 }) {
@@ -360,6 +400,8 @@ function Gutter({
         type="button"
         aria-label={label}
         aria-pressed={selected}
+        tabIndex={tabbable ? 0 : -1}
+        aria-describedby={keysHint}
         className="focus-visible:ring-ring/45 relative block w-16 cursor-pointer px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-inset"
       >
         {stripe ? (

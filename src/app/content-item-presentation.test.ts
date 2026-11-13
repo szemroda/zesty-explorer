@@ -6,7 +6,9 @@ import {
   formatContentValue,
   hiddenColumnIds,
   initialColumnVisibility,
+  cellText,
   itemDisplayLabel,
+  relatedItemNames,
   sortForColumn,
   visibleColumnIds,
 } from './content-item-presentation';
@@ -106,5 +108,42 @@ describe('content item presentation', () => {
       'Named item',
     );
     expect(itemDisplayLabel({ ...item, fields: { title: '<p></p>' } })).toBe('7-item');
+    expect(itemDisplayLabel({ ...item, fields: { role: 'Editor', full_name: 'Ada Keller' } })).toBe(
+      'Ada Keller',
+    );
+  });
+});
+
+describe('relatedItemNames', () => {
+  const loaded = new Map<string, ContentItem>([
+    ['7-cat-1', { id: '7-cat-1', fields: { title: 'Engineering' }, metadata: {}, raw: {} }],
+    ['7-cat-2', { id: '7-cat-2', fields: { name: 'Design' }, metadata: {}, raw: {} }],
+  ]);
+
+  it('names loaded items and keeps the ZUIDs of the rest', () => {
+    expect(relatedItemNames('7-cat-1, 7-cat-9,7-cat-2', loaded)).toBe(
+      'Engineering, 7-cat-9, Design',
+    );
+  });
+
+  it('leaves the value alone when none of its items is loaded', () => {
+    expect(relatedItemNames('7-cat-9', loaded)).toBeUndefined();
+    expect(relatedItemNames(null, loaded)).toBeUndefined();
+  });
+});
+
+describe('cellText', () => {
+  const none = () => new Map<string, ContentItem>();
+
+  it('shows yes/no fields as Yes and No and leaves other values alone', () => {
+    const yesNo = { relationship: false, yesNo: true };
+    expect([1, 0, '1', true, null].map((value) => cellText(yesNo, value, none))).toEqual([
+      'Yes',
+      'No',
+      'Yes',
+      'Yes',
+      undefined,
+    ]);
+    expect(cellText({ relationship: false, yesNo: false }, 1, none)).toBeUndefined();
   });
 });
