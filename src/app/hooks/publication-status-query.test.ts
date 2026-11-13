@@ -75,7 +75,13 @@ describe('loadPublicationStatus', () => {
     ];
     const rows = itemZuids.map((itemZuid) => {
       const controller = new AbortController();
-      const status = loadPublicationStatus(source, referenceFor(itemZuid), item, controller.signal);
+      const status = loadPublicationStatus(
+        source,
+        referenceFor(itemZuid),
+        item,
+        () => 0,
+        controller.signal,
+      );
       return { itemZuid, controller, status };
     });
 

@@ -299,11 +299,7 @@ export function NestedTable(props: NestedTableProps) {
       />
     ),
     renderStatus: (item) => (
-      <PublicationStatusCell
-        item={item}
-        reference={{ ...node.reference, itemZuid: item.id }}
-        priority="interactive"
-      />
+      <PublicationStatusCell item={item} reference={{ ...node.reference, itemZuid: item.id }} />
     ),
   });
   const sorting: SortingState = [

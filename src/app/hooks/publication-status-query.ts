@@ -7,7 +7,7 @@ import type {
   Deployment,
   InstanceZuid,
 } from '../../domain';
-import { withRequestPriority, type ItemVersionApi, type RequestPriority } from '../../zesty-api';
+import { withRequestPriority, type ItemVersionApi } from '../../zesty-api';
 import { runExplorerQuery } from './explorer-query';
 import { contentItemVersionNumber } from '../item-version-preview';
 import { publicationStatus, type PublicationStatus } from '../publication-status';
@@ -22,12 +22,13 @@ export interface PublicationStatusSource {
   readonly contentState: ContentState;
 }
 
+/** Loads one item's publication status as background work; a higher `group` loads first. */
 export async function loadPublicationStatus(
   source: PublicationStatusSource,
   reference: ContentItemReference,
   item: ContentItem,
+  group: () => number,
   signal: AbortSignal,
-  priority: RequestPriority = 'background',
 ): Promise<PublicationStatus> {
   // The version history only finds a newer save than the item's own version when the view reads
   // published items; for latest saved items, publishings alone complete the status.
@@ -39,7 +40,7 @@ export async function loadPublicationStatus(
     Effect.all(
       [versions, source.api.loadItemPublishings(reference, source.sessionToken)] as const,
       { concurrency: 2 },
-    ).pipe(withRequestPriority(priority)),
+    ).pipe(withRequestPriority({ kind: 'background', group })),
     signal,
   );
   const status = publicationStatus(

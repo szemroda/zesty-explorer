@@ -2,10 +2,16 @@ import { Context, Effect, Schema } from 'effect';
 import { takeBrowserRequestSlot } from './browser-request-slots';
 
 export type RequestService = 'instances' | 'accounts' | 'webengine';
-export type RequestPriority = 'interactive' | 'background';
+/**
+ * Interactive requests start before background ones. Background requests start highest group
+ * first, and requests in one group start in the order they were made. The budget reads `group`
+ * each time it picks a request, so a caller can raise work that is already queued.
+ */
+export type RequestPriority =
+  { readonly kind: 'interactive' } | { readonly kind: 'background'; readonly group: () => number };
 class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()(
   'zesty/RequestPriority',
-  { defaultValue: (): RequestPriority => 'interactive' },
+  { defaultValue: (): RequestPriority => ({ kind: 'interactive' }) },
 ) {}
 
 export type RequestBudgetFailure =
@@ -127,8 +133,17 @@ export function createRequestBudget({
         let release: (() => void) | undefined;
         try {
           release = await takeSlot(controller.signal);
-          const background = queue.find((ticket) => ticket.priority === 'background');
-          const interactive = queue.find((ticket) => ticket.priority === 'interactive');
+          const interactive = queue.find((ticket) => ticket.priority.kind === 'interactive');
+          // The earliest ticket of the highest background group.
+          let background: Ticket | undefined;
+          let backgroundGroup = -Infinity;
+          for (const ticket of queue) {
+            if (ticket.priority.kind !== 'background') continue;
+            const group = ticket.priority.group();
+            if (group <= backgroundGroup) continue;
+            background = ticket;
+            backgroundGroup = group;
+          }
           const ticket =
             interactiveStreak >= 8 && background ? background : (interactive ?? background);
           if (!ticket) break;
@@ -146,7 +161,7 @@ export function createRequestBudget({
           }
           nextStartAt = now + intervalMs + dispatchWindowMs;
           queue.splice(queue.indexOf(ticket), 1);
-          interactiveStreak = ticket.priority === 'interactive' ? interactiveStreak + 1 : 0;
+          interactiveStreak = ticket.priority.kind === 'interactive' ? interactiveStreak + 1 : 0;
           ticket.complete({ release, dispatchBefore: now + dispatchWindowMs });
           release = undefined;
         } finally {

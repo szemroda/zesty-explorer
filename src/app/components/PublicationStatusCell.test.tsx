@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference, ContentState } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
+import { memoryCooldownStorage, memoryRequestSlots } from '../../test/request-budget';
+import { createRequestBudget } from '../../zesty-api/request-budget';
 import { refreshActivePublicationStatuses } from '../hooks/publication-status-query';
 import { PublicationStatusCell, PublicationStatusProvider } from './PublicationStatusCell';
 
@@ -98,6 +100,62 @@ describe('publication status cell', () => {
     version = 9;
     expect(await refreshActivePublicationStatuses(client)).toBe(true);
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeInTheDocument();
+  });
+
+  it('loads the rows opened last first, and the rows of one render in order', async () => {
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+    });
+    const loaded: string[] = [];
+    const api: ItemVersionApi = {
+      loadItemVersions: (itemReference) =>
+        budget.run('instances', () =>
+          Effect.sync(() => {
+            loaded.push(itemReference.itemZuid);
+            return [{ number: 8, item }];
+          }),
+        ),
+      loadItemPublishings: () => budget.run('instances', () => Effect.succeed([])),
+      loadInstanceUsers: () => Effect.succeed([]),
+    };
+    const client = new QueryClient();
+    type Row = ContentItemReference['itemZuid'];
+    const table = (name: string, ids: readonly Row[]) =>
+      ids.map((id) => (
+        <PublicationStatusCell
+          key={`${name}-${id}`}
+          item={item}
+          reference={{ ...reference, itemZuid: id }}
+        />
+      ));
+    const view = (root: readonly Row[], nested: readonly Row[]) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState="published"
+        >
+          {table('root', root)}
+          {table('nested', nested)}
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    const root: Row[] = ['7-root-1', '7-root-2', '7-root-3'];
+    // A root page renders while every slot is busy. A later render opens nested rows, one of
+    // which is already queued for the root page.
+    const { rerender } = render(view(root, []));
+    await act(() => Promise.resolve());
+    rerender(view(root, ['7-nested-1', '7-root-3', '7-nested-2']));
+    await act(() => Promise.resolve());
+    release();
+
+    await vi.waitFor(() => expect(loaded).toHaveLength(5));
+    expect(loaded).toEqual(['7-root-3', '7-nested-1', '7-nested-2', '7-root-1', '7-root-2']);
   });
 
   it('shows one badge when the latest saved version is also published', async () => {

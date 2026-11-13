@@ -1,12 +1,19 @@
-import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { hashKey, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import {
   loadPublicationStatus,
   publicationStatusQueryPrefix,
   type PublicationStatusSource,
 } from '../hooks/publication-status-query';
-import type { RequestPriority } from '../../zesty-api';
 import { useNearViewport } from '../hooks/useNearViewport';
 import type { PublicationStatus } from '../publication-status';
 import { Badge } from './ui/badge';
@@ -16,6 +23,23 @@ import { TooltipTrigger } from './ui/tooltip';
 
 const cacheTime = 5 * 60 * 1_000;
 const StatusSourceContext = createContext<PublicationStatusSource | null>(null);
+
+// Badges load newest render group first, so rows the user opened last load first.
+let lastGroup = 0;
+let renderGroup: number | undefined;
+/** One request group for every cell mounted in the same render, newer than any earlier render. */
+function currentRenderGroup(): number {
+  if (renderGroup === undefined) {
+    lastGroup += 1;
+    renderGroup = lastGroup;
+    queueMicrotask(() => {
+      renderGroup = undefined;
+    });
+  }
+  return renderGroup;
+}
+/** The newest group that shows each status query, so a queued load moves up when a newer row shows it. */
+const newestGroups = new Map<string, number>();
 
 export function PublicationStatusProvider({
   api,
@@ -61,21 +85,19 @@ function StatusBadge({
 interface PublicationStatusCellProps {
   readonly item: ContentItem;
   readonly reference: ContentItemReference;
-  /** Interactive for rows the user just revealed, so they go ahead of rows already waiting. */
-  readonly priority?: RequestPriority;
 }
 
 function ConnectedPublicationStatusCell({
   source,
   item,
   reference,
-  priority,
 }: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
   // Each status costs rate-limited requests, so only rows on or near the screen ask for theirs.
   // A row scrolled past before its turn gives up its place in the queue and asks again on return.
   const near = useNearViewport(cell);
   const queryClient = useQueryClient();
+  const [group] = useState(currentRenderGroup);
   const queryKey = useMemo(
     () => [
       ...publicationStatusQueryPrefix,
@@ -87,9 +109,20 @@ function ConnectedPublicationStatusCell({
     ],
     [source.credentialRevision, reference],
   );
+  const queryHash = hashKey(queryKey);
+  useEffect(() => {
+    newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
+  }, [group, queryHash]);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => loadPublicationStatus(source, reference, item, signal, priority),
+    queryFn: ({ signal }) =>
+      loadPublicationStatus(
+        source,
+        reference,
+        item,
+        () => newestGroups.get(queryHash) ?? group,
+        signal,
+      ),
     enabled: near,
     retry: false,
     staleTime: Infinity,
