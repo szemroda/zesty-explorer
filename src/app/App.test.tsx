@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Deferred, Effect, Either } from 'effect';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -205,6 +205,9 @@ async function submitStartForm(
 }
 
 afterEach(() => {
+  // Unmount first: a table can still save its presentation into the view, which writes the view
+  // into the URL, and the next test would open that view.
+  cleanup();
   toast.dismiss();
   window.history.replaceState(null, '', '/');
   vi.restoreAllMocks();
