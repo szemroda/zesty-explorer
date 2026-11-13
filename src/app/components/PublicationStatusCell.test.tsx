@@ -57,13 +57,13 @@ describe('publication status cell', () => {
     });
 
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
-      'v8',
+      /^v8$/,
     );
     expect(screen.getByRole('img', { name: 'Currently published version v5' })).toHaveTextContent(
-      'v5',
+      /^v5$/,
     );
     expect(screen.getByRole('img', { name: /Version v7 scheduled to publish/ })).toHaveTextContent(
-      'v7',
+      /^v7$/,
     );
     expect(authors).not.toHaveBeenCalled();
   });
@@ -111,7 +111,7 @@ describe('publication status cell', () => {
       await screen.findByRole('img', {
         name: 'Version v8 is the latest saved and currently published version',
       }),
-    ).toHaveTextContent('v8 published');
+    ).toHaveTextContent(/^v8$/);
     expect(screen.getAllByRole('img')).toHaveLength(1);
   });
 
@@ -127,7 +127,7 @@ describe('publication status cell', () => {
     );
 
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toHaveTextContent(
-      'v8 saved',
+      /^v8$/,
     );
     expect(screen.getByRole('img', { name: 'Currently published version v5' })).toBeVisible();
     expect(loadItemVersions).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe('publication status cell', () => {
 
     expect(
       await screen.findByRole('img', { name: /^Latest saved version v8 scheduled to publish/ }),
-    ).toHaveTextContent('v8 scheduled');
+    ).toHaveTextContent(/^v8$/);
     expect(screen.getAllByRole('img')).toHaveLength(2);
   });
 });
