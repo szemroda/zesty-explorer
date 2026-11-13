@@ -290,12 +290,16 @@ export function EndpointRequest({
             </select>
           ) : (
             // Below xl the origin folds to "…", so the path and its parameters keep the room.
+            // It is a Tab stop so a keyboard can show the host in the tooltip before Send.
             <TooltipTrigger
               text={baseUrl ?? 'No live domain'}
               render={
                 <span
-                  className={cn('text-muted-foreground', baseUrls && !baseUrl && 'text-amber-300')}
-                  tabIndex={-1}
+                  className={cn(
+                    'text-muted-foreground focus-visible:ring-ring/45 rounded-sm outline-none focus-visible:ring-2',
+                    baseUrls && !baseUrl && 'text-amber-300',
+                  )}
+                  tabIndex={0}
                 />
               }
             >

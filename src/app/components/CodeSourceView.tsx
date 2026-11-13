@@ -295,7 +295,7 @@ export function CodeSourceView({
           <div>
             <h3 className="text-sm font-semibold">What this code uses</h3>
             <p className="text-muted-foreground mt-1 text-xs">
-              Hover or click an entry to find it in the source; Esc clears it.
+              Hover, click, or arrow to an entry to find it in the source; Esc clears it.
             </p>
             <span id={keysHint} hidden>
               Arrow keys move between entries.
