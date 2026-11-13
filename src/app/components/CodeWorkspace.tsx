@@ -1,7 +1,7 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
 import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, History, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type {
   CodeFile,
   CodeFileZuid,
@@ -191,6 +191,7 @@ export function CodeWorkspace({
     () => files.filter((file) => codeFileMatches(file, fileFilter)),
     [fileFilter, files],
   );
+  const fileList = useRef<HTMLUListElement>(null);
 
   return (
     <div className="grid h-[calc(100vh-72px)] min-h-0 grid-cols-[16rem_minmax(0,1fr)]">
@@ -219,6 +220,14 @@ export function CodeWorkspace({
               placeholder="Filter by name or URL"
               value={fileFilter}
               onChange={(event) => onFileFilterChange(event.target.value)}
+              // ArrowDown moves from the filter into the files it left.
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown') return;
+                const target = fileList.current?.querySelector<HTMLElement>('[tabindex="0"]');
+                if (!target) return;
+                event.preventDefault();
+                target.focus();
+              }}
             />
           </label>
         </div>
@@ -253,24 +262,7 @@ export function CodeWorkspace({
               No files match this filter.
             </p>
           ) : null}
-          <ul className="grid gap-0.5">
-            {listedFiles.map((file) => (
-              <li key={file.id}>
-                <button
-                  type="button"
-                  onClick={() => openFromList(file.id)}
-                  aria-current={file.id === fileId ? 'true' : undefined}
-                  className={cn(
-                    'hover:bg-surface-menu-hover grid w-full rounded-md px-2 py-1.5 text-left',
-                    file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
-                  )}
-                >
-                  <span className="truncate font-mono text-xs">{file.fileName}</span>
-                  <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <CodeFileList ref={fileList} files={listedFiles} openId={fileId} onOpen={openFromList} />
         </div>
       </nav>
 
@@ -420,6 +412,68 @@ interface ExplainedFileProps {
 
 // Parses once per file; re-analyzes as field schemas arrive, since each schema can reveal a
 // relationship whose related collection needs its own schema.
+const fileKeys: Readonly<Record<string, (index: number, count: number) => number>> = {
+  ArrowDown: (index, count) => Math.min(index + 1, count - 1),
+  ArrowUp: (index) => Math.max(index - 1, 0),
+  Home: () => 0,
+  End: (_, count) => count - 1,
+};
+
+/**
+ * The listed files as one Tab stop: the last focused file, else the open one, else the first.
+ * Arrow keys, Home and End move between files; a real instance lists hundreds.
+ */
+function CodeFileList({
+  ref,
+  files,
+  openId,
+  onOpen,
+}: {
+  readonly ref: Ref<HTMLUListElement>;
+  readonly files: readonly Pick<CodeFile, 'id' | 'type' | 'fileName'>[];
+  readonly openId: CodeFileZuid | undefined;
+  readonly onOpen: (id: CodeFileZuid) => void;
+}) {
+  const [focusedId, setFocusedId] = useState<CodeFileZuid>();
+  const listed = (id: CodeFileZuid | undefined) =>
+    id !== undefined && files.some((file) => file.id === id);
+  const tabStop = listed(focusedId) ? focusedId : listed(openId) ? openId : files[0]?.id;
+  return (
+    <ul
+      ref={ref}
+      className="grid gap-0.5"
+      onKeyDown={(event) => {
+        const move = fileKeys[event.key];
+        if (!move) return;
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('button')];
+        const index = buttons.indexOf(event.target as HTMLElement);
+        if (index < 0) return;
+        event.preventDefault();
+        buttons[move(index, buttons.length)]?.focus();
+      }}
+    >
+      {files.map((file) => (
+        <li key={file.id}>
+          <button
+            type="button"
+            tabIndex={file.id === tabStop ? 0 : -1}
+            onFocus={() => setFocusedId(file.id)}
+            onClick={() => onOpen(file.id)}
+            aria-current={file.id === openId ? 'true' : undefined}
+            className={cn(
+              'hover:bg-surface-menu-hover focus-visible:ring-ring/45 grid w-full rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2',
+              file.id === openId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
+            )}
+          >
+            <span className="truncate font-mono text-xs">{file.fileName}</span>
+            <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ExplainedFile({
   api,
   instance,
