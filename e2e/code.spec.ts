@@ -227,6 +227,11 @@ test('scrolls a long file to a pinned step in both presentations', async ({ page
   await entries.first().focus();
   await page.keyboard.press('ArrowDown');
   await expect(entries.nth(1)).toBeFocused();
+  // A keyboard preview scrolls its lines into view, as pinning does.
+  await page.keyboard.press('End');
+  await expect.poll(() => firstHighlightVisible(page)).toBe(true);
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowDown');
   await expect(entries.nth(1)).toHaveAttribute('tabindex', '0');
   await expect(entries.first()).toHaveAttribute('tabindex', '-1');
 });

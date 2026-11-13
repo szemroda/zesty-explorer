@@ -1,5 +1,5 @@
 import { CornerDownLeft, FileWarning } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { FieldZuid } from '../../domain';
 import {
   describeFileProblem,
@@ -57,6 +57,7 @@ export function ImportCheckGrid({
   // The lines are one Tab stop: the last focused line, else the selected one, else the first.
   // Arrow keys, Home and End move between lines.
   const [focusedLine, setFocusedLine] = useState<number>();
+  const keysHint = useId();
   const shown = (line: number | undefined) =>
     line !== undefined && lines.some((entry) => entry.line === line);
   const tabStop = shown(focusedLine)
@@ -71,6 +72,9 @@ export function ImportCheckGrid({
       aria-label={`Lines of ${check.fileName}`}
       tabIndex={0}
     >
+      <span id={keysHint} hidden>
+        Arrow keys move between lines; Enter opens a line’s details.
+      </span>
       <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
@@ -114,6 +118,7 @@ export function ImportCheckGrid({
               entry={entry}
               check={check}
               tabbable={entry.line === tabStop}
+              keysHint={keysHint}
               selected={entry.line === selectedLine}
               onSelect={onSelect}
               highlight={highlight}
@@ -263,6 +268,7 @@ function GridRow({
   entry,
   check,
   tabbable,
+  keysHint,
   selected,
   onSelect,
   highlight,
@@ -271,6 +277,7 @@ function GridRow({
   readonly entry: FileLine;
   readonly check: ImportCheck;
   readonly tabbable: boolean;
+  readonly keysHint: string;
   readonly selected: boolean;
   readonly onSelect: (line: number) => void;
   readonly highlight: string | undefined;
@@ -294,6 +301,7 @@ function GridRow({
           stripe={blank ? undefined : outcomeStripe.rejected}
           struck={blank}
           tabbable={tabbable}
+          keysHint={keysHint}
           selected={selected}
           label={`Line ${entry.line}: ${description}`}
         />
@@ -337,6 +345,7 @@ function GridRow({
         lines={lineNumbers}
         stripe={problem ? outcomeStripe.rejected : outcomeStripe[row.outcome]}
         tabbable={tabbable}
+        keysHint={keysHint}
         selected={selected}
         label={`${lineRange(row)}, row ${row.row}: ${outcomeWord[row.outcome]}${
           primary ? `. ${primary.message}` : ''
@@ -366,6 +375,7 @@ function Gutter({
   stripe,
   struck = false,
   tabbable,
+  keysHint,
   selected,
   label,
 }: {
@@ -373,6 +383,8 @@ function Gutter({
   readonly stripe: string | undefined;
   readonly struck?: boolean;
   readonly tabbable: boolean;
+  /** The id of the text that explains the arrow keys. */
+  readonly keysHint: string;
   readonly selected: boolean;
   readonly label: string;
 }) {
@@ -389,6 +401,7 @@ function Gutter({
         aria-label={label}
         aria-pressed={selected}
         tabIndex={tabbable ? 0 : -1}
+        aria-describedby={keysHint}
         className="focus-visible:ring-ring/45 relative block w-16 cursor-pointer px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-inset"
       >
         {stripe ? (

@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import {
   useEffect,
+  useEffectEvent,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -129,21 +131,10 @@ export function CodeSourceView({
     ]),
     steps: tabStopOf(steps.map((step) => step.target)),
   };
-  const entryProps = (target: string, card: Card) => ({
-    active: active === target,
-    pinned: pinned === target,
-    tabbable: tabStops[card] === target,
-    onEnter: () => setHovered(target),
-    onLeave: () => setHovered(undefined),
-    onFocus: () => setFocusedTarget(target),
-    onSelect: () => togglePin(target),
-  });
-  const usageProps = (target: string) => entryProps(target, 'usage');
-
-  // Pinning scrolls the first matching line into view, in either presentation.
-  useEffect(() => {
-    if (!pinned) return;
-    const first = Math.min(...matchingLines(lines, pinned));
+  const keysHint = useId();
+  // Brings a target's first line into view unless it already is.
+  const reveal = (target: string) => {
+    const first = Math.min(...matchingLines(lines, target));
     const container = codeRef.current;
     const line = container?.querySelector<HTMLElement>(`[data-line="${first}"]`);
     if (!container || !line) return;
@@ -156,6 +147,27 @@ export function CodeSourceView({
         top: Math.max(0, top - container.clientHeight / 4),
         behavior: 'smooth',
       });
+  };
+  const entryProps = (target: string, card: Card) => ({
+    active: active === target,
+    pinned: pinned === target,
+    tabbable: tabStops[card] === target,
+    keysHint,
+    onEnter: () => setHovered(target),
+    onLeave: () => setHovered(undefined),
+    // Focus previews like hover does, and scrolls to the lines, since a keyboard can't look.
+    onFocus: () => {
+      setFocusedTarget(target);
+      reveal(target);
+    },
+    onSelect: () => togglePin(target),
+  });
+  const usageProps = (target: string) => entryProps(target, 'usage');
+
+  // Pinning scrolls the first matching line into view, in either presentation.
+  const revealPinned = useEffectEvent((target: string) => reveal(target));
+  useEffect(() => {
+    if (pinned) revealPinned(pinned);
   }, [pinned, lines]);
 
   // A click in the source pins without moving focus here, so Escape also clears a pin from
@@ -285,6 +297,9 @@ export function CodeSourceView({
             <p className="text-muted-foreground mt-1 text-xs">
               Hover or click an entry to find it in the source; Esc clears it.
             </p>
+            <span id={keysHint} hidden>
+              Arrow keys move between entries.
+            </span>
           </div>
           {nothingUsed ? (
             <p className="text-muted-foreground text-xs">
@@ -678,6 +693,8 @@ interface UsageEntryState {
   readonly pinned: boolean;
   /** Whether this entry is its card's Tab stop. */
   readonly tabbable: boolean;
+  /** The id of the text that says arrow keys move between entries. */
+  readonly keysHint: string;
   readonly onEnter: () => void;
   readonly onLeave: () => void;
   readonly onFocus: () => void;
@@ -713,6 +730,7 @@ function UsageEntry({
   active,
   pinned,
   tabbable,
+  keysHint,
   onEnter,
   onLeave,
   onFocus,
@@ -733,6 +751,7 @@ function UsageEntry({
       <div
         role="button"
         tabIndex={tabbable ? 0 : -1}
+        aria-describedby={keysHint}
         data-entry=""
         aria-pressed={pinned}
         onFocus={() => {

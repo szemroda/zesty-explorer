@@ -1,7 +1,7 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
 import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, History, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type {
   CodeFile,
   CodeFileZuid,
@@ -232,7 +232,7 @@ export function CodeWorkspace({
                   return;
                 }
                 if (event.key !== 'ArrowDown') return;
-                const target = fileList.current?.querySelector<HTMLElement>('[tabindex="0"]');
+                const target = fileList.current?.querySelector<HTMLElement>('button');
                 if (!target) return;
                 event.preventDefault();
                 target.focus();
@@ -443,44 +443,56 @@ function CodeFileList({
   readonly openId: CodeFileZuid | undefined;
   readonly onOpen: (id: CodeFileZuid) => void;
 }) {
-  const [focusedId, setFocusedId] = useState<CodeFileZuid>();
+  // A focused file is the Tab stop only until another file opens; then the open one is.
+  const [focus, setFocus] = useState<{
+    readonly id: CodeFileZuid;
+    readonly openId: CodeFileZuid | undefined;
+  }>();
+  const focusedId = focus && focus.openId === openId ? focus.id : undefined;
+  const keysHint = useId();
   const listed = (id: CodeFileZuid | undefined) =>
     id !== undefined && files.some((file) => file.id === id);
   const tabStop = listed(focusedId) ? focusedId : listed(openId) ? openId : files[0]?.id;
   return (
-    <ul
-      ref={ref}
-      className="grid gap-0.5"
-      onKeyDown={(event) => {
-        const move = listKeys[event.key];
-        if (!move) return;
-        const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('button')];
-        const index = buttons.indexOf(event.target as HTMLElement);
-        if (index < 0) return;
-        event.preventDefault();
-        if (index === 0 && event.key === 'ArrowUp') onLeaveTop();
-        else buttons[move(index, buttons.length)]?.focus();
-      }}
-    >
-      {files.map((file) => (
-        <li key={file.id}>
-          <button
-            type="button"
-            tabIndex={file.id === tabStop ? 0 : -1}
-            onFocus={() => setFocusedId(file.id)}
-            onClick={() => onOpen(file.id)}
-            aria-current={file.id === openId ? 'true' : undefined}
-            className={cn(
-              'hover:bg-surface-menu-hover focus-visible:ring-ring/45 grid w-full rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2',
-              file.id === openId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
-            )}
-          >
-            <span className="truncate font-mono text-xs">{file.fileName}</span>
-            <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <>
+      <span id={keysHint} hidden>
+        Arrow keys move between files.
+      </span>
+      <ul
+        ref={ref}
+        className="grid gap-0.5"
+        onKeyDown={(event) => {
+          const move = listKeys[event.key];
+          if (!move) return;
+          const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('button')];
+          const index = buttons.indexOf(event.target as HTMLElement);
+          if (index < 0) return;
+          event.preventDefault();
+          if (index === 0 && event.key === 'ArrowUp') onLeaveTop();
+          else buttons[move(index, buttons.length)]?.focus();
+        }}
+      >
+        {files.map((file) => (
+          <li key={file.id}>
+            <button
+              type="button"
+              tabIndex={file.id === tabStop ? 0 : -1}
+              onFocus={() => setFocus({ id: file.id, openId })}
+              aria-describedby={keysHint}
+              onClick={() => onOpen(file.id)}
+              aria-current={file.id === openId ? 'true' : undefined}
+              className={cn(
+                'hover:bg-surface-menu-hover focus-visible:ring-ring/45 grid w-full rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2',
+                file.id === openId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
+              )}
+            >
+              <span className="truncate font-mono text-xs">{file.fileName}</span>
+              <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

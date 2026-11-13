@@ -164,7 +164,7 @@ export function EndpointRequest({
   // Announced from the always-present bar, so a result is heard even while Source shows.
   const announcement = sendingUrl
     ? 'Sending request'
-    : stale
+    : stale && pane === 'response'
       ? 'Response to an earlier request. Send to update it.'
       : response
         ? `Request complete, ${response.status} ${response.statusText}, ${response.durationMs} milliseconds${errorText ? `. The page says: ${errorText}` : ''}`
@@ -569,7 +569,7 @@ function ResponsePane({
               text={result.url}
               render={
                 <code
-                  className="text-muted-foreground truncate max-xl:order-last max-xl:basis-full xl:ml-auto"
+                  className="text-muted-foreground truncate max-xl:order-first max-xl:basis-full xl:ml-auto"
                   tabIndex={0}
                 />
               }
@@ -585,8 +585,8 @@ function ResponsePane({
               aria-label="Copy response as received"
               onClick={() => void copyText(response.body, 'Response copied', 'As received.')}
             >
-              <Copy size={13} aria-hidden="true" />{' '}
-              {body === formatted ? 'Copy as received' : 'Copy'}
+              <Copy size={13} aria-hidden="true" /> Copy
+              {body === formatted ? <span className="max-xl:hidden"> as received</span> : null}
             </Button>
           ) : null}
         </div>
