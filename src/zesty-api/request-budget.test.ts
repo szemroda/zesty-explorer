@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { memoryCooldownStorage, memoryRequestSlots } from '../test/request-budget';
 import { createRequestBudget, retryAfterMs, withRequestPriority } from './request-budget';
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('per-tab request admission', () => {
   it('paces all services within a tab and releases their active slots', async () => {
@@ -249,9 +252,56 @@ describe('per-tab request admission', () => {
     release();
     await vi.advanceTimersByTimeAsync(200);
 
-    expect(Exit.isInterrupted(await nested)).toBe(true);
+    expect(await nested).toEqual(
+      Exit.fail({
+        kind: 'cancelled',
+        message: 'The request was no longer needed, so it was not sent.',
+      }),
+    );
     expect(Exit.isSuccess(await root)).toBe(true);
     expect(sent).toEqual(['root']);
+  });
+
+  it('finishes a load that already sent one of its requests, even when it is dropped', async () => {
+    const budget = createRequestBudget({
+      takeSlot: memoryRequestSlots(1),
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+    });
+    const sent: string[] = [];
+    let collapsed = false;
+    let answerVersions = () => {};
+    const versionsAnswered = new Promise<void>((resolve) => {
+      answerVersions = resolve;
+    });
+    const request = (name: string, answered: Promise<void>) =>
+      budget.run('instances', () =>
+        Effect.promise(async () => {
+          sent.push(name);
+          await answered;
+          return name;
+        }),
+      );
+    // One row's versions and publishings, queued together under one priority.
+    const row = Effect.runPromise(
+      Effect.all(
+        [request('versions', versionsAnswered), request('publishings', Promise.resolve())],
+        {
+          concurrency: 2,
+        },
+      ).pipe(
+        withRequestPriority({
+          kind: 'background',
+          standing: () => (collapsed ? { kind: 'dropped' } : { kind: 'needed', rank: 0 }),
+        }),
+      ),
+    );
+    await vi.waitFor(() => expect(sent).toEqual(['versions']));
+    collapsed = true;
+    answerVersions();
+
+    expect(await row).toEqual(['versions', 'publishings']);
+    expect(sent).toEqual(['versions', 'publishings']);
   });
 
   it('never executes cancelled queued work and releases active work on interruption', async () => {

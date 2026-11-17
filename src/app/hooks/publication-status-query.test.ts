@@ -1,8 +1,14 @@
+import { hashKey, QueryClient, QueryObserver } from '@tanstack/react-query';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference, ItemZuid } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
-import { loadPublicationStatus } from './publication-status-query';
+import {
+  countStatusOnScreen,
+  loadPublicationStatus,
+  publicationStatusQueryPrefix,
+  refreshActivePublicationStatuses,
+} from './publication-status-query';
 import { createRequestBudget } from '../../zesty-api/request-budget';
 import { memoryRequestSlots, memoryCooldownStorage } from '../../test/request-budget';
 
@@ -103,5 +109,40 @@ describe('loadPublicationStatus', () => {
     expect(started[4]).toBe('interactive');
     expect(started).toContain(`${last.itemZuid}/versions`);
     expect(started.some((request) => request.startsWith(waiting.itemZuid))).toBe(false);
+  });
+
+  it('waits on Refresh only for statuses on screen, and reloads the rest in the background', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const loads: string[] = [];
+    const show = (name: string, reload: () => Promise<string>) => {
+      let loaded = false;
+      return new QueryObserver(client, {
+        queryKey: [...publicationStatusQueryPrefix, name],
+        queryFn: () => {
+          loads.push(name);
+          if (loaded) return reload();
+          loaded = true;
+          return Promise.resolve(name);
+        },
+        staleTime: Infinity,
+      }).subscribe(() => {});
+    };
+    show('on-screen', () => Promise.resolve('on-screen'));
+    // Below the screen, waiting while the tab is hidden: its reload does not settle.
+    show('below', () => new Promise<string>(() => {}));
+    await vi.waitFor(() =>
+      expect(
+        ['on-screen', 'below'].map((name) =>
+          client.getQueryData([...publicationStatusQueryPrefix, name]),
+        ),
+      ).toEqual(['on-screen', 'below']),
+    );
+    const leaveScreen = countStatusOnScreen(
+      hashKey([...publicationStatusQueryPrefix, 'on-screen']),
+    );
+
+    expect(await refreshActivePublicationStatuses(client)).toBe(true);
+    expect(loads.toSorted()).toEqual(['below', 'below', 'on-screen', 'on-screen']);
+    leaveScreen();
   });
 });

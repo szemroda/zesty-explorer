@@ -7,8 +7,10 @@ export type RequestService = 'instances' | 'accounts' | 'webengine';
  * request, so a caller can move work that is already queued without cancelling it.
  * - `needed` work starts before `prefetch` work, highest `rank` first.
  * - `prefetch` work also waits while the page is hidden.
- * - `dropped` work leaves the queue without being sent.
- * Requests of the same standing and rank start in the order they were made.
+ * - `dropped` work leaves the queue without being sent, failing as `cancelled`.
+ * Requests of the same standing and rank start in the order they were made. Requests made under
+ * one priority belong together: once one of them has started, the rest are no longer dropped, so
+ * a load that sent anything completes.
  */
 export type BackgroundStanding =
   { readonly kind: 'needed' | 'prefetch'; readonly rank: number } | { readonly kind: 'dropped' };
@@ -24,6 +26,7 @@ class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()
 
 export type RequestBudgetFailure =
   | { readonly kind: 'request-budget'; readonly message: string }
+  | { readonly kind: 'cancelled'; readonly message: string }
   | { readonly kind: 'rate-limit'; readonly message: string; readonly retryAt: number };
 
 export interface RequestBudget {
@@ -86,8 +89,6 @@ export function createRequestBudget({
     readonly priority: RequestPriority;
     readonly complete: (admission: Admission) => void;
     readonly fail: (failure: RequestBudgetFailure) => void;
-    /** Ends a request that was dropped before it was sent, as an interruption. */
-    readonly drop: () => void;
   }
   const queue: Ticket[] = [];
   let pump: AbortController | undefined;
@@ -97,7 +98,12 @@ export function createRequestBudget({
   let interactiveStreak = 0;
   // Wakes a pump that waits because only prefetch work is queued while the page is hidden.
   let wakePump: (() => void) | undefined;
-  globalThis.document?.addEventListener('visibilitychange', () => wakePump?.());
+  // Priorities that have started a request; their other requests are not dropped.
+  const started = new WeakSet<RequestPriority>();
+  const notNeeded: RequestBudgetFailure = {
+    kind: 'cancelled',
+    message: 'The request was no longer needed, so it was not sent.',
+  };
   let unavailable: Extract<RequestBudgetFailure, { kind: 'request-budget' }> | undefined;
   const cooldown = (retryAt: number): Extract<RequestBudgetFailure, { kind: 'rate-limit' }> => ({
     kind: 'rate-limit',
@@ -132,10 +138,15 @@ export function createRequestBudget({
     let nextRank = -Infinity;
     for (const ticket of [...queue]) {
       if (ticket.priority.kind !== 'background') continue;
-      const standing = ticket.priority.standing();
+      const asked = ticket.priority.standing();
+      // The rest of a load that already sent a request finishes first.
+      const standing =
+        asked.kind === 'dropped' && started.has(ticket.priority)
+          ? ({ kind: 'needed', rank: Infinity } as const)
+          : asked;
       if (standing.kind === 'dropped') {
         remove(ticket);
-        ticket.drop();
+        ticket.fail(notNeeded);
         continue;
       }
       if (standing.kind === 'prefetch' && pageHidden()) continue;
@@ -152,10 +163,12 @@ export function createRequestBudget({
       const wake = () => {
         wakePump = undefined;
         signal.removeEventListener('abort', wake);
+        globalThis.document?.removeEventListener('visibilitychange', wake);
         resolve();
       };
       wakePump = wake;
       signal.addEventListener('abort', wake, { once: true });
+      globalThis.document?.addEventListener('visibilitychange', wake);
     });
   const wait = (delay: number, signal: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
@@ -205,6 +218,7 @@ export function createRequestBudget({
           nextStartAt = now + intervalMs + dispatchWindowMs;
           queue.splice(queue.indexOf(ticket), 1);
           interactiveStreak = ticket.priority.kind === 'interactive' ? interactiveStreak + 1 : 0;
+          started.add(ticket.priority);
           ticket.complete({ release, dispatchBefore: now + dispatchWindowMs });
           release = undefined;
         } finally {
@@ -253,7 +267,6 @@ export function createRequestBudget({
           resume(Effect.succeed(admission));
         },
         fail: (failure) => resume(Effect.fail(failure)),
-        drop: () => resume(Effect.interrupt),
       };
       queue.push(ticket);
       startPump();

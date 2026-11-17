@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
+import type { Query, QueryClient } from '@tanstack/react-query';
 import { Effect } from 'effect';
 import type {
   ContentItem,
@@ -71,10 +71,41 @@ export function clearPublicationStatusCacheOutsideScope(
   });
 }
 
+/** How many cells on or near the screen show each status query, by query hash. */
+const cellsOnScreen = new Map<string, number>();
+
+/** Counts one cell that shows a status on or near the screen, until the returned function runs. */
+export function countStatusOnScreen(queryHash: string): () => void {
+  cellsOnScreen.set(queryHash, (cellsOnScreen.get(queryHash) ?? 0) + 1);
+  return () => {
+    const count = (cellsOnScreen.get(queryHash) ?? 1) - 1;
+    if (count) cellsOnScreen.set(queryHash, count);
+    else cellsOnScreen.delete(queryHash);
+  };
+}
+
+export function isStatusOnScreen(queryHash: string): boolean {
+  return cellsOnScreen.has(queryHash);
+}
+
+/**
+ * Reloads the statuses on screen and reports whether they all loaded. Statuses below the screen
+ * reload in the background, so Refresh does not wait for whole tables.
+ */
 export async function refreshActivePublicationStatuses(queryClient: QueryClient): Promise<boolean> {
-  await queryClient.refetchQueries({ queryKey: publicationStatusQueryPrefix, type: 'active' });
+  const onScreen = (query: Query) => isStatusOnScreen(query.queryHash);
+  void queryClient.refetchQueries({
+    queryKey: publicationStatusQueryPrefix,
+    type: 'active',
+    predicate: (query) => !onScreen(query),
+  });
+  await queryClient.refetchQueries({
+    queryKey: publicationStatusQueryPrefix,
+    type: 'active',
+    predicate: onScreen,
+  });
   return queryClient
     .getQueryCache()
-    .findAll({ queryKey: publicationStatusQueryPrefix, type: 'active' })
+    .findAll({ queryKey: publicationStatusQueryPrefix, type: 'active', predicate: onScreen })
     .every((query) => query.state.status !== 'error');
 }

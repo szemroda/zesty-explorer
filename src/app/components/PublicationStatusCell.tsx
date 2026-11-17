@@ -16,7 +16,10 @@ import {
 } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
 import type { BackgroundStanding } from '../../zesty-api';
+import { explorerFailure } from '../hooks/explorer-query';
 import {
+  countStatusOnScreen,
+  isStatusOnScreen,
   loadPublicationStatus,
   publicationStatusQueryPrefix,
   type PublicationStatusSource,
@@ -47,8 +50,6 @@ function currentRenderGroup(): number {
 }
 /** The newest group that shows each status query, so a queued load moves up when a newer row shows it. */
 const newestGroups = new Map<string, number>();
-/** How many cells on or near the screen show each status query. */
-const cellsOnScreen = new Map<string, number>();
 /** The latest load of each status query; an earlier load that is still queued is not needed. */
 const latestLoads = new Map<string, symbol>();
 
@@ -71,9 +72,7 @@ function statusStanding(
     return { kind: 'dropped' };
   }
   const rank = newestGroups.get(queryHash) ?? group;
-  return (cellsOnScreen.get(queryHash) ?? 0) > 0
-    ? { kind: 'needed', rank }
-    : { kind: 'prefetch', rank };
+  return isStatusOnScreen(queryHash) ? { kind: 'needed', rank } : { kind: 'prefetch', rank };
 }
 
 export function PublicationStatusProvider({
@@ -147,13 +146,7 @@ function ConnectedPublicationStatusCell({
     newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
   }, [group, queryHash]);
   useEffect(() => {
-    if (!near) return;
-    cellsOnScreen.set(queryHash, (cellsOnScreen.get(queryHash) ?? 0) + 1);
-    return () => {
-      const count = (cellsOnScreen.get(queryHash) ?? 1) - 1;
-      if (count) cellsOnScreen.set(queryHash, count);
-      else cellsOnScreen.delete(queryHash);
-    };
+    if (near) return countStatusOnScreen(queryHash);
   }, [near, queryHash]);
   const query = useQuery({
     queryKey,
@@ -187,17 +180,9 @@ function StatusContent({
   readonly query: UseQueryResult<PublicationStatus>;
   readonly publishedFirst: boolean;
 }) {
-  // A status dropped from the queue before it was sent is reloading, not unavailable.
-  if (query.isPending || (query.isError && query.isFetching)) {
-    return (
-      // Two pills, the usual shape, so a waiting row keeps the cell's width.
-      <span className="flex gap-1.5" role="status" aria-label="Loading publication status">
-        <Skeleton className="h-4.5 w-8 rounded-full" />
-        <Skeleton className="h-4.5 w-8 rounded-full" />
-      </span>
-    );
-  }
-  if (query.isError) {
+  // A load dropped unsent while no row showed it is not a failure: the row keeps what it had,
+  // and a row without a status loads it again when shown.
+  if (query.isError && explorerFailure(query.error)?.kind !== 'cancelled') {
     return (
       <>
         <span className="text-muted-foreground">Unavailable</span>
@@ -207,8 +192,17 @@ function StatusContent({
       </>
     );
   }
-
   const status = query.data;
+  if (status === undefined) {
+    return (
+      // Two pills, the usual shape, so a waiting row keeps the cell's width.
+      <span className="flex gap-1.5" role="status" aria-label="Loading publication status">
+        <Skeleton className="h-4.5 w-8 rounded-full" />
+        <Skeleton className="h-4.5 w-8 rounded-full" />
+      </span>
+    );
+  }
+
   const published = status.currentlyPublished;
   const scheduled = status.nextScheduled;
   const scheduledBadge = (version: number, publishAt: string, latest: boolean) => (
