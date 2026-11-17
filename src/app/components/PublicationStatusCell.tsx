@@ -49,18 +49,27 @@ function currentRenderGroup(): number {
 const newestGroups = new Map<string, number>();
 /** How many cells on or near the screen show each status query. */
 const cellsOnScreen = new Map<string, number>();
+/** The latest load of each status query; an earlier load that is still queued is not needed. */
+const latestLoads = new Map<string, symbol>();
 
 /**
  * Where a queued status load stands each time the request budget picks the next request. Rows on
  * or near the screen load first, then the rest of the table in the background. A status no cell
- * shows any more leaves the queue unsent; one already sent finishes and stays cached.
+ * shows any more, or one a later load replaced, leaves the queue unsent; one already sent
+ * finishes.
  */
 function statusStanding(
   queryClient: QueryClient,
   queryHash: string,
+  load: symbol,
   group: number,
 ): BackgroundStanding {
-  if (!queryClient.getQueryCache().get(queryHash)?.getObserversCount()) return { kind: 'dropped' };
+  if (
+    latestLoads.get(queryHash) !== load ||
+    !queryClient.getQueryCache().get(queryHash)?.getObserversCount()
+  ) {
+    return { kind: 'dropped' };
+  }
   const rank = newestGroups.get(queryHash) ?? group;
   return (cellsOnScreen.get(queryHash) ?? 0) > 0
     ? { kind: 'needed', rank }
@@ -150,10 +159,13 @@ function ConnectedPublicationStatusCell({
     queryKey,
     // The query function ignores TanStack's abort signal, so unmounting a row never aborts a sent
     // request; the budget drops a request that has not been sent yet.
-    queryFn: () =>
-      loadPublicationStatus(source, reference, item, () =>
-        statusStanding(queryClient, queryHash, group),
-      ),
+    queryFn: () => {
+      const load = Symbol(queryHash);
+      latestLoads.set(queryHash, load);
+      return loadPublicationStatus(source, reference, item, () =>
+        statusStanding(queryClient, queryHash, load, group),
+      );
+    },
     retry: false,
     staleTime: Infinity,
     gcTime: cacheTime,

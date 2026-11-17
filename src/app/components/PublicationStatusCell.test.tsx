@@ -158,6 +158,57 @@ describe('publication status cell', () => {
     expect(loaded).toEqual(['7-root-3', '7-nested-1', '7-nested-2', '7-root-1', '7-root-2']);
   });
 
+  it('sends each status once per Refresh when Refresh is used again before it starts', async () => {
+    const takeSlot = memoryRequestSlots(1);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+    });
+    const sent: string[] = [];
+    const api: ItemVersionApi = {
+      loadItemVersions: () => Effect.succeed([]),
+      loadItemPublishings: (itemReference) =>
+        budget.run('instances', () =>
+          Effect.sync(() => {
+            sent.push(itemReference.itemZuid);
+            return [];
+          }),
+        ),
+      loadInstanceUsers: () => Effect.succeed([]),
+    };
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState="latest"
+        >
+          {(['7-row-1', '7-row-2'] as const).map((id) => (
+            <PublicationStatusCell
+              key={id}
+              item={item}
+              reference={{ ...reference, itemZuid: id }}
+            />
+          ))}
+        </PublicationStatusProvider>
+      </QueryClientProvider>,
+    );
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    // Every slot is busy, so both refreshes are still queued when the second one is used.
+    const release = await takeSlot(new AbortController().signal);
+    const first = refreshActivePublicationStatuses(client);
+    await act(() => Promise.resolve());
+    const second = refreshActivePublicationStatuses(client);
+    await act(() => Promise.resolve());
+    release();
+
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(sent).toEqual(['7-row-1', '7-row-2', '7-row-1', '7-row-2']);
+  });
+
   it('shows one badge when the latest saved version is also published', async () => {
     renderCell({
       loadItemVersions: () => Effect.succeed([{ number: 8, item }]),
