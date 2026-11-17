@@ -1,4 +1,10 @@
-import { hashKey, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import {
+  hashKey,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import {
   createContext,
   useContext,
@@ -9,6 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { ContentItem, ContentItemReference } from '../../domain';
+import type { BackgroundStanding } from '../../zesty-api';
 import {
   loadPublicationStatus,
   publicationStatusQueryPrefix,
@@ -40,6 +47,25 @@ function currentRenderGroup(): number {
 }
 /** The newest group that shows each status query, so a queued load moves up when a newer row shows it. */
 const newestGroups = new Map<string, number>();
+/** How many cells on or near the screen show each status query. */
+const cellsOnScreen = new Map<string, number>();
+
+/**
+ * Where a queued status load stands each time the request budget picks the next request. Rows on
+ * or near the screen load first, then the rest of the table in the background. A status no cell
+ * shows any more leaves the queue unsent; one already sent finishes and stays cached.
+ */
+function statusStanding(
+  queryClient: QueryClient,
+  queryHash: string,
+  group: number,
+): BackgroundStanding {
+  if (!queryClient.getQueryCache().get(queryHash)?.getObserversCount()) return { kind: 'dropped' };
+  const rank = newestGroups.get(queryHash) ?? group;
+  return (cellsOnScreen.get(queryHash) ?? 0) > 0
+    ? { kind: 'needed', rank }
+    : { kind: 'prefetch', rank };
+}
 
 export function PublicationStatusProvider({
   api,
@@ -93,8 +119,6 @@ function ConnectedPublicationStatusCell({
   reference,
 }: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
-  // Each status costs rate-limited requests, so only rows on or near the screen ask for theirs.
-  // A row scrolled past before its turn gives up its place in the queue and asks again on return.
   const near = useNearViewport(cell);
   const queryClient = useQueryClient();
   const [group] = useState(currentRenderGroup);
@@ -113,25 +137,27 @@ function ConnectedPublicationStatusCell({
   useEffect(() => {
     newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
   }, [group, queryHash]);
+  useEffect(() => {
+    if (!near) return;
+    cellsOnScreen.set(queryHash, (cellsOnScreen.get(queryHash) ?? 0) + 1);
+    return () => {
+      const count = (cellsOnScreen.get(queryHash) ?? 1) - 1;
+      if (count) cellsOnScreen.set(queryHash, count);
+      else cellsOnScreen.delete(queryHash);
+    };
+  }, [near, queryHash]);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) =>
-      loadPublicationStatus(
-        source,
-        reference,
-        item,
-        () => newestGroups.get(queryHash) ?? group,
-        signal,
+    // The query function ignores TanStack's abort signal, so unmounting a row never aborts a sent
+    // request; the budget drops a request that has not been sent yet.
+    queryFn: () =>
+      loadPublicationStatus(source, reference, item, () =>
+        statusStanding(queryClient, queryHash, group),
       ),
-    enabled: near,
     retry: false,
     staleTime: Infinity,
     gcTime: cacheTime,
   });
-  const abandoned = !near && query.isPending && query.isFetching;
-  useEffect(() => {
-    if (abandoned) void queryClient.cancelQueries({ queryKey, exact: true });
-  }, [abandoned, queryClient, queryKey]);
 
   return (
     // Pills wrap rather than draw over the next column if the column is made narrow.
@@ -149,7 +175,8 @@ function StatusContent({
   readonly query: UseQueryResult<PublicationStatus>;
   readonly publishedFirst: boolean;
 }) {
-  if (query.isPending) {
+  // A status dropped from the queue before it was sent is reloading, not unavailable.
+  if (query.isPending || (query.isError && query.isFetching)) {
     return (
       // Two pills, the usual shape, so a waiting row keeps the cell's width.
       <span className="flex gap-1.5" role="status" aria-label="Loading publication status">

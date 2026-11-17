@@ -21,7 +21,7 @@ function referenceFor(itemZuid: ItemZuid): ContentItemReference {
 }
 
 describe('loadPublicationStatus', () => {
-  it('shares four HTTP slots with interactive work and skips requests for an aborted row', async () => {
+  it('shares four HTTP slots with interactive work and skips requests for a dropped row', async () => {
     const budget = createRequestBudget({
       takeSlot: memoryRequestSlots(),
       storage: memoryCooldownStorage(),
@@ -73,16 +73,12 @@ describe('loadPublicationStatus', () => {
       '7-row-5',
       '7-row-6',
     ];
+    const dropped = new Set<ItemZuid>();
     const rows = itemZuids.map((itemZuid) => {
-      const controller = new AbortController();
-      const status = loadPublicationStatus(
-        source,
-        referenceFor(itemZuid),
-        item,
-        () => 0,
-        controller.signal,
+      const status = loadPublicationStatus(source, referenceFor(itemZuid), item, () =>
+        dropped.has(itemZuid) ? { kind: 'dropped' } : { kind: 'needed', rank: 0 },
       );
-      return { itemZuid, controller, status };
+      return { itemZuid, status };
     });
 
     await vi.waitFor(() => expect(started).toHaveLength(4));
@@ -95,10 +91,9 @@ describe('loadPublicationStatus', () => {
     );
     const [, , , , waiting, last] = rows;
     if (!waiting || !last) throw new Error('Expected six rows.');
-    waiting.controller.abort();
-    await expect(waiting.status).rejects.toThrow();
-
+    dropped.add(waiting.itemZuid);
     releaseVersions();
+    await expect(waiting.status).rejects.toThrow();
     await Promise.all([
       interactive,
       ...rows.filter((row) => row !== waiting).map((row) => row.status),

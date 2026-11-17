@@ -99,7 +99,12 @@ describe('per-tab request admission', () => {
             order.push('badge');
           }),
         )
-        .pipe(withRequestPriority({ kind: 'background', group: () => 0 })),
+        .pipe(
+          withRequestPriority({
+            kind: 'background',
+            standing: () => ({ kind: 'needed', rank: 0 }),
+          }),
+        ),
     );
     const foreground = Array.from({ length: 10 }, (_, index) =>
       Effect.runPromise(
@@ -153,13 +158,100 @@ describe('per-tab request admission', () => {
               order.push(String(name));
             }),
           )
-          .pipe(withRequestPriority({ kind: 'background', group: () => Number(group) })),
+          .pipe(
+            withRequestPriority({
+              kind: 'background',
+              standing: () => ({ kind: 'needed', rank: Number(group) }),
+            }),
+          ),
       ),
     );
     release();
     await vi.advanceTimersByTimeAsync(200);
     await Promise.all(work);
     expect(order).toEqual(['nested-1', 'nested-2', 'root-1', 'root-2', 'root-3']);
+  });
+
+  it('starts needed work before prefetch work, and holds prefetch work while the page is hidden', async () => {
+    vi.useFakeTimers();
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+      dispatchWindowMs: 10,
+    });
+    let hidden = true;
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() =>
+      hidden ? 'hidden' : 'visible',
+    );
+    const order: string[] = [];
+    const work = (
+      [
+        ['off-screen-old', 'prefetch', 9],
+        ['on-screen', 'needed', 1],
+        ['off-screen', 'prefetch', 1],
+      ] as const
+    ).map(([name, kind, rank]) =>
+      Effect.runPromise(
+        budget
+          .run('instances', () =>
+            Effect.sync(() => {
+              order.push(name);
+            }),
+          )
+          .pipe(withRequestPriority({ kind: 'background', standing: () => ({ kind, rank }) })),
+      ),
+    );
+    release();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(order).toEqual(['on-screen']);
+
+    hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all(work);
+    expect(order).toEqual(['on-screen', 'off-screen-old', 'off-screen']);
+  });
+
+  it('drops queued work no one needs any more without sending it', async () => {
+    vi.useFakeTimers();
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+      dispatchWindowMs: 10,
+    });
+    const sent: string[] = [];
+    let collapsed = false;
+    const load = (name: string, nested: boolean) =>
+      Effect.runPromiseExit(
+        budget
+          .run('instances', () =>
+            Effect.sync(() => {
+              sent.push(name);
+            }),
+          )
+          .pipe(
+            withRequestPriority({
+              kind: 'background',
+              standing: () =>
+                nested && collapsed ? { kind: 'dropped' } : { kind: 'needed', rank: 0 },
+            }),
+          ),
+      );
+    const nested = load('nested', true);
+    const root = load('root', false);
+    collapsed = true;
+    release();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(Exit.isInterrupted(await nested)).toBe(true);
+    expect(Exit.isSuccess(await root)).toBe(true);
+    expect(sent).toEqual(['root']);
   });
 
   it('never executes cancelled queued work and releases active work on interruption', async () => {

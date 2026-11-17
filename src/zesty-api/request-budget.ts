@@ -3,12 +3,20 @@ import { takeBrowserRequestSlot } from './browser-request-slots';
 
 export type RequestService = 'instances' | 'accounts' | 'webengine';
 /**
- * Interactive requests start before background ones. Background requests start highest group
- * first, and requests in one group start in the order they were made. The budget reads `group`
- * each time it picks a request, so a caller can raise work that is already queued.
+ * Where a queued background request stands. The budget reads it each time it picks the next
+ * request, so a caller can move work that is already queued without cancelling it.
+ * - `needed` work starts before `prefetch` work, highest `rank` first.
+ * - `prefetch` work also waits while the page is hidden.
+ * - `dropped` work leaves the queue without being sent.
+ * Requests of the same standing and rank start in the order they were made.
  */
+export type BackgroundStanding =
+  { readonly kind: 'needed' | 'prefetch'; readonly rank: number } | { readonly kind: 'dropped' };
+
+/** Interactive requests start before background ones. */
 export type RequestPriority =
-  { readonly kind: 'interactive' } | { readonly kind: 'background'; readonly group: () => number };
+  | { readonly kind: 'interactive' }
+  | { readonly kind: 'background'; readonly standing: () => BackgroundStanding };
 class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()(
   'zesty/RequestPriority',
   { defaultValue: (): RequestPriority => ({ kind: 'interactive' }) },
@@ -78,6 +86,8 @@ export function createRequestBudget({
     readonly priority: RequestPriority;
     readonly complete: (admission: Admission) => void;
     readonly fail: (failure: RequestBudgetFailure) => void;
+    /** Ends a request that was dropped before it was sent, as an interruption. */
+    readonly drop: () => void;
   }
   const queue: Ticket[] = [];
   let pump: AbortController | undefined;
@@ -85,6 +95,9 @@ export function createRequestBudget({
   let cooldowns: Cooldowns = { instances: 0, accounts: 0, webengine: 0 };
   let initialized = false;
   let interactiveStreak = 0;
+  // Wakes a pump that waits because only prefetch work is queued while the page is hidden.
+  let wakePump: (() => void) | undefined;
+  globalThis.document?.addEventListener('visibilitychange', () => wakePump?.());
   let unavailable: Extract<RequestBudgetFailure, { kind: 'request-budget' }> | undefined;
   const cooldown = (retryAt: number): Extract<RequestBudgetFailure, { kind: 'rate-limit' }> => ({
     kind: 'rate-limit',
@@ -111,6 +124,39 @@ export function createRequestBudget({
       ticket.fail(cooldown(cooldowns[ticket.service]));
     }
   };
+  const pageHidden = () => globalThis.document?.visibilityState === 'hidden';
+  // The next background ticket to start, dropping tickets no one needs any more on the way.
+  const nextBackground = (): Ticket | undefined => {
+    let next: Ticket | undefined;
+    let nextTier = -1;
+    let nextRank = -Infinity;
+    for (const ticket of [...queue]) {
+      if (ticket.priority.kind !== 'background') continue;
+      const standing = ticket.priority.standing();
+      if (standing.kind === 'dropped') {
+        remove(ticket);
+        ticket.drop();
+        continue;
+      }
+      if (standing.kind === 'prefetch' && pageHidden()) continue;
+      const tier = standing.kind === 'needed' ? 1 : 0;
+      if (tier < nextTier || (tier === nextTier && standing.rank <= nextRank)) continue;
+      next = ticket;
+      nextTier = tier;
+      nextRank = standing.rank;
+    }
+    return next;
+  };
+  const waitForWake = (signal: AbortSignal) =>
+    new Promise<void>((resolve) => {
+      const wake = () => {
+        wakePump = undefined;
+        signal.removeEventListener('abort', wake);
+        resolve();
+      };
+      wakePump = wake;
+      signal.addEventListener('abort', wake, { once: true });
+    });
   const wait = (delay: number, signal: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
       signal.throwIfAborted();
@@ -134,19 +180,16 @@ export function createRequestBudget({
         try {
           release = await takeSlot(controller.signal);
           const interactive = queue.find((ticket) => ticket.priority.kind === 'interactive');
-          // The earliest ticket of the highest background group.
-          let background: Ticket | undefined;
-          let backgroundGroup = -Infinity;
-          for (const ticket of queue) {
-            if (ticket.priority.kind !== 'background') continue;
-            const group = ticket.priority.group();
-            if (group <= backgroundGroup) continue;
-            background = ticket;
-            backgroundGroup = group;
-          }
+          const background = nextBackground();
           const ticket =
             interactiveStreak >= 8 && background ? background : (interactive ?? background);
-          if (!ticket) break;
+          if (!ticket) {
+            // Only prefetch work is left and the page is hidden: wait until it shows or work arrives.
+            release();
+            release = undefined;
+            if (queue.length) await waitForWake(controller.signal);
+            continue;
+          }
           const now = Date.now();
           if (cooldowns[ticket.service] > now) {
             remove(ticket);
@@ -210,9 +253,11 @@ export function createRequestBudget({
           resume(Effect.succeed(admission));
         },
         fail: (failure) => resume(Effect.fail(failure)),
+        drop: () => resume(Effect.interrupt),
       };
       queue.push(ticket);
       startPump();
+      wakePump?.();
       return Effect.sync(() => {
         remove(ticket);
         granted?.release();

@@ -9,10 +9,13 @@ export class ExplorerQueryError extends Error {
   }
 }
 
-/** Runs a Zesty request inside a query function, throwing its failure as `ExplorerQueryError`. */
+/**
+ * Runs a Zesty request inside a query function, throwing its failure as `ExplorerQueryError`.
+ * Without a signal, nothing interrupts the request once it runs.
+ */
 export async function runExplorerQuery<Value>(
   request: Effect.Effect<Value, ExplorerError>,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<Value> {
   const result = await Effect.runPromise(Effect.either(request), { signal });
   if (Either.isLeft(result)) throw new ExplorerQueryError(result.left);

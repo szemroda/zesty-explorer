@@ -735,6 +735,38 @@ test('loads the publication status of an expanded row before the rest of the roo
   await expect(page.getByRole('status', { name: 'Loading publication status' })).not.toHaveCount(0);
 });
 
+test('loads statuses below the screen in the background, and scrolling neither aborts nor repeats a request', async ({
+  page,
+}) => {
+  const statusRequest = /\/items\/[^/]+\/(versions|publishings)$/;
+  const sent: string[] = [];
+  const failed: string[] = [];
+  page.on('request', (request) => {
+    if (statusRequest.test(request.url())) sent.push(request.url());
+  });
+  page.on('requestfailed', (request) => {
+    if (statusRequest.test(request.url())) failed.push(request.url());
+  });
+  await installFakeApi(page);
+  await openRoot(page);
+  for (let pass = 0; pass < 3; pass += 1) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(150);
+  }
+
+  // Row 40 is far below the screen and loads while the user stays at the top.
+  const offScreenRow = page.locator('tbody tr').nth(40);
+  await expect(offScreenRow).not.toBeInViewport();
+  await expect(offScreenRow.getByRole('img', { name: /version v\d+$/ }).first()).toBeAttached({
+    timeout: 15_000,
+  });
+  expect(failed).toEqual([]);
+  expect(sent.length).toBeGreaterThan(40);
+  expect(new Set(sent).size).toBe(sent.length);
+});
+
 test('uses descendant filters and restores a non-secret link in another tab', async ({
   page,
   context,
