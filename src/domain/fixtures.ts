@@ -1,3 +1,4 @@
+import { collectionItemLimit } from './limits';
 import type { CollectionSnapshot, ItemZuid, ModelZuid } from './types';
 
 export const fixtureCollectionPage = {
@@ -37,7 +38,7 @@ export const fixtureCollectionPage = {
       web: { path: '/second-story/' },
     },
   ],
-  _meta: { totalResults: 2, page: 1, limit: 100 },
+  _meta: { totalResults: 2, start: 0, offset: 0, limit: 2 },
 } as const;
 
 function seededValue(index: number, seed: number): number {
@@ -68,8 +69,10 @@ function makeSnapshot(
 }
 
 export function generateRelationshipGraph(size: number, seed = 1) {
-  if (!Number.isInteger(size) || size < 0 || size > 50_000) {
-    throw new RangeError('Fixture graph size must be an integer from 0 to 50,000.');
+  if (!Number.isInteger(size) || size < 0 || size > collectionItemLimit) {
+    throw new RangeError(
+      `Fixture graph size must be an integer from 0 to ${collectionItemLimit.toLocaleString('en-US')}.`,
+    );
   }
 
   const parents = Array.from({ length: size }, (_, index) => {

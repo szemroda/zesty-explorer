@@ -17,6 +17,7 @@ import type {
   ViewFilter,
 } from '../../domain';
 import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
+import type { CollectionLoadProgress } from '../../zesty-api';
 import {
   contentActionColumnWidth,
   createContentTableColumns,
@@ -57,7 +58,14 @@ const headerClassName =
   'flex min-h-16 items-center justify-between gap-5 rounded-t-xl border-b border-border bg-surface-subtle px-3.5 py-3 pl-4.5 max-lg:items-start max-lg:flex-col';
 
 // Stands in for RootTable, in the same panel and toolbar layout, while the root collection loads.
-export function RootTableSkeleton({ title }: { readonly title: string }) {
+export function RootTableSkeleton({
+  title,
+  progress,
+}: {
+  readonly title: string;
+  /** Shown once items arrive, because a large collection loads for a while. */
+  readonly progress?: CollectionLoadProgress | undefined;
+}) {
   return (
     <section className={`overflow-hidden ${panelClassName}`}>
       <div className={headerClassName}>
@@ -67,7 +75,13 @@ export function RootTableSkeleton({ title }: { readonly title: string }) {
           <p className="m-0 text-[17px] font-bold tracking-[-0.02em]" aria-hidden="true">
             {title}
           </p>
-          <Skeleton className="h-2.5 w-20" />
+          {progress ? (
+            <p className="m-0 text-xs text-muted-foreground tabular-nums">
+              Loaded {progress.loaded.toLocaleString('en-US')} items
+            </p>
+          ) : (
+            <Skeleton className="h-2.5 w-20" />
+          )}
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
           <Skeleton className="h-9 w-20" />
@@ -174,33 +188,35 @@ export function RootTable({
     () => buildLoadedViewGraph(treeRoot, loadedView, contentScope),
     [contentScope, loadedView, treeRoot],
   );
-  const filteredItems = useMemo(() => {
-    const allIds = snapshot.items.map((item) => item.id);
-    const matchingIds = filterNodeItemIds(graph, treeRoot.id, allIds, viewFilters, freeText);
-    const activeSort = sorting[0];
-    const sortsRelationship = itemColumnDefinitions.some(
-      (column) => column.id === activeSort?.id && column.kind === 'value' && column.relationship,
-    );
-    const sortedIds = sortItemIds(
-      snapshot,
-      matchingIds,
-      sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
-      sortsRelationship ? namedSortValue(loadedView) : undefined,
-    );
-    return sortedIds.flatMap((id) => {
-      const item = snapshot.itemsById.get(id);
-      return item ? [item] : [];
-    });
-  }, [
-    freeText,
-    graph,
-    itemColumnDefinitions,
-    loadedView,
-    snapshot,
-    sorting,
-    treeRoot.id,
-    viewFilters,
-  ]);
+  const allItemIds = useMemo(() => snapshot.items.map((item) => item.id), [snapshot.items]);
+  // Filtering and sorting are memoized apart, so changing one doesn't repeat the other's work.
+  const matchingIds = useMemo(
+    () => new Set(filterNodeItemIds(graph, treeRoot.id, allItemIds, viewFilters, freeText)),
+    [allItemIds, freeText, graph, treeRoot.id, viewFilters],
+  );
+  const activeSort = sorting[0];
+  const sortsRelationship = itemColumnDefinitions.some(
+    (column) => column.id === activeSort?.id && column.kind === 'value' && column.relationship,
+  );
+  const relationshipSortValue = sortsRelationship ? namedSortValue(loadedView) : undefined;
+  const sortedIds = useMemo(
+    () =>
+      sortItemIds(
+        snapshot,
+        allItemIds,
+        sortForColumn(activeSort?.id ?? '$modified', activeSort?.desc === false ? 'asc' : 'desc'),
+        relationshipSortValue,
+      ),
+    [activeSort?.desc, activeSort?.id, allItemIds, relationshipSortValue, snapshot],
+  );
+  const filteredItems = useMemo(
+    () =>
+      sortedIds.flatMap((id) => {
+        const item = matchingIds.has(id) ? snapshot.itemsById.get(id) : undefined;
+        return item ? [item] : [];
+      }),
+    [matchingIds, snapshot.itemsById, sortedIds],
+  );
   // The root collection's filters are the view filters.
   const filterControls = tableFilterControls({
     node: treeRoot,
@@ -211,7 +227,7 @@ export function RootTable({
     loadedView,
     contentScope,
     graph,
-    itemIds: snapshot.items.map((item) => item.id),
+    itemIds: allItemIds,
     freeText,
     filters: viewFilters,
     onChange: (text, filters) => {

@@ -1,4 +1,7 @@
-/** Claims one of four active HTTP slots shared by tabs on this origin. */
+/** How many HTTP requests tabs on this origin may have active at once. */
+const browserRequestSlots = 4;
+
+/** Claims one of the active HTTP slots shared by tabs on this origin. */
 export function takeBrowserRequestSlot(signal: AbortSignal): Promise<() => void> {
   if (!globalThis.navigator?.locks) {
     return Promise.reject(new Error('Web Locks are unavailable.'));
@@ -16,7 +19,7 @@ export function takeBrowserRequestSlot(signal: AbortSignal): Promise<() => void>
     };
     const aborted = () => fail(signal.reason);
     signal.addEventListener('abort', aborted, { once: true });
-    for (let slot = 0; slot < 4; slot += 1) {
+    for (let slot = 0; slot < browserRequestSlots; slot += 1) {
       void navigator.locks
         .request(`zesty-request-slot-${slot}`, { signal: race.signal }, async () => {
           if (settled || signal.aborted) return;

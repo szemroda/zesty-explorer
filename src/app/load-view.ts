@@ -1,12 +1,14 @@
 import { Effect, Either } from 'effect';
-import type {
-  CollectionNode,
-  CollectionNodeId,
-  CollectionSchema,
-  CollectionSnapshot,
-  ContentItem,
-  ContentScope,
-  ExplorerError,
+import {
+  collectionItemLimit,
+  viewItemLimit,
+  type CollectionNode,
+  type CollectionNodeId,
+  type CollectionSchema,
+  type CollectionSnapshot,
+  type ContentItem,
+  type ContentScope,
+  type ExplorerError,
 } from '../domain';
 import {
   buildRelationshipIndex,
@@ -17,7 +19,12 @@ import {
   type SortValue,
 } from '../explorer-core';
 import { relatedItemNames } from './content-item-presentation';
-import { snapshotQueryKey, type CollectionApi, type SnapshotLoadResult } from '../zesty-api';
+import {
+  snapshotQueryKey,
+  type CollectionApi,
+  type CollectionLoadProgress,
+  type SnapshotLoadResult,
+} from '../zesty-api';
 
 export interface LoadedCollection {
   readonly schema: CollectionSchema;
@@ -92,11 +99,12 @@ export async function loadCollection(
   sessionToken: string,
   itemLimit: number,
   signal?: AbortSignal,
+  onProgress?: (progress: CollectionLoadProgress) => void,
 ): Promise<LoadedCollection> {
   const program = Effect.all(
     [
       api.loadCollectionSchema(node.reference, sessionToken),
-      api.loadCollectionSnapshot(node.reference, scope, sessionToken, itemLimit),
+      api.loadCollectionSnapshot(node.reference, scope, sessionToken, itemLimit, onProgress),
     ] as const,
     { concurrency: 2 },
   ).pipe(Effect.either);
@@ -169,20 +177,23 @@ export async function loadView(
   const snapshots = new Map(rootLoadedView(root, scope, loadedRoot).snapshots.snapshots);
   const schemas = new Map<CollectionNodeId, CollectionSchema>([[root.id, loadedRoot.schema]]);
   const schemaErrors = new Map<CollectionNodeId, ExplorerError>();
+  const rootKey = snapshotQueryKey(root.reference, scope);
   const uniqueDescendants = new Map<string, CollectionNode>();
   for (const node of nodes.slice(1)) {
     const key = snapshotQueryKey(node.reference, scope);
-    if (!uniqueDescendants.has(key)) uniqueDescendants.set(key, node);
+    // A node that repeats the root's collection reads the root's complete snapshot.
+    if (key === rootKey) schemas.set(node.id, loadedRoot.schema);
+    else if (!uniqueDescendants.has(key)) uniqueDescendants.set(key, node);
   }
 
   let totalItems = loadedRoot.snapshot.items.length;
   for (const node of uniqueDescendants.values()) {
     const key = snapshotQueryKey(node.reference, scope);
-    if (totalItems >= 50_000) {
+    if (totalItems >= viewItemLimit) {
       const error: ExplorerError = {
         kind: 'data-limit',
         scope: 'view',
-        message: 'The view reached its 50,000 content-item limit.',
+        message: `The view reached its ${viewItemLimit.toLocaleString('en-US')} content-item limit.`,
       };
       snapshots.set(key, { status: 'partial', snapshot: emptyPartialSnapshot(node, scope) });
       for (const matchingNode of nodes.filter(
@@ -194,7 +205,10 @@ export async function loadView(
     }
 
     try {
-      const loaded = await loadCachedCollection(node, Math.min(10_000, 50_000 - totalItems));
+      const loaded = await loadCachedCollection(
+        node,
+        Math.min(collectionItemLimit, viewItemLimit - totalItems),
+      );
       totalItems += loaded.snapshot.items.length;
       snapshots.set(
         key,

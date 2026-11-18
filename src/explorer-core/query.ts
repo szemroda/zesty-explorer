@@ -85,7 +85,7 @@ export function stripHtml(value: string): string {
 }
 
 function normalizedText(value: string): string {
-  return stripHtml(value).toLocaleLowerCase('en-US');
+  return stripHtml(value).toLowerCase();
 }
 
 function isEmpty(value: ResolvedFieldValue): boolean {
@@ -186,6 +186,8 @@ export function matchesFilter(item: ContentItem, filter: FilterCondition): boole
   return false;
 }
 
+const noRelatedItems: readonly ItemZuid[] = [];
+
 export function createExplorerGraph(input: ExplorerGraphInput): ExplorerGraph {
   return {
     rootNodeId: input.rootNodeId,
@@ -196,8 +198,28 @@ export function createExplorerGraph(input: ExplorerGraphInput): ExplorerGraph {
     },
     childNodeIds: (nodeId) => input.childrenByNode.get(nodeId) ?? [],
     relatedItemIds: (childNodeId, parentItemId) =>
-      input.relationshipsByChildNode.get(childNodeId)?.get(parentItemId) ?? [],
+      input.relationshipsByChildNode.get(childNodeId)?.get(parentItemId) ?? noRelatedItems,
   };
+}
+
+/** One answer per related list. Parents that share a relationship key share their list. */
+type RelatedListMemo = Map<CollectionNodeId, Map<readonly ItemZuid[], boolean>>;
+
+function someRelatedItem(
+  graph: ExplorerGraph,
+  childNodeId: CollectionNodeId,
+  parentItemId: ItemZuid,
+  memo: RelatedListMemo,
+  matches: (childItemId: ItemZuid) => boolean,
+): boolean {
+  const related = graph.relatedItemIds(childNodeId, parentItemId);
+  const answers = memo.get(childNodeId) ?? new Map<readonly ItemZuid[], boolean>();
+  memo.set(childNodeId, answers);
+  const known = answers.get(related);
+  if (known !== undefined) return known;
+  const answer = related.some(matches);
+  answers.set(related, answer);
+  return answer;
 }
 
 function matchesPath(
@@ -206,6 +228,7 @@ function matchesPath(
   itemId: ItemZuid,
   nodePath: readonly CollectionNodeId[],
   filter: ViewFilter,
+  memo: RelatedListMemo,
 ): boolean {
   if (nodePath.length === 0) {
     const item = graph.snapshot(nodeId).itemsById.get(itemId);
@@ -213,9 +236,9 @@ function matchesPath(
   }
   const [childNodeId, ...rest] = nodePath;
   if (!childNodeId || !graph.childNodeIds(nodeId).includes(childNodeId)) return false;
-  return graph
-    .relatedItemIds(childNodeId, itemId)
-    .some((childId) => matchesPath(graph, childNodeId, childId, rest, filter));
+  return someRelatedItem(graph, childNodeId, itemId, memo, (childId) =>
+    matchesPath(graph, childNodeId, childId, rest, filter, memo),
+  );
 }
 
 /** The distinct items reached from `itemIds` by following `nodePath` down from their node. */
@@ -224,10 +247,17 @@ export function relatedItemsAlong(
   itemIds: readonly ItemZuid[],
   nodePath: readonly CollectionNodeId[],
 ): readonly ItemZuid[] {
-  return nodePath.reduce<readonly ItemZuid[]>(
-    (ids, childNodeId) => [...new Set(ids.flatMap((id) => graph.relatedItemIds(childNodeId, id)))],
-    itemIds,
-  );
+  return nodePath.reduce<readonly ItemZuid[]>((ids, childNodeId) => {
+    const visitedLists = new Set<readonly ItemZuid[]>();
+    const reached = new Set<ItemZuid>();
+    for (const id of ids) {
+      const related = graph.relatedItemIds(childNodeId, id);
+      if (visitedLists.has(related)) continue;
+      visitedLists.add(related);
+      for (const relatedId of related) reached.add(relatedId);
+    }
+    return [...reached];
+  }, itemIds);
 }
 
 function scalarText(value: unknown): readonly string[] {
@@ -249,15 +279,20 @@ function itemContains(item: ContentItem, search: string): boolean {
   return values.some((value) => value.includes(search));
 }
 
+interface SearchMemo {
+  readonly items: Map<CollectionNodeId, Map<ItemZuid, boolean>>;
+  readonly relatedLists: RelatedListMemo;
+}
+
 function graphContains(
   graph: ExplorerGraph,
   nodeId: CollectionNodeId,
   itemId: ItemZuid,
   search: string,
-  memo: Map<CollectionNodeId, Map<ItemZuid, boolean>>,
+  memo: SearchMemo,
 ): boolean {
-  const nodeMemo = memo.get(nodeId) ?? new Map<ItemZuid, boolean>();
-  if (!memo.has(nodeId)) memo.set(nodeId, nodeMemo);
+  const nodeMemo = memo.items.get(nodeId) ?? new Map<ItemZuid, boolean>();
+  if (!memo.items.has(nodeId)) memo.items.set(nodeId, nodeMemo);
   const cached = nodeMemo.get(itemId);
   if (cached !== undefined) return cached;
 
@@ -273,9 +308,9 @@ function graphContains(
   const result = graph
     .childNodeIds(nodeId)
     .some((childNodeId) =>
-      graph
-        .relatedItemIds(childNodeId, itemId)
-        .some((childId) => graphContains(graph, childNodeId, childId, search, memo)),
+      someRelatedItem(graph, childNodeId, itemId, memo.relatedLists, (childId) =>
+        graphContains(graph, childNodeId, childId, search, memo),
+      ),
     );
   nodeMemo.set(itemId, result);
   return result;
@@ -290,10 +325,14 @@ export function filterNodeItemIds(
 ): readonly ItemZuid[] {
   const search = normalizedText(freeText);
   if (filters.length === 0 && !search) return itemIds;
-  const searchMemo = new Map<CollectionNodeId, Map<ItemZuid, boolean>>();
+  const searchMemo: SearchMemo = { items: new Map(), relatedLists: new Map() };
+  const filterChecks = filters.map((filter) => {
+    const memo: RelatedListMemo = new Map();
+    return (itemId: ItemZuid) => matchesPath(graph, nodeId, itemId, filter.nodePath, filter, memo);
+  });
   return itemIds.filter(
     (itemId) =>
-      filters.every((filter) => matchesPath(graph, nodeId, itemId, filter.nodePath, filter)) &&
+      filterChecks.every((matches) => matches(itemId)) &&
       (!search || graphContains(graph, nodeId, itemId, search, searchMemo)),
   );
 }
@@ -311,10 +350,13 @@ export function sortableValue(
   return resolved.value;
 }
 
+// `localeCompare` with options builds a collator on every call, which dominates large sorts.
+const textCollator = new Intl.Collator('en-US', { numeric: true, sensitivity: 'base' });
+
 function compareScalars(left: Scalar, right: Scalar): number {
   if (typeof left === 'number' && typeof right === 'number') return left - right;
   if (typeof left === 'boolean' && typeof right === 'boolean') return Number(left) - Number(right);
-  return String(left).localeCompare(String(right), 'en-US', { numeric: true, sensitivity: 'base' });
+  return textCollator.compare(String(left), String(right));
 }
 
 export function sortItemIds(

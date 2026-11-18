@@ -85,6 +85,23 @@ function nativeReferences(value: unknown): readonly Scalar[] {
   return [];
 }
 
+const noRelatedItems: readonly ItemZuid[] = [];
+
+// A parent with one key shares the index's list, so parents with the same key cost no extra memory.
+function relatedItemsForKeys(
+  keys: readonly Scalar[],
+  childIndex: RelationshipIndex,
+): readonly ItemZuid[] {
+  const [firstKey] = keys;
+  if (firstKey === undefined) return noRelatedItems;
+  if (keys.length === 1) return childIndex.get(firstKey) ?? noRelatedItems;
+  const matches: ItemZuid[] = [];
+  for (const key of keys) {
+    for (const itemId of childIndex.get(key) ?? noRelatedItems) matches.push(itemId);
+  }
+  return matches;
+}
+
 export function joinRelatedItems(
   parents: CollectionSnapshot,
   childIndex: RelationshipIndex,
@@ -96,9 +113,7 @@ export function joinRelatedItems(
     const value = itemPathValue(parent, parentField);
     const keys =
       relationship.kind === 'native' ? nativeReferences(value) : isScalar(value) ? [value] : [];
-    const matches: ItemZuid[] = [];
-    for (const key of keys) matches.push(...(childIndex.get(key) ?? []));
-    result.set(parent.id, matches);
+    result.set(parent.id, relatedItemsForKeys(keys, childIndex));
   }
   return result;
 }

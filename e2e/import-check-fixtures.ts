@@ -245,7 +245,7 @@ async function fulfill(route: Route): Promise<void> {
     const data = page === 1 ? items(model) : [];
     await route.fulfill({
       headers: cors,
-      json: { data, _meta: { totalResults: items(model).length, page, limit: 5000 } },
+      json: { data, _meta: { totalResults: data.length, start: 0, offset: 0, limit: data.length } },
     });
     return;
   }

@@ -13,7 +13,7 @@ import {
   memoryRequestSlots,
   memoryCooldownStorage,
 } from '../test/request-budget';
-import { createRequestBudget } from './request-budget';
+import { createRequestBudget, type RequestBudget } from './request-budget';
 
 function createZestyApi(transport: ZestyTransport, options: ZestyApiOptions = {}) {
   return createWithBrowserBudget(transport, { budget: immediateRequestBudget(), ...options });
@@ -57,6 +57,22 @@ function fakeTransport(
 // Answers every request with the same response.
 function respondWith(body: unknown, status = 200) {
   return fakeTransport(() => Effect.succeed({ status, headers: {}, body }));
+}
+
+const emptyCollectionPage = {
+  data: [],
+  _meta: { totalResults: 0, start: 0, offset: 0, limit: 0 },
+};
+
+// The body for a collection whose only items are on its first page.
+function firstPageOnly(request: ZestyTransportRequest, body: unknown) {
+  return new URL(request.url).searchParams.get('page') === '1' ? body : emptyCollectionPage;
+}
+
+function respondWithOnePage(body: unknown) {
+  return fakeTransport((request) =>
+    Effect.succeed({ status: 200, headers: {}, body: firstPageOnly(request, body) }),
+  );
 }
 
 describe('ZestyApi', () => {
@@ -513,17 +529,17 @@ describe('ZestyApi', () => {
           },
         },
       ],
-      _meta: { totalResults: 3, page: 2, limit: 2 },
+      _meta: { totalResults: 1, start: 0, offset: 0, limit: 1 },
     };
-    const fake = fakeTransport((request) =>
-      Effect.succeed({
+    const fake = fakeTransport((request) => {
+      const page = new URL(request.url).searchParams.get('page');
+      const pages: Readonly<Record<string, unknown>> = { 1: fixtureCollectionPage, 2: secondPage };
+      return Effect.succeed({
         status: 200,
         headers: {},
-        body: request.url.includes('page=2')
-          ? secondPage
-          : { ...fixtureCollectionPage, _meta: { totalResults: 3, page: 1, limit: 2 } },
-      }),
-    );
+        body: pages[page ?? ''] ?? emptyCollectionPage,
+      });
+    });
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
@@ -540,8 +556,13 @@ describe('ZestyApi', () => {
     ]);
     expect(snapshot.itemsById.get('7-000000-cccccc')?.fields.title).toBe('Third story');
     expect(snapshot.partial).toBe(false);
-    expect(fake.requests).toHaveLength(2);
-    expect(fake.requests.every((request) => request.url.includes('_active=true'))).toBe(true);
+    const lastRequest = fake.requests.at(-1)?.url ?? '';
+    expect(fake.requests).toHaveLength(5);
+    expect(
+      fake.requests.slice(0, -1).every((request) => request.url.includes('_active=true')),
+    ).toBe(true);
+    // The end of published content is confirmed against the latest content.
+    expect(new URL(lastRequest).search).toBe('?lang=en-US&limit=2&page=3');
   });
 
   it('normalizes the documented Zesty content item response', async () => {
@@ -558,9 +579,9 @@ describe('ZestyApi', () => {
       siblings: {},
       web: { path: '/documented-response/' },
     };
-    const fake = respondWith({
+    const fake = respondWithOnePage({
       data: [rawItem],
-      _meta: { totalResults: 1, start: 0, offset: 0, limit: 2_500 },
+      _meta: { totalResults: 1, start: 0, offset: 0, limit: 1 },
     });
 
     const snapshot = await Effect.runPromise(
@@ -588,7 +609,7 @@ describe('ZestyApi', () => {
   });
 
   it('reads the snapshot in the requested language', async () => {
-    const fake = respondWith(fixtureCollectionPage);
+    const fake = respondWithOnePage(fixtureCollectionPage);
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport).loadCollectionSnapshot(
@@ -1014,10 +1035,14 @@ describe('ZestyApi', () => {
   });
 
   it('retries transient failures but does not retry permission errors', async () => {
-    const transient = fakeTransport((_request, attempt) =>
+    const transient = fakeTransport((request, attempt) =>
       attempt === 1
         ? Effect.fail({ kind: 'network' as const })
-        : Effect.succeed({ status: 200, headers: {}, body: fixtureCollectionPage }),
+        : Effect.succeed({
+            status: 200,
+            headers: {},
+            body: firstPageOnly(request, fixtureCollectionPage),
+          }),
     );
     await Effect.runPromise(
       createZestyApi(transient.transport, { retryDelaysMs: [0] }).loadCollectionSnapshot(
@@ -1026,7 +1051,7 @@ describe('ZestyApi', () => {
         'private-token',
       ),
     );
-    expect(transient.requests).toHaveLength(2);
+    expect(transient.requests).toHaveLength(3);
 
     const forbidden = respondWith({ error: 'forbidden' }, 403);
     const error = await Effect.runPromise(
@@ -1078,7 +1103,7 @@ describe('ZestyApi', () => {
         version: 1,
       },
     }));
-    const fake = respondWith({ data, _meta: { totalResults: 20, page: 1, limit: 5 } });
+    const fake = respondWith({ data, _meta: { totalResults: 5, start: 0, offset: 0, limit: 5 } });
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { collectionLimit: 3, pageSize: 5 }).loadCollectionSnapshot(
@@ -1092,11 +1117,8 @@ describe('ZestyApi', () => {
     expect(fake.requests).toHaveLength(1);
   });
 
-  it('uses the remaining view budget as the final page size', async () => {
-    const fake = respondWith({
-      ...fixtureCollectionPage,
-      _meta: { totalResults: 20, start: 0, limit: 2 },
-    });
+  it('keeps the page size on the last page, so its offset stays right', async () => {
+    const fake = respondWith(fixtureCollectionPage);
 
     const snapshot = await Effect.runPromise(
       createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
@@ -1107,15 +1129,216 @@ describe('ZestyApi', () => {
       ),
     );
     expect(snapshot.items).toHaveLength(3);
-    expect(fake.requests[1]?.url).toContain('limit=1');
+    expect(snapshot.partial).toBe(true);
+    expect(fake.requests.map((request) => new URL(request.url).search)).toEqual([
+      '?lang=en-US&limit=2&page=1',
+      '?lang=en-US&limit=2&page=2',
+    ]);
+  });
+
+  // Answers each page with the listed number of items and, like Zesty, reports only that number.
+  function pagedTransport(pages: readonly number[], latestPages = pages) {
+    return fakeTransport((request) => {
+      const { searchParams } = new URL(request.url);
+      const page = Number(searchParams.get('page'));
+      const count = (searchParams.has('_active') ? pages : latestPages)[page - 1] ?? 0;
+      const data = Array.from({ length: count }, (_, index) => ({
+        data: { title: `Page ${page} item ${index}` },
+        meta: {
+          ZUID: `7-paged-${page}-${index}00000`,
+          createdAt: '2026-01-01T12:00:00.000Z',
+          updatedAt: '2026-01-01T12:00:00.000Z',
+          version: 1,
+        },
+      }));
+      return Effect.succeed({
+        status: 200,
+        headers: {},
+        body: { data, _meta: { totalResults: count, start: 0, offset: 0, limit: count } },
+      });
+    });
+  }
+
+  it('loads every page even though Zesty reports only the size of each one', async () => {
+    const fake = pagedTransport([2, 2, 2, 2, 2]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(10);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it('keeps loading past a short page, because only an empty page ends a collection', async () => {
+    const fake = pagedTransport([2, 1, 2]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'published', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(5);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it('confirms the end of a small collection with one extra request', async () => {
+    const fake = pagedTransport([1]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(1);
+    expect(snapshot.partial).toBe(false);
     expect(fake.requests).toHaveLength(2);
+  });
+
+  it('reads past an empty published page while the latest content continues', async () => {
+    const fake = pagedTransport([2, 0, 2], [2, 2, 2]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'published', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(4);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it.each([
+    { pages: [2, 2], partial: false },
+    { pages: [2, 2, 1], partial: true },
+  ])('looks for more items after filling the limit: $pages', async ({ pages, partial }) => {
+    const fake = pagedTransport(pages);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+        4,
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(4);
+    expect(snapshot.partial).toBe(partial);
+  });
+
+  it('shares two page requests between collections that load together', async () => {
+    let active = 0;
+    let peak = 0;
+    const fake = fakeTransport((request) => {
+      const page = Number(new URL(request.url).searchParams.get('page'));
+      return Effect.acquireUseRelease(
+        Effect.sync(() => {
+          active += 1;
+          peak = Math.max(peak, active);
+        }),
+        () => Effect.sleep('2 millis'),
+        () => Effect.sync(() => (active -= 1)),
+      ).pipe(
+        Effect.as({
+          status: 200,
+          headers: {},
+          body: page <= 3 ? fixtureCollectionPage : emptyCollectionPage,
+        }),
+      );
+    });
+    // Admits every request at once, so only the page loader limits how many run together.
+    const budget: RequestBudget = { run: (_service, attempt) => attempt(() => Effect.never) };
+    const api = createZestyApi(fake.transport, { pageSize: 2, budget });
+    const load = api.loadCollectionSnapshot(
+      reference,
+      { state: 'latest', language: 'en-US' },
+      'private-token',
+    );
+
+    await Effect.runPromise(Effect.all([load, load], { concurrency: 2 }));
+
+    expect(peak).toBe(2);
+  });
+
+  it('loads later pages in parallel, keeps their order and reports progress', async () => {
+    const total = 11;
+    const pageSize = 2;
+    let active = 0;
+    let peak = 0;
+    const fake = fakeTransport((request) => {
+      const page = Number(new URL(request.url).searchParams.get('page'));
+      const data = Array.from(
+        { length: Math.min(pageSize, Math.max(0, total - (page - 1) * pageSize)) },
+        (_, index) => ({
+          data: { title: `Item ${(page - 1) * pageSize + index}` },
+          meta: {
+            ZUID: `7-order-${String((page - 1) * pageSize + index).padStart(6, '0')}`,
+            createdAt: '2026-01-01T12:00:00.000Z',
+            updatedAt: '2026-01-01T12:00:00.000Z',
+            version: 1,
+          },
+        }),
+      );
+      return Effect.acquireUseRelease(
+        Effect.sync(() => {
+          active += 1;
+          peak = Math.max(peak, active);
+        }),
+        // Later pages finish first, so the result's order can't come from arrival order.
+        () => Effect.sleep(`${(total - page) * 2} millis`),
+        () => Effect.sync(() => (active -= 1)),
+      ).pipe(
+        Effect.as({
+          status: 200,
+          headers: {},
+          body: {
+            data,
+            _meta: { totalResults: data.length, start: 0, offset: 0, limit: data.length },
+          },
+        }),
+      );
+    });
+    const progress: { readonly loaded: number }[] = [];
+    // Admits every request at once, so only the page loader limits how many run together.
+    const budget: RequestBudget = { run: (_service, attempt) => attempt(() => Effect.never) };
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize, budget }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+        undefined,
+        (update) => progress.push(update),
+      ),
+    );
+
+    expect(snapshot.items.map((item) => item.fields.title)).toEqual(
+      Array.from({ length: total }, (_, index) => `Item ${index}`),
+    );
+    expect(snapshot.partial).toBe(false);
+    expect(peak).toBe(2);
+    expect(progress[0]).toEqual({ loaded: 2 });
+    expect(progress.at(-1)).toEqual({ loaded: total });
   });
 
   it('times out and remains interruptible', async () => {
     const fake = fakeTransport(() => Effect.never);
     const error = await Effect.runPromise(
       Effect.flip(
-        createZestyApi(fake.transport, { timeoutMs: 5 }).loadCollectionSnapshot(
+        createZestyApi(fake.transport, { collectionPageTimeoutMs: 5 }).loadCollectionSnapshot(
           reference,
           { state: 'latest', language: 'en-US' },
           'private-token',

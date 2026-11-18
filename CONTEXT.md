@@ -137,7 +137,7 @@ The relationship between a content item's latest saved version, its currently pu
 _Avoid_: Content state, workflow status
 
 **Partial collection**:
-A collection for which the view loaded only the first 10,000 content items. Results and filters involving it are explicitly marked as incomplete.
+A collection for which the view loaded only some of its content items, because it exceeds the 200,000-item collection limit or the view reached its 200,000-item limit. Results and filters involving it are explicitly marked as incomplete.
 _Avoid_: Complete collection, failed collection
 
 **View filter**:

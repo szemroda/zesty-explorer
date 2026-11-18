@@ -35,6 +35,29 @@ describe('relationship indexes', () => {
     );
   });
 
+  it('joins a parent to more children than a function call can take as arguments', () => {
+    const childCount = 150_000;
+    const parent = graph.parents.items[0]!;
+    const items = Array.from({ length: childCount }, (_, index) => ({
+      ...graph.children.items[0]!,
+      id: `7-fanout-${index}` as const,
+      fields: { parentKey: 'shared' },
+    }));
+    const relationship = {
+      kind: 'custom',
+      parentField: ['childKey'],
+      childField: ['parentKey'],
+    } as const;
+
+    const joined = joinRelatedItems(
+      { ...graph.parents, items: [{ ...parent, fields: { childKey: 'shared' } }] },
+      buildRelationshipIndex({ ...graph.children, items }, relationship),
+      relationship,
+    );
+
+    expect(joined.get(parent.id)).toHaveLength(childCount);
+  });
+
   it('uses strict typed equality and retains unmatched parents', () => {
     const child = {
       ...graph.children,

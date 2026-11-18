@@ -148,11 +148,12 @@ async function installPerformanceApi(page: Page) {
       : rootItems;
     const limit = Number(url.searchParams.get('limit') ?? 2_500);
     const pageNumber = Number(url.searchParams.get('page') ?? 1);
+    const pageData = data.slice((pageNumber - 1) * limit, pageNumber * limit);
     await route.fulfill({
       headers,
       json: {
-        data: data.slice((pageNumber - 1) * limit, pageNumber * limit),
-        _meta: { totalResults: data.length, page: pageNumber, limit },
+        data: pageData,
+        _meta: { totalResults: pageData.length, start: 0, offset: 0, limit: pageData.length },
       },
     });
   });

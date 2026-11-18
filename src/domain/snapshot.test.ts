@@ -30,7 +30,6 @@ describe('collection snapshot contracts', () => {
       },
       raw: fixtureCollectionPage.data[0],
     });
-    expect(decoded.right.totalResults).toBe(2);
   });
 
   it('returns a typed decoding error for malformed API data', () => {
@@ -49,14 +48,12 @@ describe('collection snapshot contracts', () => {
     expect(JSON.stringify(decoded.left)).not.toContain('private-content-value');
   });
 
-  it('accepts the official collection metadata shape without a page field', () => {
+  it('accepts the empty page Zesty returns past the end of a collection', () => {
     const decoded = decodeCollectionPage({
-      ...fixtureCollectionPage,
-      _meta: { totalResults: 202, start: 100, offset: 100, limit: 100 },
+      data: [],
+      _meta: { totalResults: 0, start: 0, offset: 0, limit: 0 },
     });
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
-    expect(decoded.right.page).toBe(2);
+    expect(decoded).toEqual(Either.right({ items: [] }));
   });
 
   it('rejects malformed item ZUIDs before branding them', () => {

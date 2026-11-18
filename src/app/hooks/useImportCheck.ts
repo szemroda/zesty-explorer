@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalogEntry, CollectionReference, ContentScope } from '../../domain';
 import {
   checkImport,
+  indexExistingPaths,
   suggestMapping,
   type ImportCheck,
   type ImportMapping,
@@ -101,11 +102,14 @@ export function useImportCheck({
     enabled: enabled && Boolean(importScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
-    queryFn: ({ signal }) =>
-      runExplorerQuery(
+    // Keeps only what the check reads, so a large collection doesn't stay in memory twice.
+    queryFn: async ({ signal }) => {
+      const snapshot = await runExplorerQuery(
         api.loadCollectionSnapshot(reference!, importScope!, credentials.sessionToken),
         signal,
-      ),
+      );
+      return { paths: indexExistingPaths(snapshot.items), partial: snapshot.partial };
+    },
   });
   const relatedModels = useMemo(
     () => [
@@ -125,28 +129,18 @@ export function useImportCheck({
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      const snapshots = await Promise.allSettled(
-        relatedModels.map(async (modelZuid) => {
-          const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
-          const snapshot = await runExplorerQuery(
-            api.loadCollectionSnapshot(relatedReference, importScope!, credentials.sessionToken),
-            signal,
-          );
-          return { modelZuid, snapshot };
-        }),
-      );
-      const items = new Map<string, ReadonlySet<string>>(
-        snapshots.flatMap((result) =>
-          result.status === 'fulfilled' && !result.value.snapshot.partial
-            ? [
-                [
-                  result.value.modelZuid,
-                  new Set(result.value.snapshot.items.map((item) => item.id)),
-                ] as const,
-              ]
-            : [],
-        ),
-      );
+      // One collection at a time, keeping only its ZUIDs, so large collections don't add up in memory.
+      const items = new Map<string, ReadonlySet<string>>();
+      for (const modelZuid of relatedModels) {
+        const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
+        const snapshot = await runExplorerQuery(
+          api.loadCollectionSnapshot(relatedReference, importScope!, credentials.sessionToken),
+          signal,
+        ).catch(() => undefined);
+        if (snapshot && !snapshot.partial) {
+          items.set(modelZuid, new Set(snapshot.items.map((item) => item.id)));
+        }
+      }
       return { items, complete: items.size === relatedModels.length };
     },
   });
@@ -167,7 +161,7 @@ export function useImportCheck({
           mapping: mapping ?? suggestMapping(source.parsed.header, schema.data, collection.type),
           schema: schema.data,
           modelType: collection.type,
-          existingItems: existing.data.items,
+          existingPaths: existing.data.paths,
           relatedItems: related.data.items,
           zestyDataComplete: !existing.data.partial && related.data.complete,
         }),

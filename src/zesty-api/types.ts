@@ -42,6 +42,11 @@ export interface ZestyTransport {
   ): Effect.Effect<ZestyTransportResponse, ZestyTransportError>;
 }
 
+/** How many items a collection load has received. Zesty does not report a collection's size. */
+export interface CollectionLoadProgress {
+  readonly loaded: number;
+}
+
 export interface CollectionApi {
   loadCollectionCatalog(
     reference: InstanceReference,
@@ -56,6 +61,7 @@ export interface CollectionApi {
     scope: ContentScope,
     sessionToken: string,
     itemLimit?: number,
+    onProgress?: (progress: CollectionLoadProgress) => void,
   ): Effect.Effect<CollectionSnapshot, ExplorerError>;
   /** The instance's active languages, the default one first, then by name. */
   loadLanguages(
@@ -123,5 +129,6 @@ export interface ZestyApiOptions {
   readonly pageSize?: number;
   readonly collectionLimit?: number;
   readonly timeoutMs?: number;
+  readonly collectionPageTimeoutMs?: number;
   readonly retryDelaysMs?: readonly number[];
 }

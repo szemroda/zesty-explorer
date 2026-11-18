@@ -29,16 +29,7 @@ const RawItemSchema = Schema.asSchema(
   }).pipe(Schema.extend(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
 );
 
-const CollectionPageSchema = Schema.Struct({
-  data: Schema.Array(RawItemSchema),
-  _meta: Schema.Struct({
-    totalResults: Schema.Number,
-    page: Schema.optional(Schema.Number),
-    start: Schema.optional(Schema.Number),
-    offset: Schema.optional(Schema.Number),
-    limit: Schema.Number,
-  }),
-});
+const CollectionPageSchema = Schema.Struct({ data: Schema.Array(RawItemSchema) });
 
 const VersionWebSchema = Schema.Struct({
   versionZUID: Schema.optional(Schema.Unknown),
@@ -82,14 +73,7 @@ export function decodeCollectionPage(input: unknown): Either.Either<CollectionPa
     errors: 'all',
     onExcessProperty: 'preserve',
   })(input).pipe(
-    Either.map((page) => ({
-      items: page.data.map(normalizeItem),
-      totalResults: page._meta.totalResults,
-      page:
-        page._meta.page ??
-        Math.floor((page._meta.start ?? page._meta.offset ?? 0) / page._meta.limit) + 1,
-      limit: page._meta.limit,
-    })),
+    Either.map((page) => ({ items: page.data.map(normalizeItem) })),
     Either.mapLeft((error) =>
       unsupportedShapeError('Zesty returned collection data in an unsupported shape.', error),
     ),

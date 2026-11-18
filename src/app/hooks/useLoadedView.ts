@@ -1,18 +1,21 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
-import type {
-  CollectionNode,
-  CollectionSchema,
-  CollectionSnapshot,
-  ContentLanguage,
-  ContentScope,
-  ContentState,
-  ExplorerError,
-  LanguageCode,
+import { hashKey, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  collectionItemLimit,
+  viewItemLimit,
+  type CollectionNode,
+  type CollectionSchema,
+  type CollectionSnapshot,
+  type ContentLanguage,
+  type ContentScope,
+  type ContentState,
+  type ExplorerError,
+  type LanguageCode,
 } from '../../domain';
-import { snapshotQueryKey, type CollectionApi } from '../../zesty-api';
+import { snapshotQueryKey, type CollectionApi, type CollectionLoadProgress } from '../../zesty-api';
 import { ExplorerQueryError, explorerFailure, runExplorerQuery } from './explorer-query';
 import {
+  flattenCollectionNodes,
   loadCollection,
   loadView,
   rootLoadedView,
@@ -35,7 +38,7 @@ interface LoadedViewQueryOptions {
 
 export type LoadedViewQueryStatus =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'loading-root' }
+  | { readonly kind: 'loading-root'; readonly progress: CollectionLoadProgress | undefined }
   | { readonly kind: 'loading-related-data' }
   | { readonly kind: 'ready' }
   | { readonly kind: 'failed'; readonly failure: ExplorerError };
@@ -67,6 +70,21 @@ function collectionQueryKey(
     snapshotQueryKey(node.reference, contentScope),
     itemLimit,
   ] as const;
+}
+
+/**
+ * An inactive view always leaves, because it holds on to the collections it was built from and
+ * can be rebuilt from the cache. Small earlier collections stay cached for a quick return. Large
+ * ones leave, because holding them with the current view can exhaust the tab's memory.
+ */
+function evictEarlierViews(queryClient: QueryClient, currentKeys: ReadonlySet<string>) {
+  queryClient.removeQueries({ queryKey: ['view'], type: 'inactive' });
+  const cached = queryClient.getQueriesData<LoadedCollection>({ queryKey: ['collection'] });
+  const items = cached.reduce((sum, [, data]) => sum + (data?.snapshot.items.length ?? 0), 0);
+  if (items <= viewItemLimit / 2) return;
+  for (const [queryKey] of cached) {
+    if (!currentKeys.has(String(queryKey[2]))) queryClient.removeQueries({ queryKey, exact: true });
+  }
 }
 
 /**
@@ -112,10 +130,11 @@ function queryStatus(
   rootFailure: ExplorerError | undefined,
   descendantsAreFetching: boolean,
   requiresCompleteView: boolean,
+  rootProgress: CollectionLoadProgress | undefined,
 ): LoadedViewQueryStatus {
   if (!enabled) return { kind: 'idle' };
   if (rootFailure) return { kind: 'failed', failure: rootFailure };
-  if (!hasRoot) return { kind: 'loading-root' };
+  if (!hasRoot) return { kind: 'loading-root', progress: rootProgress };
   if (requiresCompleteView && descendantsAreFetching) {
     return { kind: 'loading-related-data' };
   }
@@ -159,26 +178,34 @@ export function useLoadedView({
   );
   // Without a named language the view can't load until the default one is known.
   const languagesFailure = language ? undefined : explorerFailure(languagesQuery.error);
+  const [rootProgress, setRootProgress] = useState<CollectionLoadProgress>();
+  const rootQueryKey =
+    root && contentScope
+      ? collectionQueryKey(credentials.revision, root, contentScope, collectionItemLimit)
+      : ['collection', 'closed'];
   const rootQuery = useQuery<LoadedCollection, Error>({
-    queryKey:
-      root && contentScope
-        ? collectionQueryKey(credentials.revision, root, contentScope, 10_000)
-        : ['collection', 'closed'],
+    queryKey: rootQueryKey,
     enabled: enabled && Boolean(contentScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
+    // Comparing a refreshed collection item by item would block the page.
+    structuralSharing: false,
     queryFn: async ({ signal }) => {
       if (!root || !contentScope || !credentials.sessionToken) {
         throw new Error('Collection request is not ready.');
       }
+      setRootProgress(undefined);
+      // A refresh keeps the table on screen, so nothing shows its progress.
+      const isFirstLoad = queryClient.getQueryData(rootQueryKey) === undefined;
       try {
         return await loadCollection(
           api,
           root,
           contentScope,
           credentials.sessionToken,
-          10_000,
+          collectionItemLimit,
           signal,
+          isFirstLoad ? setRootProgress : undefined,
         );
       } catch (error) {
         if (error instanceof ViewLoadError) throw new ExplorerQueryError(error.failure);
@@ -209,6 +236,7 @@ export function useLoadedView({
         queryClient.fetchQuery({
           queryKey: collectionQueryKey(credentials.revision, node, contentScope, itemLimit),
           staleTime: Number.POSITIVE_INFINITY,
+          structuralSharing: false,
           queryFn: ({ signal: collectionSignal }) =>
             loadCollection(
               api,
@@ -230,17 +258,36 @@ export function useLoadedView({
   }, [contentScope, root, rootQuery.data, viewQuery.data]);
   const rootFailure = languagesFailure ?? explorerFailure(rootQuery.error);
 
-  const refresh = useCallback(async () => {
-    await Promise.all(
-      ['collection', 'languages'].map((name) =>
-        queryClient.refetchQueries({ queryKey: [name, credentials.revision], type: 'all' }),
-      ),
+  useEffect(() => {
+    if (!root || !contentScope) return;
+    const currentKeys = flattenCollectionNodes(root).map((node) =>
+      snapshotQueryKey(node.reference, contentScope),
     );
+    evictEarlierViews(queryClient, new Set(currentKeys));
+  }, [contentScope, loadedView, queryClient, root]);
+
+  const rootQueryHash = hashKey(rootQueryKey);
+  const refresh = useCallback(async () => {
+    const collections = ['collection', credentials.revision];
+    // A refreshed root rebuilds the view, so the collections it joins have to be ready first.
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['languages', credentials.revision], type: 'all' }),
+      queryClient.refetchQueries({
+        queryKey: collections,
+        type: 'all',
+        predicate: (query) => query.queryHash !== rootQueryHash,
+      }),
+    ]);
+    await queryClient.refetchQueries({
+      queryKey: collections,
+      type: 'all',
+      predicate: (query) => query.queryHash === rootQueryHash,
+    });
     return queryClient
       .getQueryCache()
       .findAll({ queryKey: ['collection', credentials.revision] })
       .every((query) => query.state.status !== 'error');
-  }, [credentials.revision, queryClient]);
+  }, [credentials.revision, queryClient, rootQueryHash]);
   const retryRoot = useCallback(async () => {
     await (languagesFailure ? languagesQuery.refetch() : rootQuery.refetch());
   }, [languagesFailure, languagesQuery, rootQuery]);
@@ -257,6 +304,8 @@ export function useLoadedView({
       rootFailure,
       viewQuery.isFetching,
       requiresCompleteView,
+      // Progress belongs to the running load, not to a root that is still waiting to start.
+      rootQuery.isFetching ? rootProgress : undefined,
     ),
     authenticationFailed: hasAuthenticationFailure(rootFailure, loadedView),
     isIncomplete: hasIncompleteCollection(loadedView),

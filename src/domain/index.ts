@@ -1,5 +1,6 @@
 export * from './error-diagnostic';
 export * from './fixtures';
+export * from './limits';
 export * from './snapshot';
 export * from './zuid-schema';
 export { deploymentLabels } from './types';

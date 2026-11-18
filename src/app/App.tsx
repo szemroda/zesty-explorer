@@ -1315,7 +1315,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           ) : null}
 
           {screen === 'view' && loadStatus.kind === 'loading-root' ? (
-            <RootTableSkeleton title={rootName} />
+            <RootTableSkeleton title={rootName} progress={loadStatus.progress} />
           ) : null}
           {screen === 'view' && rootFailure ? (
             <Card
