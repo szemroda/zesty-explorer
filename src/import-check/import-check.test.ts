@@ -3,6 +3,7 @@ import type { CollectionSchema, ContentItem, ModelZuid } from '../domain';
 import {
   checkImport,
   fileLines,
+  indexExistingPaths,
   mapColumn,
   importableRowsCsv,
   markdownReport,
@@ -78,7 +79,7 @@ function check(
     mapping: mapping ?? suggestMapping(parseCsv(csv).header, collection, 'pageset'),
     schema: collection,
     modelType: 'pageset',
-    existingItems,
+    existingPaths: indexExistingPaths(existingItems),
     relatedItems: new Map([[countries, new Set(['7-country-de', '7-country-fr'])]]),
     zestyDataComplete,
   });

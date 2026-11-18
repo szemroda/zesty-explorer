@@ -68,6 +68,89 @@ describe('loaded view query', () => {
     expect(loadLanguages).toHaveBeenCalledTimes(2);
   });
 
+  it('builds the refreshed view from descendants that finish after the root', async () => {
+    const child = collectionNode('node-child', '6-child');
+    const root = collectionNode('node-root', '6-root', [child]);
+    let childLoads = 0;
+    const api: CollectionApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
+      loadCollectionSchema: (reference) =>
+        Effect.succeed({ modelZuid: reference.modelZuid, label: 'Collection', fields: [] }),
+      loadCollectionSnapshot: (reference) => {
+        if (reference.modelZuid !== '6-child') {
+          return Effect.succeed(collectionSnapshot(reference.modelZuid));
+        }
+        childLoads += 1;
+        const snapshot: CollectionSnapshot = {
+          ...collectionSnapshot('6-child'),
+          id: `snapshot-child-load-${childLoads}`,
+        };
+        return Effect.sleep(childLoads === 1 ? '0 millis' : '20 millis').pipe(Effect.as(snapshot));
+      },
+    };
+    const { result } = renderHook(
+      () =>
+        useLoadedView({
+          api,
+          root,
+          contentState: 'latest',
+          language: 'en-US',
+          sessionToken: 'session-token',
+          enabled: true,
+          requiresCompleteView: false,
+        }),
+      { wrapper: queryClientWrapper(new QueryClient()) },
+    );
+    await waitFor(() => expect(result.current.loadedView?.schemas.size).toBe(2));
+
+    await act(() => result.current.refresh());
+
+    await waitFor(() => {
+      const states = [...(result.current.loadedView?.snapshots.snapshots.values() ?? [])];
+      expect(states.flatMap((state) => ('snapshot' in state ? [state.snapshot.id] : []))).toContain(
+        'snapshot-child-load-2',
+      );
+    });
+  });
+
+  it('keeps only the current view in memory across refreshes', async () => {
+    const api: CollectionApi = {
+      loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+      loadLanguages: () => Effect.succeed([]),
+      loadCollectionSchema: () =>
+        Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
+      loadCollectionSnapshot: () => Effect.succeed(collectionSnapshot('6-root')),
+    };
+    const client = new QueryClient();
+    const { result } = renderHook(
+      () =>
+        useLoadedView({
+          api,
+          root: collectionNode('node-root', '6-root'),
+          contentState: 'latest',
+          language: 'en-US',
+          sessionToken: 'session-token',
+          enabled: true,
+          requiresCompleteView: false,
+        }),
+      { wrapper: queryClientWrapper(client) },
+    );
+    await waitFor(() => expect(result.current.status).toEqual({ kind: 'ready' }));
+
+    for (const refreshNumber of [1, 2]) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await act(() => result.current.refresh());
+      await waitFor(
+        () => {
+          const views = client.getQueryCache().findAll({ queryKey: ['view'] });
+          expect(views.map((view) => view.state.status)).toEqual(['success']);
+        },
+        { timeout: 500 * refreshNumber },
+      );
+    }
+  });
+
   it.each([
     { itemsPerState: 2, keepsEarlierView: true },
     { itemsPerState: collectionItemLimit, keepsEarlierView: false },

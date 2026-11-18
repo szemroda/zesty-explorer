@@ -556,8 +556,13 @@ describe('ZestyApi', () => {
     ]);
     expect(snapshot.itemsById.get('7-000000-cccccc')?.fields.title).toBe('Third story');
     expect(snapshot.partial).toBe(false);
-    expect(fake.requests).toHaveLength(4);
-    expect(fake.requests.every((request) => request.url.includes('_active=true'))).toBe(true);
+    const lastRequest = fake.requests.at(-1)?.url ?? '';
+    expect(fake.requests).toHaveLength(5);
+    expect(
+      fake.requests.slice(0, -1).every((request) => request.url.includes('_active=true')),
+    ).toBe(true);
+    // The end of published content is confirmed against the latest content.
+    expect(new URL(lastRequest).search).toBe('?lang=en-US&limit=2&page=3');
   });
 
   it('normalizes the documented Zesty content item response', async () => {
@@ -1132,10 +1137,11 @@ describe('ZestyApi', () => {
   });
 
   // Answers each page with the listed number of items and, like Zesty, reports only that number.
-  function pagedTransport(pages: readonly number[]) {
+  function pagedTransport(pages: readonly number[], latestPages = pages) {
     return fakeTransport((request) => {
-      const page = Number(new URL(request.url).searchParams.get('page'));
-      const count = pages[page - 1] ?? 0;
+      const { searchParams } = new URL(request.url);
+      const page = Number(searchParams.get('page'));
+      const count = (searchParams.has('_active') ? pages : latestPages)[page - 1] ?? 0;
       const data = Array.from({ length: count }, (_, index) => ({
         data: { title: `Page ${page} item ${index}` },
         meta: {
@@ -1197,6 +1203,74 @@ describe('ZestyApi', () => {
     expect(snapshot.items).toHaveLength(1);
     expect(snapshot.partial).toBe(false);
     expect(fake.requests).toHaveLength(2);
+  });
+
+  it('reads past an empty published page while the latest content continues', async () => {
+    const fake = pagedTransport([2, 0, 2], [2, 2, 2]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'published', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(4);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it.each([
+    { pages: [2, 2], partial: false },
+    { pages: [2, 2, 1], partial: true },
+  ])('looks for more items after filling the limit: $pages', async ({ pages, partial }) => {
+    const fake = pagedTransport(pages);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+        4,
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(4);
+    expect(snapshot.partial).toBe(partial);
+  });
+
+  it('shares two page requests between collections that load together', async () => {
+    let active = 0;
+    let peak = 0;
+    const fake = fakeTransport((request) => {
+      const page = Number(new URL(request.url).searchParams.get('page'));
+      return Effect.acquireUseRelease(
+        Effect.sync(() => {
+          active += 1;
+          peak = Math.max(peak, active);
+        }),
+        () => Effect.sleep('2 millis'),
+        () => Effect.sync(() => (active -= 1)),
+      ).pipe(
+        Effect.as({
+          status: 200,
+          headers: {},
+          body: page <= 3 ? fixtureCollectionPage : emptyCollectionPage,
+        }),
+      );
+    });
+    // Admits every request at once, so only the page loader limits how many run together.
+    const budget: RequestBudget = { run: (_service, attempt) => attempt(() => Effect.never) };
+    const api = createZestyApi(fake.transport, { pageSize: 2, budget });
+    const load = api.loadCollectionSnapshot(
+      reference,
+      { state: 'latest', language: 'en-US' },
+      'private-token',
+    );
+
+    await Effect.runPromise(Effect.all([load, load], { concurrency: 2 }));
+
+    expect(peak).toBe(2);
   });
 
   it('loads later pages in parallel, keeps their order and reports progress', async () => {

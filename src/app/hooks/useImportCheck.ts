@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { CollectionCatalogEntry, CollectionReference, ContentScope } from '../../domain';
 import {
   checkImport,
+  indexExistingPaths,
   suggestMapping,
   type ImportCheck,
   type ImportMapping,
@@ -101,13 +102,14 @@ export function useImportCheck({
     enabled: enabled && Boolean(importScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
-    // Comparing a refreshed collection item by item would block the page.
-    structuralSharing: false,
-    queryFn: ({ signal }) =>
-      runExplorerQuery(
+    // Keeps only what the check reads, so a large collection doesn't stay in memory twice.
+    queryFn: async ({ signal }) => {
+      const snapshot = await runExplorerQuery(
         api.loadCollectionSnapshot(reference!, importScope!, credentials.sessionToken),
         signal,
-      ),
+      );
+      return { paths: indexExistingPaths(snapshot.items), partial: snapshot.partial };
+    },
   });
   const relatedModels = useMemo(
     () => [
@@ -159,7 +161,7 @@ export function useImportCheck({
           mapping: mapping ?? suggestMapping(source.parsed.header, schema.data, collection.type),
           schema: schema.data,
           modelType: collection.type,
-          existingItems: existing.data.items,
+          existingPaths: existing.data.paths,
           relatedItems: related.data.items,
           zestyDataComplete: !existing.data.partial && related.data.complete,
         }),

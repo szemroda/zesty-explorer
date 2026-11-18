@@ -127,7 +127,8 @@ export interface ImportCheckInput {
   readonly mapping: ImportMapping;
   readonly schema: CollectionSchema;
   readonly modelType: string;
-  readonly existingItems: readonly ContentItem[];
+  /** The collection's root-level items by path part, from `indexExistingPaths`. */
+  readonly existingPaths: ReadonlyMap<string, ItemZuid>;
   /** Item ZUIDs of each related collection, by related model ZUID; incomplete ones are left out. */
   readonly relatedItems: ReadonlyMap<string, ReadonlySet<string>>;
   readonly zestyDataComplete: boolean;
@@ -389,8 +390,22 @@ function rowOutcome(primary: RowIssue | undefined, fileRejected: boolean): RowOu
 
 const replacementCharacter = String.fromCodePoint(0xfffd);
 
+/** Imported pages have no parent, and a path part only has to be unique under its parent. */
+export function indexExistingPaths(items: readonly ContentItem[]): ReadonlyMap<string, ItemZuid> {
+  const existingPaths = new Map<string, ItemZuid>();
+  for (const item of items) {
+    const web = item.raw.web;
+    if (!web || typeof web !== 'object') continue;
+    const pathPart = 'pathPart' in web ? web.pathPart : undefined;
+    const parent = 'parentZUID' in web ? web.parentZUID : undefined;
+    const atRoot = parent === undefined || parent === null || parent === '' || parent === '0';
+    if (typeof pathPart === 'string' && atRoot) existingPaths.set(pathPart, item.id);
+  }
+  return existingPaths;
+}
+
 export function checkImport(input: ImportCheckInput): ImportCheck {
-  const { parsed, schema, existingItems, relatedItems } = input;
+  const { parsed, schema, existingPaths, relatedItems } = input;
   const fileRejected = parsed.fileProblems.length > 0;
   const isPageset = input.modelType === 'pageset';
   const { mapping } = input;
@@ -407,17 +422,6 @@ export function checkImport(input: ImportCheckInput): ImportCheck {
     certainty: 'likely',
     message: `${field.label} is required, but no column maps to it.`,
   }));
-
-  // Imported pages have no parent, and a path part only has to be unique under its parent.
-  const existingPaths = new Map<string, ItemZuid>();
-  for (const item of existingItems) {
-    const web = item.raw.web;
-    if (!web || typeof web !== 'object') continue;
-    const pathPart = 'pathPart' in web ? web.pathPart : undefined;
-    const parent = 'parentZUID' in web ? web.parentZUID : undefined;
-    const atRoot = parent === undefined || parent === null || parent === '' || parent === '0';
-    if (typeof pathPart === 'string' && atRoot) existingPaths.set(pathPart, item.id);
-  }
 
   const firstRowByPath = new Map<string, number>();
   const rows: RowCheck[] = parsed.records.map((record, index) => {

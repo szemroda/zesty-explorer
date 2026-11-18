@@ -186,6 +186,8 @@ export function matchesFilter(item: ContentItem, filter: FilterCondition): boole
   return false;
 }
 
+const noRelatedItems: readonly ItemZuid[] = [];
+
 export function createExplorerGraph(input: ExplorerGraphInput): ExplorerGraph {
   return {
     rootNodeId: input.rootNodeId,
@@ -196,7 +198,7 @@ export function createExplorerGraph(input: ExplorerGraphInput): ExplorerGraph {
     },
     childNodeIds: (nodeId) => input.childrenByNode.get(nodeId) ?? [],
     relatedItemIds: (childNodeId, parentItemId) =>
-      input.relationshipsByChildNode.get(childNodeId)?.get(parentItemId) ?? [],
+      input.relationshipsByChildNode.get(childNodeId)?.get(parentItemId) ?? noRelatedItems,
   };
 }
 

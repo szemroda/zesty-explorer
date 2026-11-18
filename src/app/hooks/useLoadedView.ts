@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { hashKey, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   collectionItemLimit,
@@ -73,14 +73,15 @@ function collectionQueryKey(
 }
 
 /**
- * Small earlier views stay cached for a quick return. Large ones leave before the next view loads,
- * because holding both can exhaust the tab's memory.
+ * An inactive view always leaves, because it holds on to the collections it was built from and
+ * can be rebuilt from the cache. Small earlier collections stay cached for a quick return. Large
+ * ones leave, because holding them with the current view can exhaust the tab's memory.
  */
 function evictEarlierViews(queryClient: QueryClient, currentKeys: ReadonlySet<string>) {
+  queryClient.removeQueries({ queryKey: ['view'], type: 'inactive' });
   const cached = queryClient.getQueriesData<LoadedCollection>({ queryKey: ['collection'] });
   const items = cached.reduce((sum, [, data]) => sum + (data?.snapshot.items.length ?? 0), 0);
   if (items <= viewItemLimit / 2) return;
-  queryClient.removeQueries({ queryKey: ['view'], type: 'inactive' });
   for (const [queryKey] of cached) {
     if (!currentKeys.has(String(queryKey[2]))) queryClient.removeQueries({ queryKey, exact: true });
   }
@@ -265,17 +266,28 @@ export function useLoadedView({
     evictEarlierViews(queryClient, new Set(currentKeys));
   }, [contentScope, loadedView, queryClient, root]);
 
+  const rootQueryHash = hashKey(rootQueryKey);
   const refresh = useCallback(async () => {
-    await Promise.all(
-      ['collection', 'languages'].map((name) =>
-        queryClient.refetchQueries({ queryKey: [name, credentials.revision], type: 'all' }),
-      ),
-    );
+    const collections = ['collection', credentials.revision];
+    // A refreshed root rebuilds the view, so the collections it joins have to be ready first.
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['languages', credentials.revision], type: 'all' }),
+      queryClient.refetchQueries({
+        queryKey: collections,
+        type: 'all',
+        predicate: (query) => query.queryHash !== rootQueryHash,
+      }),
+    ]);
+    await queryClient.refetchQueries({
+      queryKey: collections,
+      type: 'all',
+      predicate: (query) => query.queryHash === rootQueryHash,
+    });
     return queryClient
       .getQueryCache()
       .findAll({ queryKey: ['collection', credentials.revision] })
       .every((query) => query.state.status !== 'error');
-  }, [credentials.revision, queryClient]);
+  }, [credentials.revision, queryClient, rootQueryHash]);
   const retryRoot = useCallback(async () => {
     await (languagesFailure ? languagesQuery.refetch() : rootQuery.refetch());
   }, [languagesFailure, languagesQuery, rootQuery]);

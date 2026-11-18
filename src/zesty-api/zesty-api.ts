@@ -797,6 +797,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
     resolved.retryDelaysMs,
     budget,
   );
+  const collectionPageSlots = Effect.unsafeMakeSemaphore(collectionPageConcurrency);
 
   return {
     loadCollectionCatalog: (reference, sessionToken) => {
@@ -850,7 +851,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
         );
         // Every page uses the same size, because Zesty derives a page's offset from its limit.
         const requestedPageSize = Math.min(resolved.pageSize, effectiveLimit);
-        const loadPage = (page: number) =>
+        const loadPage = (page: number, pageState: typeof state = state) =>
           Effect.gen(function* () {
             const url = new URL(
               `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items`,
@@ -858,13 +859,12 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             url.searchParams.set('lang', language);
             url.searchParams.set('limit', String(requestedPageSize));
             url.searchParams.set('page', String(page));
-            if (state === 'published') url.searchParams.set('_active', 'true');
+            if (pageState === 'published') url.searchParams.set('_active', 'true');
 
             const requestUrl = url.toString();
             const operation = 'load-collection-items' as const;
-            const response = yield* requestCollectionPage(
-              authenticatedRequest(requestUrl, sessionToken),
-              operation,
+            const response = yield* collectionPageSlots.withPermits(1)(
+              requestCollectionPage(authenticatedRequest(requestUrl, sessionToken), operation),
             );
             const decoded = decodeCollectionPage(response.body);
             return Either.isLeft(decoded)
@@ -874,14 +874,27 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
               : decoded.right.items;
           });
 
-        // Zesty reports only the size of each page, and published pages can come back short
-        // before the last one, so a collection ends at its first empty page.
+        // Zesty reports only the size of each page, so a collection ends at an empty page. It
+        // filters published pages after paginating them, so one of those can be empty mid-way.
+        const reachesEnd = (batch: readonly (readonly ContentItem[])[], firstPage: number) =>
+          Effect.gen(function* () {
+            const emptyIndex = batch.findIndex((items) => items.length === 0);
+            if (emptyIndex < 0) return false;
+            if (state !== 'published') return true;
+            const latest = yield* loadPage(firstPage + emptyIndex, 'latest');
+            return latest.length === 0;
+          });
+
         const pages: (readonly ContentItem[])[] = [];
         let loaded = 0;
         let exhausted = false;
-        while (!exhausted && loaded < effectiveLimit) {
+        // A load that exactly fills its limit reads one more page to learn whether it is complete.
+        while (effectiveLimit > 0 && !exhausted && loaded <= effectiveLimit) {
           // Starts with single pages, so a small collection costs only one extra request.
-          const batchSize = Math.min(Math.max(pages.length, 1), collectionPageConcurrency);
+          const batchSize =
+            loaded === effectiveLimit
+              ? 1
+              : Math.min(Math.max(pages.length, 1), collectionPageConcurrency);
           const nextPage = pages.length + 1;
           const batch = yield* Effect.forEach(
             Array.from({ length: batchSize }, (_, index) => nextPage + index),
@@ -897,7 +910,7 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
             { concurrency: collectionPageConcurrency },
           );
           pages.push(...batch);
-          exhausted = batch.some((items) => items.length === 0);
+          exhausted = yield* reachesEnd(batch, nextPage);
         }
 
         const items = pages.flat().slice(0, effectiveLimit);
