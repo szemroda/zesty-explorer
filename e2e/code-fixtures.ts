@@ -282,10 +282,10 @@ async function fulfill(route: Route): Promise<void> {
     return;
   }
   if (url.pathname.endsWith('/items')) {
-    const data = items(model);
+    const data = url.searchParams.get('page') === '1' ? items(model) : [];
     await route.fulfill({
       headers: cors,
-      json: { data, _meta: { totalResults: data.length, page: 1, limit: data.length } },
+      json: { data, _meta: { totalResults: data.length, start: 0, offset: 0, limit: data.length } },
     });
     return;
   }

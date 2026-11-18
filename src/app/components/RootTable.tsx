@@ -63,7 +63,7 @@ export function RootTableSkeleton({
   progress,
 }: {
   readonly title: string;
-  /** Shown once the collection's size is known, because a large collection loads for a while. */
+  /** Shown once items arrive, because a large collection loads for a while. */
   readonly progress?: CollectionLoadProgress | undefined;
 }) {
   return (
@@ -77,8 +77,7 @@ export function RootTableSkeleton({
           </p>
           {progress ? (
             <p className="m-0 text-xs text-muted-foreground tabular-nums">
-              Loaded {progress.loaded.toLocaleString('en-US')} of{' '}
-              {progress.total.toLocaleString('en-US')} items
+              Loaded {progress.loaded.toLocaleString('en-US')} items
             </p>
           ) : (
             <Skeleton className="h-2.5 w-20" />

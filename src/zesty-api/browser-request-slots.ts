@@ -1,5 +1,5 @@
 /** How many HTTP requests tabs on this origin may have active at once. */
-export const browserRequestSlots = 4;
+const browserRequestSlots = 4;
 
 /** Claims one of the active HTTP slots shared by tabs on this origin. */
 export function takeBrowserRequestSlot(signal: AbortSignal): Promise<() => void> {

@@ -45,10 +45,12 @@ Calibration date: 2026-11-18. The production build ran against a mocked API with
 
 | 100,000-item root collection     | Before tuning | Current |
 | -------------------------------- | ------------: | ------: |
-| Open the collection              |        29.7 s |   8.4 s |
-| Longest main-thread task on open |         4.7 s |  0.36 s |
-| Sort by a text column            |         3.5 s |  0.38 s |
-| First search across all fields   |         1.7 s |   1.0 s |
+| Open the collection              |        29.7 s |  15.2 s |
+| Longest main-thread task on open |         4.7 s |  0.34 s |
+| Sort by a text column            |         3.5 s |  0.37 s |
+| First search across all fields   |         1.7 s |   1.1 s |
+
+The real Zesty API sets how pages load. A collection of 69,966 items took 28 pages of 2,500 items. Two pages at a time reached 786 items per second, and the slowest response took 8.5 seconds. Four pages at a time were no faster: responses took up to 26 seconds and one page failed with a 502 error. Smaller pages were slower, at 593 items per second for 1,000 items per page.
 
 Memory sets the view limit of 200,000 items. Render closures keep one earlier generation of a view reachable while the next one loads. With 300,000 items, switching between latest and published content after a search filled Chromium's 4.1 GiB heap and the tab stopped responding. With 100,000 root items and 100,000 related items, the heap stayed at 3.0 GiB across repeated switches.
 

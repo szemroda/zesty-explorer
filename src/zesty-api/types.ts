@@ -42,10 +42,9 @@ export interface ZestyTransport {
   ): Effect.Effect<ZestyTransportResponse, ZestyTransportError>;
 }
 
-/** How many of the items a collection load will return have arrived. */
+/** How many items a collection load has received. Zesty does not report a collection's size. */
 export interface CollectionLoadProgress {
   readonly loaded: number;
-  readonly total: number;
 }
 
 export interface CollectionApi {
@@ -130,5 +129,6 @@ export interface ZestyApiOptions {
   readonly pageSize?: number;
   readonly collectionLimit?: number;
   readonly timeoutMs?: number;
+  readonly collectionPageTimeoutMs?: number;
   readonly retryDelaysMs?: readonly number[];
 }

@@ -38,7 +38,7 @@ export const fixtureCollectionPage = {
       web: { path: '/second-story/' },
     },
   ],
-  _meta: { totalResults: 2, page: 1, limit: 100 },
+  _meta: { totalResults: 2, start: 0, offset: 0, limit: 2 },
 } as const;
 
 function seededValue(index: number, seed: number): number {

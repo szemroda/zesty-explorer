@@ -217,28 +217,19 @@ async function fulfillApi(route: Route, state: FakeApiState) {
       : items;
   const limit = Number(url.searchParams.get('limit') ?? 2_500);
   const page = Number(url.searchParams.get('page') ?? 1);
-  // Zesty reports one item more than it returns, which leaves the root partial.
-  const partialItems = 5_000;
-  const partialTotal =
-    model === '6-rootmodel' && state.partialRoot ? partialItems + 1 : data.length;
+  // A partial root never runs out of pages, so the load stops at the collection limit.
   const pageData =
     model === '6-rootmodel' && state.partialRoot
-      ? Array.from(
-          { length: Math.min(limit, Math.max(0, partialItems - (page - 1) * limit)) },
-          (_, index) => {
-            const itemIndex = (page - 1) * limit + index;
-            return rawItem(
-              `7-partial-${String(itemIndex).padStart(6, '0')}`,
-              `Partial ${itemIndex}`,
-            );
-          },
-        )
+      ? Array.from({ length: limit }, (_, index) => {
+          const itemIndex = (page - 1) * limit + index;
+          return rawItem(`7-partial-${String(itemIndex).padStart(6, '0')}`, `Partial ${itemIndex}`);
+        })
       : data.slice((page - 1) * limit, page * limit);
   await route.fulfill({
     headers: cors,
     json: {
       data: pageData,
-      _meta: { totalResults: partialTotal, page, limit },
+      _meta: { totalResults: pageData.length, start: 0, offset: 0, limit: pageData.length },
     },
   });
 }
@@ -294,7 +285,7 @@ async function installFakeApi(page: Page): Promise<FakeApiState> {
   return state;
 }
 
-async function openRoot(page: Page) {
+async function openRoot(page: Page, loadTimeoutMs = 5_000) {
   await page.goto('/');
   await expect(
     page.getByRole('link', { name: 'Open your Production Zesty instances' }),
@@ -307,7 +298,9 @@ async function openRoot(page: Page) {
   await page.getByRole('combobox', { name: 'Root collection' }).fill('6-rootmodel');
   await page.getByRole('option', { name: /6-rootmodel.*root/ }).click();
   await page.getByRole('button', { name: 'Open root collection' }).click();
-  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible({
+    timeout: loadTimeoutMs,
+  });
 }
 
 // Searches a table from its Filter button, e.g. `Add view filter`: Enter in the empty field
@@ -642,7 +635,8 @@ test('creates native and custom roles, expands related rows, and preserves detai
     .poll(
       () =>
         state.requests.filter(
-          (request) => request.startsWith('GET ') && request.includes('6-childmodel/items'),
+          (request) =>
+            request.startsWith('GET ') && /6-childmodel\/items\?.*\bpage=1(&|$)/.test(request),
         ).length,
     )
     .toBe(1);
@@ -840,14 +834,20 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
   await expect(page).toHaveURL(/#view=/);
 });
 
-test('keeps partial roots and failed descendants usable with persistent recovery', async ({
+test('marks a root that reaches the collection limit as partial', async ({ page }) => {
+  test.slow();
+  const state = await installFakeApi(page);
+  state.partialRoot = true;
+  await openRoot(page, 60_000);
+  await expect(page.getByText(/incomplete collection data/i)).toBeVisible();
+  await expect(page.getByText('200000 items', { exact: true })).toBeVisible();
+});
+
+test('keeps the root usable when a descendant fails, with persistent recovery', async ({
   page,
 }) => {
   const state = await installFakeApi(page);
-  state.partialRoot = true;
   await openRoot(page);
-  await expect(page.getByText(/incomplete collection data/i)).toBeVisible();
-  await expect(page.getByText('5000 items', { exact: true })).toBeVisible();
 
   state.forbiddenModels.add('6-childmodel');
   await addNativeChild(page);
@@ -856,7 +856,7 @@ test('keeps partial roots and failed descendants usable with persistent recovery
     .first()
     .click();
   await expect(page.getByRole('alert')).toContainText('Ask a Zesty administrator for read access');
-  await expect(page.getByText('5000 items', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 
   state.forbiddenModels.clear();
   await page.getByRole('alert').getByRole('button', { name: 'Retry' }).click();

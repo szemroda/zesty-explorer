@@ -174,9 +174,6 @@ export interface CollectionSnapshot {
 
 export interface CollectionPage {
   readonly items: readonly ContentItem[];
-  readonly totalResults: number;
-  readonly page: number;
-  readonly limit: number;
 }
 
 export type FieldKind = 'text' | 'number' | 'date' | 'boolean' | 'relationship' | 'structured';
