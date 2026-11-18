@@ -1,5 +1,6 @@
 // The checker's summary: groups of findings that reconcile the file's line count with the items
 // expected (lines − won't import − lines that aren't rows = items).
+import { collectionItemLimit } from '../domain';
 import { describeFileProblem, isDropped, type ImportCheck, type ReasonGroup } from './analysis';
 
 export type FindingTone = 'rejected' | 'at-risk' | 'quiet';
@@ -56,7 +57,7 @@ function fileFindings(check: ImportCheck): Finding[] {
     findings.push({
       id: 'incomplete',
       label: 'Not every Zesty item was compared',
-      fix: 'Some items couldn’t be read, or a collection has more than 10,000 items, so some URLs and related items went unchecked.',
+      fix: `Some items couldn’t be read, or a collection has more than ${collectionItemLimit.toLocaleString('en-US')} items, so some URLs and related items went unchecked.`,
       tone: 'at-risk',
     });
   }

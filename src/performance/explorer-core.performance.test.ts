@@ -28,6 +28,7 @@ const operations = [
   'free-text',
   'facets',
   'sort',
+  'text-sort',
   'page',
   'row-expansion',
 ] as const;
@@ -107,6 +108,11 @@ describe.each(performanceBaselines)('ExplorerCore with $totalItems generated ite
       relationshipsByChildNode: new Map([['node-child', customRelations]]),
     });
     const rootIds = generated.parents.items.map((item) => item.id);
+    // The fixture's dates ascend with its items, so this order keeps the text sort honest.
+    const scrambledIds = sortItemIds(generated.parents, rootIds, {
+      fieldPath: ['score'],
+      direction: 'asc',
+    });
     const repetitions = baseline.totalItems < 50_000 ? 5 : 3;
 
     const runners: Readonly<Record<Operation, () => unknown>> = {
@@ -133,6 +139,12 @@ describe.each(performanceBaselines)('ExplorerCore with $totalItems generated ite
       facets: () => facetValues(generated.children, ['parentKey']),
       sort: () =>
         sortItemIds(generated.parents, rootIds, { fieldPath: ['score'], direction: 'asc' }),
+      // The default table order, which compares text.
+      'text-sort': () =>
+        sortItemIds(generated.parents, scrambledIds, {
+          fieldPath: ['metadata', 'modified'],
+          direction: 'desc',
+        }),
       page: () => pageItemIds(rootIds, Math.floor(rootIds.length / 100) - 1, 100),
       'row-expansion': () => graph.relatedItemIds('node-child', rootIds[0]!),
     };
@@ -158,6 +170,7 @@ describe.each(performanceBaselines)('ExplorerCore with $totalItems generated ite
     const expensive = Math.max(...operations.map((operation) => report[operation].p95));
     if (baseline.totalItems === 10_000) expect(expensive).toBeLessThan(250);
     if (baseline.totalItems === 50_000) expect(expensive).toBeLessThan(1_000);
+    if (baseline.totalItems === 200_000) expect(expensive).toBeLessThan(2_000);
     expect(report['row-expansion'].p95).toBeLessThan(100);
-  }, 60_000);
+  }, 120_000);
 });

@@ -37,6 +37,55 @@ function snapshot(items: readonly ContentItem[]): CollectionSnapshot {
   };
 }
 
+describe('related lists shared between parents', () => {
+  const parents = [item('7-parent1', {}), item('7-parent2', {})];
+  const sharedList: readonly ItemZuid[] = ['7-child01'];
+  // Both child nodes read the same list object, but it names a different item in each snapshot.
+  const graph = createExplorerGraph({
+    rootNodeId: 'node-root',
+    snapshots: new Map([
+      ['node-root', snapshot(parents)],
+      ['node-news', snapshot([item('7-child01', { topic: 'news' })])],
+      ['node-blog', snapshot([item('7-child01', { topic: 'blog' })])],
+    ]),
+    childrenByNode: new Map([['node-root', ['node-news', 'node-blog']]]),
+    relationshipsByChildNode: new Map(
+      (['node-news', 'node-blog'] as const).map((nodeId) => [
+        nodeId,
+        new Map(parents.map((parent) => [parent.id, sharedList])),
+      ]),
+    ),
+  });
+  const parentIds = parents.map((parent) => parent.id);
+
+  it('answers a search separately for each child node', () => {
+    expect(filterNodeItemIds(graph, 'node-root', parentIds, [], 'blog')).toEqual(parentIds);
+  });
+
+  it('applies every filter to its own child node', () => {
+    const topicIs = (nodeId: 'node-news' | 'node-blog', value: string) => ({
+      id: `filter-${nodeId}`,
+      nodePath: [nodeId],
+      fieldPath: ['topic'],
+      operator: 'equals' as const,
+      value,
+    });
+
+    expect(
+      filterNodeItemIds(graph, 'node-root', parentIds, [
+        topicIs('node-news', 'news'),
+        topicIs('node-blog', 'blog'),
+      ]),
+    ).toEqual(parentIds);
+    expect(
+      filterNodeItemIds(graph, 'node-root', parentIds, [
+        topicIs('node-news', 'news'),
+        topicIs('node-blog', 'news'),
+      ]),
+    ).toEqual([]);
+  });
+});
+
 const items = [
   item('7-one000', {
     title: '<p>Hello WORLD</p>',

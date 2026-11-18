@@ -93,7 +93,7 @@ The `Import check` tab predicts what Zesty's `Import CSV` would do with a file b
 
 The summary reconciles the file's line count with the items expected. Lines that won't import, and lines that aren't entries (blank lines and line breaks inside quoted cells), are subtracted from the total; rows that may fail are counted as imported. Pick a finding to see its lines, search by value, `line 12` or `row 12`, and select a line to see why. The `More actions` menu downloads the rows with problems or the importable rows as CSV, and copies a Markdown report.
 
-Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 10,000 items each. Zesty's `Import CSV` creates items in the instance's default language, so the check reads items in that language.
+Zesty's validation rules are not public, so row findings are predictions. The check reads the collection's schema, its latest saved items, and the items of related collections, at most 200,000 items each. Zesty's `Import CSV` creates items in the instance's default language, so the check reads items in that language.
 
 ## Limits and failures
 
@@ -105,7 +105,7 @@ Code history, opened with `History` beside a Code tab file, previews and compare
 
 Endpoint requests are anonymous `GET` requests. When an instance's preview is locked, `Send` adds the preview lock password from the instance settings as `?zpw`, shown as a lock beside the parameters. The password never appears in the address bar, the request URL shown with the response, or a shared link, but an endpoint that prints its query string shows it in the response body. A `zpw` parameter you add is sent instead. If the settings cannot be read, add `zpw` yourself.
 
-The app loads at most 10,000 items per collection and 50,000 items across a view. Affected collections remain usable and show persistent incomplete-data warnings. A failed root blocks the table area and offers retry. A failed descendant leaves the rest of the view usable and provides recovery at that node.
+The app loads at most 200,000 items per collection and 200,000 items across a view. Affected collections remain usable and show persistent incomplete-data warnings. A failed root blocks the table area and offers retry. A failed descendant leaves the rest of the view usable and provides recovery at that node.
 
 ## Share, replace, and reset
 
@@ -130,7 +130,7 @@ pnpm build
 - `pnpm check` verifies formatting, lint, TypeScript, and Effect diagnostics.
 - `pnpm test` runs focused module, React, and CLI tests.
 - `pnpm test:e2e` builds the app, serves it with the CLI, and runs offline Chromium flows at laptop and desktop sizes, followed by browser performance budgets.
-- `pnpm test:performance` measures generated 1,000-, 10,000-, and 50,000-item graphs against stored baselines and product budgets.
+- `pnpm test:performance` measures generated 1,000-, 10,000-, 50,000-, and 200,000-item graphs against stored baselines and product budgets.
 - `pnpm build` creates the frontend in `dist` and the CLI in `build/cli`.
 
 CI runs everything except the performance budgets, which are calibrated on a developer machine, then starts the packed CLI on Linux, Windows, and macOS.

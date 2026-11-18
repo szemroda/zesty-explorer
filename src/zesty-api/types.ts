@@ -42,6 +42,12 @@ export interface ZestyTransport {
   ): Effect.Effect<ZestyTransportResponse, ZestyTransportError>;
 }
 
+/** How many of the items a collection load will return have arrived. */
+export interface CollectionLoadProgress {
+  readonly loaded: number;
+  readonly total: number;
+}
+
 export interface CollectionApi {
   loadCollectionCatalog(
     reference: InstanceReference,
@@ -56,6 +62,7 @@ export interface CollectionApi {
     scope: ContentScope,
     sessionToken: string,
     itemLimit?: number,
+    onProgress?: (progress: CollectionLoadProgress) => void,
   ): Effect.Effect<CollectionSnapshot, ExplorerError>;
   /** The instance's active languages, the default one first, then by name. */
   loadLanguages(

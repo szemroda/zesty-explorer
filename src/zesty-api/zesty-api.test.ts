@@ -13,7 +13,7 @@ import {
   memoryRequestSlots,
   memoryCooldownStorage,
 } from '../test/request-budget';
-import { createRequestBudget } from './request-budget';
+import { createRequestBudget, type RequestBudget } from './request-budget';
 
 function createZestyApi(transport: ZestyTransport, options: ZestyApiOptions = {}) {
   return createWithBrowserBudget(transport, { budget: immediateRequestBudget(), ...options });
@@ -1092,7 +1092,7 @@ describe('ZestyApi', () => {
     expect(fake.requests).toHaveLength(1);
   });
 
-  it('uses the remaining view budget as the final page size', async () => {
+  it('keeps the page size on the last page, so its offset stays right', async () => {
     const fake = respondWith({
       ...fixtureCollectionPage,
       _meta: { totalResults: 20, start: 0, limit: 2 },
@@ -1107,8 +1107,150 @@ describe('ZestyApi', () => {
       ),
     );
     expect(snapshot.items).toHaveLength(3);
-    expect(fake.requests[1]?.url).toContain('limit=1');
-    expect(fake.requests).toHaveLength(2);
+    expect(snapshot.partial).toBe(true);
+    expect(fake.requests.map((request) => new URL(request.url).search)).toEqual([
+      '?lang=en-US&limit=2&page=1',
+      '?lang=en-US&limit=2&page=2',
+    ]);
+  });
+
+  // Answers each page with the listed number of items and total, numbering items in page order.
+  function pagedTransport(pages: readonly { readonly items: number; readonly total: number }[]) {
+    return fakeTransport((request) => {
+      const page = Number(new URL(request.url).searchParams.get('page'));
+      const answer = pages[page - 1] ?? { items: 0, total: pages.at(-1)?.total ?? 0 };
+      const data = Array.from({ length: answer.items }, (_, index) => ({
+        data: { title: `Page ${page} item ${index}` },
+        meta: {
+          ZUID: `7-paged-${page}-${index}00000`,
+          createdAt: '2026-01-01T12:00:00.000Z',
+          updatedAt: '2026-01-01T12:00:00.000Z',
+          version: 1,
+        },
+      }));
+      return Effect.succeed({
+        status: 200,
+        headers: {},
+        body: { data, _meta: { totalResults: answer.total, page, limit: 2 } },
+      });
+    });
+  }
+
+  it('keeps loading when the collection grows during the load', async () => {
+    const fake = pagedTransport([
+      { items: 2, total: 4 },
+      { items: 2, total: 6 },
+      { items: 2, total: 6 },
+    ]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(6);
+    expect(snapshot.partial).toBe(false);
+    expect(fake.requests).toHaveLength(3);
+  });
+
+  it('plans pages from the page size when the first page comes back short', async () => {
+    const fake = pagedTransport([
+      { items: 1, total: 5 },
+      { items: 2, total: 5 },
+      { items: 2, total: 5 },
+    ]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(5);
+    expect(fake.requests).toHaveLength(3);
+  });
+
+  it('marks the snapshot partial when pages run out before the reported total', async () => {
+    const fake = pagedTransport([
+      { items: 2, total: 5 },
+      { items: 2, total: 5 },
+    ]);
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize: 2 }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+      ),
+    );
+
+    expect(snapshot.items).toHaveLength(4);
+    expect(snapshot.partial).toBe(true);
+    expect(fake.requests).toHaveLength(3);
+  });
+
+  it('loads later pages in parallel, keeps their order and reports progress', async () => {
+    const total = 11;
+    const pageSize = 2;
+    let active = 0;
+    let peak = 0;
+    const fake = fakeTransport((request) => {
+      const page = Number(new URL(request.url).searchParams.get('page'));
+      const data = Array.from(
+        { length: Math.min(pageSize, Math.max(0, total - (page - 1) * pageSize)) },
+        (_, index) => ({
+          data: { title: `Item ${(page - 1) * pageSize + index}` },
+          meta: {
+            ZUID: `7-order-${String((page - 1) * pageSize + index).padStart(6, '0')}`,
+            createdAt: '2026-01-01T12:00:00.000Z',
+            updatedAt: '2026-01-01T12:00:00.000Z',
+            version: 1,
+          },
+        }),
+      );
+      return Effect.acquireUseRelease(
+        Effect.sync(() => {
+          active += 1;
+          peak = Math.max(peak, active);
+        }),
+        // Later pages finish first, so the result's order can't come from arrival order.
+        () => Effect.sleep(`${(total - page) * 2} millis`),
+        () => Effect.sync(() => (active -= 1)),
+      ).pipe(
+        Effect.as({
+          status: 200,
+          headers: {},
+          body: { data, _meta: { totalResults: total, page, limit: pageSize } },
+        }),
+      );
+    });
+    const progress: { readonly loaded: number; readonly total: number }[] = [];
+    // Admits every request at once, so only the page loader limits how many run together.
+    const budget: RequestBudget = { run: (_service, attempt) => attempt(() => Effect.never) };
+
+    const snapshot = await Effect.runPromise(
+      createZestyApi(fake.transport, { pageSize, budget }).loadCollectionSnapshot(
+        reference,
+        { state: 'latest', language: 'en-US' },
+        'private-token',
+        undefined,
+        (update) => progress.push(update),
+      ),
+    );
+
+    expect(snapshot.items.map((item) => item.fields.title)).toEqual(
+      Array.from({ length: total }, (_, index) => `Item ${index}`),
+    );
+    expect(snapshot.partial).toBe(false);
+    expect(peak).toBe(4);
+    expect(progress).toHaveLength(6);
+    expect(progress[0]).toEqual({ loaded: 2, total });
+    expect(progress.at(-1)).toEqual({ loaded: total, total });
   });
 
   it('times out and remains interruptible', async () => {

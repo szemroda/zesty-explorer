@@ -3,14 +3,17 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  collectionItemLimit,
   generateRelationshipGraph,
   type CollectionSchema,
   type CollectionSnapshot,
+  type ContentState,
   type ExplorerError,
   type ModelZuid,
 } from '../../domain';
 import { collectionNode, queryClientWrapper } from '../../test/fixtures';
 import type { CollectionApi } from '../../zesty-api';
+import type { LoadedCollection } from '../load-view';
 import { useLoadedView } from './useLoadedView';
 
 const generated = generateRelationshipGraph(2);
@@ -64,6 +67,55 @@ describe('loaded view query', () => {
     await waitFor(() => expect(loadCollectionSnapshot.mock.calls.length).toBeGreaterThan(2));
     expect(loadLanguages).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    { itemsPerState: 2, keepsEarlierView: true },
+    { itemsPerState: collectionItemLimit, keepsEarlierView: false },
+  ])(
+    'with $itemsPerState items per state, keeps the earlier view cached: $keepsEarlierView',
+    async ({ itemsPerState, keepsEarlierView }) => {
+      const root = collectionNode('node-root', '6-root');
+      const items = Array.from({ length: itemsPerState }, () => generated.parents.items[0]!);
+      const api: CollectionApi = {
+        loadCollectionCatalog: () => Effect.succeed({ collections: [], incomplete: false }),
+        loadLanguages: () => Effect.succeed([]),
+        loadCollectionSchema: () =>
+          Effect.succeed({ modelZuid: '6-root', label: 'Root', fields: [] }),
+        loadCollectionSnapshot: (_reference, { state }) =>
+          Effect.succeed({ ...generated.parents, items, state }),
+      };
+      const client = new QueryClient();
+      const { result, rerender } = renderHook(
+        ({ contentState }: { readonly contentState: ContentState }) =>
+          useLoadedView({
+            api,
+            root,
+            contentState,
+            language: 'en-US',
+            sessionToken: 'session-token',
+            enabled: true,
+            requiresCompleteView: false,
+          }),
+        {
+          initialProps: { contentState: 'latest' },
+          wrapper: queryClientWrapper(client),
+        },
+      );
+      await waitFor(() => expect(result.current.rootSnapshot?.state).toBe('latest'));
+
+      rerender({ contentState: 'published' });
+      await waitFor(() => expect(result.current.rootSnapshot?.state).toBe('published'));
+
+      await waitFor(() => {
+        const states = client
+          .getQueriesData<LoadedCollection>({ queryKey: ['collection'] })
+          .flatMap(([, data]) => (data ? [data.snapshot.state] : []));
+        expect(states.toSorted()).toEqual(
+          keepsEarlierView ? ['latest', 'published'] : ['published'],
+        );
+      });
+    },
+  );
 
   it('reports typed root authentication failures through its interface', async () => {
     const failure: ExplorerError = {

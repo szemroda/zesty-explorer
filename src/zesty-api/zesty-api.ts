@@ -1,7 +1,9 @@
 import { Either, Effect, Schema } from 'effect';
 import { instanceReferenceFor, isInstanceZuid } from '../collection-reference';
+import { browserRequestSlots } from './browser-request-slots';
 import { defaultRequestBudget, retryAfterMs, type RequestBudget } from './request-budget';
 import {
+  collectionItemLimit,
   decodeCollectionPage,
   deploymentLabels,
   decodeItemVersions,
@@ -176,7 +178,7 @@ const RawLanguageSchema = Schema.Struct({
 
 const defaultOptions = {
   pageSize: 2_500,
-  collectionLimit: 10_000,
+  collectionLimit: collectionItemLimit,
   timeoutMs: 15_000,
   retryDelaysMs: [150, 500, 1_500] as readonly number[],
 };
@@ -834,58 +836,90 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
       );
     },
 
-    loadCollectionSnapshot: (reference, { state, language }, sessionToken, itemLimit) =>
+    loadCollectionSnapshot: (reference, { state, language }, sessionToken, itemLimit, onProgress) =>
       Effect.gen(function* () {
-        const items: ContentItem[] = [];
-        let page = 1;
-        let totalResults = Number.POSITIVE_INFINITY;
         const effectiveLimit = Math.min(
           resolved.collectionLimit,
           Math.max(0, itemLimit ?? resolved.collectionLimit),
         );
+        const snapshot = (items: readonly ContentItem[], totalResults: number) =>
+          ({
+            id: `snapshot-${reference.instanceZuid}-${reference.modelZuid}-${state}-${language}`,
+            instanceZuid: reference.instanceZuid,
+            modelZuid: reference.modelZuid,
+            state,
+            language,
+            items,
+            itemsById: new Map(items.map((item) => [item.id, item])),
+            partial: items.length < totalResults,
+          }) satisfies CollectionSnapshot;
+        if (effectiveLimit === 0) return snapshot([], Number.POSITIVE_INFINITY);
 
-        while (items.length < totalResults && items.length < effectiveLimit) {
-          const url = new URL(
-            `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items`,
-          );
-          url.searchParams.set('lang', language);
-          url.searchParams.set(
-            'limit',
-            String(Math.min(resolved.pageSize, effectiveLimit - items.length)),
-          );
-          url.searchParams.set('page', String(page));
-          if (state === 'published') url.searchParams.set('_active', 'true');
-
-          const requestUrl = url.toString();
-          const operation = 'load-collection-items' as const;
-          const response = yield* request(
-            authenticatedRequest(requestUrl, sessionToken),
-            operation,
-          );
-          const decoded = decodeCollectionPage(response.body);
-          if (Either.isLeft(decoded)) {
-            return yield* Effect.fail(
-              withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
+        // Every page uses the same size, because Zesty derives a page's offset from its limit.
+        const requestedPageSize = Math.min(resolved.pageSize, effectiveLimit);
+        const loadPage = (page: number) =>
+          Effect.gen(function* () {
+            const url = new URL(
+              `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items`,
             );
-          }
+            url.searchParams.set('lang', language);
+            url.searchParams.set('limit', String(requestedPageSize));
+            url.searchParams.set('page', String(page));
+            if (state === 'published') url.searchParams.set('_active', 'true');
 
-          totalResults = decoded.right.totalResults;
-          const remaining = effectiveLimit - items.length;
-          items.push(...decoded.right.items.slice(0, remaining));
-          if (decoded.right.items.length === 0) break;
-          page += 1;
+            const requestUrl = url.toString();
+            const operation = 'load-collection-items' as const;
+            const response = yield* request(
+              authenticatedRequest(requestUrl, sessionToken),
+              operation,
+            );
+            const decoded = decodeCollectionPage(response.body);
+            return Either.isLeft(decoded)
+              ? yield* Effect.fail(
+                  withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
+                )
+              : decoded.right;
+          });
+
+        const firstPage = yield* loadPage(1);
+        const pages = [firstPage];
+        let totalResults = firstPage.totalResults;
+        let loaded = firstPage.items.length;
+        let nextPage = 2;
+        let exhausted = loaded === 0;
+        const target = () => Math.min(totalResults, effectiveLimit);
+        const reportProgress = () =>
+          onProgress?.({ loaded: Math.min(loaded, target()), total: target() });
+        reportProgress();
+
+        // The page size Zesty reports, which can be smaller than the size this load asked for.
+        const itemsPerPage = Math.max(
+          firstPage.items.length,
+          Math.min(firstPage.limit, requestedPageSize),
+        );
+        // Repeats until the items run out, because a collection can grow while it loads.
+        while (!exhausted && loaded < target()) {
+          const pageCount = Math.ceil((target() - loaded) / itemsPerPage);
+          const batch = yield* Effect.forEach(
+            Array.from({ length: pageCount }, (_, index) => nextPage + index),
+            (page) =>
+              loadPage(page).pipe(
+                Effect.tap(({ items }) =>
+                  Effect.sync(() => {
+                    loaded += items.length;
+                    reportProgress();
+                  }),
+                ),
+              ),
+            { concurrency: browserRequestSlots },
+          );
+          nextPage += pageCount;
+          pages.push(...batch);
+          totalResults = batch.at(-1)?.totalResults ?? totalResults;
+          exhausted = batch.some((page) => page.items.length === 0);
         }
 
-        return {
-          id: `snapshot-${reference.instanceZuid}-${reference.modelZuid}-${state}-${language}`,
-          instanceZuid: reference.instanceZuid,
-          modelZuid: reference.modelZuid,
-          state,
-          language,
-          items,
-          itemsById: new Map(items.map((item) => [item.id, item])),
-          partial: items.length < totalResults,
-        } satisfies CollectionSnapshot;
+        return snapshot(pages.flatMap((page) => page.items).slice(0, effectiveLimit), totalResults);
       }),
 
     loadLanguages: (reference, sessionToken) => {

@@ -39,6 +39,21 @@ The table mounted 100 rows, matching the selected page rather than the 10,000-it
 
 The checked-in tests store per-operation local p95 baselines and fail above twice those values. The browser suite uses the same two-times rule for settled filtering, typing, warmed sorting, and expansion, while also enforcing the absolute product targets. Small sub-millisecond operations have deliberately padded baselines to avoid timer-noise failures.
 
+## Large collections
+
+Calibration date: 2026-11-18. The production build ran against a mocked API with 400 ms latency per page. Each item carried about 3.4 KB of JSON, including rich text.
+
+| 100,000-item root collection     | Before tuning | Current |
+| -------------------------------- | ------------: | ------: |
+| Open the collection              |        29.7 s |   8.4 s |
+| Longest main-thread task on open |         4.7 s |  0.36 s |
+| Sort by a text column            |         3.5 s |  0.38 s |
+| First search across all fields   |         1.7 s |   1.0 s |
+
+Memory sets the view limit of 200,000 items. Render closures keep one earlier generation of a view reachable while the next one loads. With 300,000 items, switching between latest and published content after a search filled Chromium's 4.1 GiB heap and the tab stopped responding. With 100,000 root items and 100,000 related items, the heap stayed at 3.0 GiB across repeated switches.
+
+The first search of a view is the slowest remaining interaction because it normalizes every text field once. Later searches reuse that text and took 0.12 s at 100,000 items.
+
 ## Main-thread decision
 
 No Web Worker is warranted for version one. The optimized pure core meets the 10,000- and 50,000-item computation budgets, typing paints well below 100 ms, loaded expansion is below 100 ms, and only the current page is mounted. Moving computation to a Worker would add serialization and cancellation complexity without addressing DOM commit work. Revisit this decision if later representative runs miss these same gates.

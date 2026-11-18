@@ -217,11 +217,14 @@ async function fulfillApi(route: Route, state: FakeApiState) {
       : items;
   const limit = Number(url.searchParams.get('limit') ?? 2_500);
   const page = Number(url.searchParams.get('page') ?? 1);
-  const partialTotal = model === '6-rootmodel' && state.partialRoot ? 10_001 : data.length;
+  // Zesty reports one item more than it returns, which leaves the root partial.
+  const partialItems = 5_000;
+  const partialTotal =
+    model === '6-rootmodel' && state.partialRoot ? partialItems + 1 : data.length;
   const pageData =
     model === '6-rootmodel' && state.partialRoot
       ? Array.from(
-          { length: Math.min(limit, Math.max(0, partialTotal - (page - 1) * limit)) },
+          { length: Math.min(limit, Math.max(0, partialItems - (page - 1) * limit)) },
           (_, index) => {
             const itemIndex = (page - 1) * limit + index;
             return rawItem(
@@ -844,7 +847,7 @@ test('keeps partial roots and failed descendants usable with persistent recovery
   state.partialRoot = true;
   await openRoot(page);
   await expect(page.getByText(/incomplete collection data/i)).toBeVisible();
-  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
+  await expect(page.getByText('5000 items', { exact: true })).toBeVisible();
 
   state.forbiddenModels.add('6-childmodel');
   await addNativeChild(page);
@@ -853,7 +856,7 @@ test('keeps partial roots and failed descendants usable with persistent recovery
     .first()
     .click();
   await expect(page.getByRole('alert')).toContainText('Ask a Zesty administrator for read access');
-  await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
+  await expect(page.getByText('5000 items', { exact: true })).toBeVisible();
 
   state.forbiddenModels.clear();
   await page.getByRole('alert').getByRole('button', { name: 'Retry' }).click();

@@ -1,7 +1,8 @@
 import { Effect } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   generateRelationshipGraph,
+  viewItemLimit,
   type CollectionSchema,
   type CollectionSnapshot,
   type ContentItem,
@@ -9,7 +10,13 @@ import {
 import { sortItemIds } from '../explorer-core';
 import { collectionNode as node, latestScope } from '../test/fixtures';
 import type { CollectionApi } from '../zesty-api';
-import { loadCollection, loadView, namedSortValue, ViewLoadError } from './load-view';
+import {
+  loadCollection,
+  loadedSnapshot,
+  loadView,
+  namedSortValue,
+  ViewLoadError,
+} from './load-view';
 
 const generated = generateRelationshipGraph(3);
 const schema: CollectionSchema = {
@@ -37,7 +44,7 @@ describe('view loading', () => {
     const skipped = node('node-skipped', '6-skipped');
     const root = node('node-root', '6-root', [node('node-child', '6-child'), repeated, skipped]);
     const rootItems = Array.from(
-      { length: 49_998 },
+      { length: viewItemLimit - 2 },
       (_, index) => generated.parents.items[index % generated.parents.items.length]!,
     );
     const limits: number[] = [];
@@ -60,7 +67,7 @@ describe('view loading', () => {
     expect(limits).toEqual([2]);
     expect(models).toEqual(['6-child']);
     expect(loaded.schemas.has(repeated.id)).toBe(true);
-    expect(loaded.snapshots.totalItems).toBe(50_000);
+    expect(loaded.snapshots.totalItems).toBe(viewItemLimit);
     expect(
       loaded.snapshots.snapshots.get('8-fixture-instance:production:6-skipped:latest:en-US'),
     ).toMatchObject({ status: 'partial', snapshot: { partial: true, items: [] } });
@@ -68,6 +75,25 @@ describe('view loading', () => {
       kind: 'data-limit',
       scope: 'view',
     });
+  });
+
+  it('reads a node that repeats the root collection from the complete root snapshot', async () => {
+    const repeatedRoot = node('node-repeat', '6-root');
+    const root = node('node-root', '6-root', [repeatedRoot]);
+    const rootSnapshot = snapshot('6-root');
+    const loadCachedCollection = vi.fn<Parameters<typeof loadView>[3]>();
+
+    const loaded = await loadView(
+      root,
+      latestScope,
+      { schema, snapshot: rootSnapshot },
+      loadCachedCollection,
+    );
+
+    expect(loadCachedCollection).not.toHaveBeenCalled();
+    expect(loaded.snapshots.totalItems).toBe(rootSnapshot.items.length);
+    expect(loaded.schemas.get(repeatedRoot.id)).toBe(schema);
+    expect(loadedSnapshot(repeatedRoot, loaded, latestScope)).toBe(rootSnapshot);
   });
 
   it('interrupts Effect work when its query signal is aborted', async () => {

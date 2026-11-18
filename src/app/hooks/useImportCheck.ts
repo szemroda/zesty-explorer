@@ -101,6 +101,8 @@ export function useImportCheck({
     enabled: enabled && Boolean(importScope),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
+    // Comparing a refreshed collection item by item would block the page.
+    structuralSharing: false,
     queryFn: ({ signal }) =>
       runExplorerQuery(
         api.loadCollectionSnapshot(reference!, importScope!, credentials.sessionToken),
@@ -125,28 +127,18 @@ export function useImportCheck({
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async ({ signal }) => {
-      const snapshots = await Promise.allSettled(
-        relatedModels.map(async (modelZuid) => {
-          const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
-          const snapshot = await runExplorerQuery(
-            api.loadCollectionSnapshot(relatedReference, importScope!, credentials.sessionToken),
-            signal,
-          );
-          return { modelZuid, snapshot };
-        }),
-      );
-      const items = new Map<string, ReadonlySet<string>>(
-        snapshots.flatMap((result) =>
-          result.status === 'fulfilled' && !result.value.snapshot.partial
-            ? [
-                [
-                  result.value.modelZuid,
-                  new Set(result.value.snapshot.items.map((item) => item.id)),
-                ] as const,
-              ]
-            : [],
-        ),
-      );
+      // One collection at a time, keeping only its ZUIDs, so large collections don't add up in memory.
+      const items = new Map<string, ReadonlySet<string>>();
+      for (const modelZuid of relatedModels) {
+        const relatedReference: CollectionReference = { ...reference!, modelZuid, area: 'other' };
+        const snapshot = await runExplorerQuery(
+          api.loadCollectionSnapshot(relatedReference, importScope!, credentials.sessionToken),
+          signal,
+        ).catch(() => undefined);
+        if (snapshot && !snapshot.partial) {
+          items.set(modelZuid, new Set(snapshot.items.map((item) => item.id)));
+        }
+      }
       return { items, complete: items.size === relatedModels.length };
     },
   });
