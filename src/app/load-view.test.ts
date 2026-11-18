@@ -4,10 +4,12 @@ import {
   generateRelationshipGraph,
   type CollectionSchema,
   type CollectionSnapshot,
+  type ContentItem,
 } from '../domain';
+import { sortItemIds } from '../explorer-core';
 import { collectionNode as node, latestScope } from '../test/fixtures';
 import type { CollectionApi } from '../zesty-api';
-import { loadCollection, loadView, ViewLoadError } from './load-view';
+import { loadCollection, loadView, namedSortValue, ViewLoadError } from './load-view';
 
 const generated = generateRelationshipGraph(3);
 const schema: CollectionSchema = {
@@ -102,5 +104,44 @@ describe('view loading', () => {
     await expect(
       loadCollection(api, node('node-root', '6-root'), latestScope, 'token', 10_000),
     ).rejects.toBeInstanceOf(ViewLoadError);
+  });
+});
+
+describe('namedSortValue', () => {
+  it('orders a relationship column by the names of the related items', () => {
+    const item = (id: string, fields: ContentItem['fields']): ContentItem => ({
+      id: id as ContentItem['id'],
+      fields,
+      metadata: {},
+      raw: {},
+    });
+    const categories = snapshot('6-categories', [
+      item('7-cat-a', { title: 'Zoology' }),
+      item('7-cat-b', { title: 'Art' }),
+    ]);
+    const articles = snapshot('6-articles', [
+      item('7-art-1', { category: '7-cat-a' }),
+      item('7-art-2', { category: '7-cat-b' }),
+    ]);
+    const view = {
+      snapshots: {
+        snapshots: new Map([
+          ['categories', { status: 'complete' as const, snapshot: categories }],
+          ['articles', { status: 'complete' as const, snapshot: articles }],
+        ]),
+        totalItems: 4,
+      },
+      schemas: new Map(),
+      schemaErrors: new Map(),
+    };
+
+    const sorted = sortItemIds(
+      articles,
+      ['7-art-1', '7-art-2'],
+      { fieldPath: ['fields', 'category'], direction: 'asc' },
+      namedSortValue(view),
+    );
+
+    expect(sorted).toEqual(['7-art-2', '7-art-1']);
   });
 });

@@ -11,6 +11,15 @@ const fixedMetadataKeys = new Set(['created', 'modified', 'version']);
 
 export const columnWidthLimits = { min: 90, max: 520 } as const;
 export const defaultContentColumnWidth = 190;
+// Fields that name items: these first, in order, then any field named like `full_name` or
+// `headline`. Their columns start wider.
+const labelFieldNames = ['title', 'name'];
+const labelFieldPattern = /(?:^|_)(?:title|name|label|headline)$/i;
+const labelColumnWidth = 300;
+
+function isLabelField(name: string): boolean {
+  return labelFieldNames.includes(name) || labelFieldPattern.test(name);
+}
 
 interface ColumnDefinition {
   readonly id: string;
@@ -27,6 +36,10 @@ export type ContentValueColumn = ColumnDefinition & {
   readonly kind: 'value';
   /** The value is WYSIWYG HTML, shown formatted rather than as text. */
   readonly richText: boolean;
+  /** The value holds related item ZUIDs, shown by name when those items are loaded. */
+  readonly relationship: boolean;
+  /** A yes/no field, which Zesty stores as 1 and 0. */
+  readonly yesNo: boolean;
   read(item: ContentItem): unknown;
 };
 
@@ -43,7 +56,7 @@ export function contentItemColumns(
   ].sort();
 
   return [
-    technicalColumn('$id', 'ZUID', 210, (item) => item.id),
+    technicalColumn('$id', 'ZUID', 160, (item) => item.id),
     {
       kind: 'status',
       id: '$status',
@@ -58,8 +71,10 @@ export function contentItemColumns(
       label: field.label,
       technical: false,
       sortable: true,
-      defaultWidth: defaultContentColumnWidth,
+      defaultWidth: isLabelField(field.name) ? labelColumnWidth : defaultContentColumnWidth,
       richText: field.datatype?.startsWith('wysiwyg') ?? false,
+      relationship: field.kind === 'relationship',
+      yesNo: field.kind === 'boolean',
       read: (item: ContentItem) => item.fields[field.name],
     })),
     technicalColumn('$created', 'Created', 180, (item) => item.metadata.created),
@@ -87,6 +102,8 @@ function technicalColumn(
     sortable,
     defaultWidth,
     richText: false,
+    relationship: false,
+    yesNo: false,
     read,
   };
 }
@@ -152,11 +169,55 @@ export function visibleColumnIds(
 
 // Human-readable item name for buttons and titles; falls back to the ZUID when untitled.
 export function itemDisplayLabel(item: ContentItem): string {
-  const label = [item.fields.title, item.fields.name]
+  const label = [
+    ...labelFieldNames,
+    ...Object.keys(item.fields).filter(
+      (name) => !labelFieldNames.includes(name) && labelFieldPattern.test(name),
+    ),
+  ]
+    .map((name) => item.fields[name])
     .filter((value) => value !== null && value !== undefined && value !== '')
     .map(formatContentValue)
     .find((text) => text !== '');
   return label ?? item.id;
+}
+
+/**
+ * Names for a relationship value, which Zesty stores as one ZUID or comma-separated ZUIDs. Items
+ * that are not loaded keep their ZUID. Undefined when no item is loaded, so the ZUIDs show as-is.
+ */
+export function relatedItemNames(
+  value: unknown,
+  items: ReadonlyMap<string, ContentItem>,
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const ids = value
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (!ids.some((id) => items.has(id))) return undefined;
+  return ids
+    .map((id) => {
+      const item = items.get(id);
+      return item ? itemDisplayLabel(item) : id;
+    })
+    .join(', ');
+}
+
+/**
+ * How a table cell shows a value when it differs from the stored value: related items by name,
+ * and yes/no fields as Yes and No. Undefined shows the stored value.
+ */
+export function cellText(
+  column: Pick<ContentValueColumn, 'relationship' | 'yesNo'>,
+  value: unknown,
+  loadedItems: () => ReadonlyMap<string, ContentItem>,
+): string | undefined {
+  if (column.relationship) return relatedItemNames(value, loadedItems());
+  if (!column.yesNo) return undefined;
+  if (value === 1 || value === '1' || value === true) return 'Yes';
+  if (value === 0 || value === '0' || value === false) return 'No';
+  return undefined;
 }
 
 // Zesty Manager editor page for an item; collections outside content and blocks have none.

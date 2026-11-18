@@ -1,6 +1,6 @@
 // Code history: previews and compares saved versions of a code file, laid out like item history.
 import { ExternalLink, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeFileZuid, InstanceReference } from '../../domain';
 import type { CodeFileApi, ItemVersionApi } from '../../zesty-api';
 import {
@@ -31,7 +31,7 @@ import {
   ModeToggle,
   ResourceNotice,
   VersionBadges,
-  VersionCard,
+  VersionCardList,
   SavedVersionsSidebar,
   VersionPairSelect,
   type HistoryMode,
@@ -82,6 +82,8 @@ export function CodeFileHistory({
 }: CodeFileHistoryProps) {
   const [presentation, setPresentation] = useState(initialPresentation);
   const [search, setSearch] = useState('');
+  // Focus starts in the version search, as in item details.
+  const searchInput = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<HistoryMode>('view');
   const [selectedNumber, setSelectedNumber] = useState(shownVersion);
   const [chosenPair, setChosenPair] = useState<VersionNumberPair>();
@@ -151,6 +153,7 @@ export function CodeFileHistory({
       <DialogContent
         className="grid h-[min(820px,calc(100vh-32px))] w-[min(1120px,calc(100vw-32px))] grid-rows-[65px_minmax(0,1fr)] gap-0 overflow-hidden p-0"
         aria-labelledby="code-history-title"
+        initialFocus={searchInput}
         showCloseButton={false}
       >
         <DialogHeader className="flex grid-cols-none flex-row items-center justify-between border-b border-border px-4">
@@ -189,6 +192,7 @@ export function CodeFileHistory({
             total={history.total}
             search={mode === 'view' ? search : undefined}
             onSearchChange={setSearch}
+            searchRef={searchInput}
           >
             {history.versions.error ? (
               <ResourceNotice
@@ -223,14 +227,11 @@ export function CodeFileHistory({
               ) : null
             ) : (
               <>
-                {visibleOptions.map((option) => (
-                  <VersionCard
-                    key={option.number}
-                    option={option}
-                    selected={selected?.number === option.number}
-                    onSelect={() => setSelectedNumber(option.number)}
-                  />
-                ))}
+                <VersionCardList
+                  options={visibleOptions}
+                  selectedNumber={selected?.number}
+                  onSelect={setSelectedNumber}
+                />
                 {options.length > 0 && visibleOptions.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                     No saved versions match this search.
@@ -289,7 +290,12 @@ export function CodeFileHistory({
                       <TabsTrigger value="formatted">Formatted</TabsTrigger>
                       <TabsTrigger value="saved">As saved</TabsTrigger>
                     </TabsList>
-                    <ModeToggle label="Code history mode" mode={mode} onChange={selectMode} />
+                    <ModeToggle
+                      label="Code history mode"
+                      mode={mode}
+                      onChange={selectMode}
+                      compareDisabled={!historyLoaded || options.length < 2}
+                    />
                   </div>
                   {/* Only the active panel mounts, so both render the chosen presentation. */}
                   <TabsContent value="formatted">{content}</TabsContent>
@@ -329,7 +335,7 @@ function VersionSourceLines({
             )}
           >
             <IndentGuides count={line.indent} />
-            <LineTokens line={line} saved={saved} toneFor={toneFor} onSelect={() => {}} />
+            <LineTokens line={line} saved={saved} toneFor={toneFor} />
           </span>
         </div>
       ))}

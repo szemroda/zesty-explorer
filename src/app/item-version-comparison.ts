@@ -2,6 +2,7 @@ import { diffArrays, diffWordsWithSpace } from 'diff';
 import microdiff, { type Difference } from 'microdiff';
 import type { ContentItem } from '../domain';
 import type { SavedVersionOption, VersionPreviewOption } from './item-version-preview';
+import { plural } from './lib/utils';
 
 // Version comparison model, independent of React. Structural differences come from microdiff
 // for both Fields and Raw JSON; changed text lines and fragments come from JsDiff.
@@ -104,10 +105,6 @@ export function compareContentItems(
     fields: compareNamedValues(before.fields, after.fields),
     metadata: compareNamedValues(before.metadata, after.metadata),
   };
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
 }
 
 /** One-line description of how two versions differ, for the comparison heading. */

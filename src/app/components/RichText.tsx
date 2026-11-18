@@ -120,6 +120,10 @@ function renderNode(node: Node, layout: RichTextLayout, key: number): ReactNode 
  * elements outside the formatting allowlist keep only their text, so stored markup cannot run
  * script or load anything.
  */
+/** Spacing and list styles for rich text shown as blocks. */
+export const richTextBlockClassName =
+  'text-sm leading-relaxed [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:whitespace-pre-wrap [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0';
+
 export function RichText({
   body,
   layout,
@@ -191,7 +195,7 @@ export function SharedRichTextPreview() {
                 <ToggleGroupItem value="html">{sourceLabels.html}</ToggleGroupItem>
               </ToggleGroup>
             </div>
-            <div className="min-h-0 overflow-auto px-3 py-2.5 text-sm leading-relaxed [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:whitespace-pre-wrap [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0">
+            <div className={`min-h-0 overflow-auto px-3 py-2.5 ${richTextBlockClassName}`}>
               {source === 'html' ? (
                 <pre className="m-0 font-mono text-xs whitespace-pre-wrap wrap-break-word text-foreground/90">
                   {payload}

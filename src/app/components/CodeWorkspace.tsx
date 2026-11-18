@@ -1,7 +1,7 @@
 // The Code tab: every `/web/views` file of the instance and the selected file's explained source.
 import { ArrowLeft, ExternalLink, FileCode2, FileQuestion, History, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type {
   CodeFile,
   CodeFileZuid,
@@ -40,6 +40,7 @@ import {
   type CodeCredentials,
   type WebEngineBaseUrlsResult,
 } from '../hooks/useCodeFiles';
+import { listKeys } from '../lib/list-keys';
 import { cn } from '../lib/utils';
 import { CodeFileHistory } from './CodeFileHistory';
 import { CodeSourceView, type SourcePresentation } from './CodeSourceView';
@@ -48,6 +49,7 @@ import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { buttonVariants } from './ui/button-variants';
+import { TooltipTrigger } from './ui/tooltip';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/skeleton';
@@ -190,6 +192,8 @@ export function CodeWorkspace({
     () => files.filter((file) => codeFileMatches(file, fileFilter)),
     [fileFilter, files],
   );
+  const fileList = useRef<HTMLUListElement>(null);
+  const fileFilterInput = useRef<HTMLInputElement>(null);
 
   return (
     <div className="grid h-[calc(100vh-72px)] min-h-0 grid-cols-[16rem_minmax(0,1fr)]">
@@ -212,12 +216,27 @@ export function CodeWorkspace({
               aria-hidden="true"
             />
             <Input
+              ref={fileFilterInput}
               className="h-8 pl-8 text-xs"
               type="search"
               aria-label="Filter code files"
               placeholder="Filter by name or URL"
               value={fileFilter}
               onChange={(event) => onFileFilterChange(event.target.value)}
+              // ArrowDown moves from the filter into the files it left; Enter opens the first.
+              onKeyDown={(event) => {
+                const first = listedFiles[0];
+                if (event.key === 'Enter' && first) {
+                  event.preventDefault();
+                  openFromList(first.id);
+                  return;
+                }
+                if (event.key !== 'ArrowDown') return;
+                const target = fileList.current?.querySelector<HTMLElement>('button');
+                if (!target) return;
+                event.preventDefault();
+                target.focus();
+              }}
             />
           </label>
         </div>
@@ -252,24 +271,13 @@ export function CodeWorkspace({
               No files match this filter.
             </p>
           ) : null}
-          <ul className="grid gap-0.5">
-            {listedFiles.map((file) => (
-              <li key={file.id}>
-                <button
-                  type="button"
-                  onClick={() => openFromList(file.id)}
-                  aria-current={file.id === fileId ? 'true' : undefined}
-                  className={cn(
-                    'hover:bg-surface-menu-hover grid w-full rounded-md px-2 py-1.5 text-left',
-                    file.id === fileId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
-                  )}
-                >
-                  <span className="truncate font-mono text-xs">{file.fileName}</span>
-                  <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <CodeFileList
+            ref={fileList}
+            files={listedFiles}
+            openId={fileId}
+            onOpen={openFromList}
+            onLeaveTop={() => fileFilterInput.current?.focus()}
+          />
         </div>
       </nav>
 
@@ -293,15 +301,22 @@ export function CodeWorkspace({
               <History size={14} aria-hidden="true" />
               History
             </Button>
-            <a
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              href={managerCodeFileUrl(instance, named.id)}
-              target="_blank"
-              rel="noreferrer"
+            {/* Below xl the label hides so the file header stays on one row. */}
+            <TooltipTrigger
+              text="Open in Zesty Manager"
+              render={
+                <a
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  href={managerCodeFileUrl(instance, named.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open in Zesty Manager"
+                />
+              }
             >
               <ExternalLink size={14} aria-hidden="true" />
-              Open in Zesty Manager
-            </a>
+              <span className="max-xl:hidden">Open in Zesty Manager</span>
+            </TooltipTrigger>
           </div>
         ) : null}
         {historyOpen && named ? (
@@ -410,6 +425,77 @@ interface ExplainedFileProps {
   readonly onOpenCollection: (modelZuid: ModelZuid) => void;
 }
 
+/**
+ * The listed files as one Tab stop: the last focused file, else the open one, else the first.
+ * Arrow keys, Home and End move between files; a real instance lists hundreds.
+ */
+function CodeFileList({
+  ref,
+  files,
+  openId,
+  onOpen,
+  onLeaveTop,
+}: {
+  readonly ref: Ref<HTMLUListElement>;
+  /** ArrowUp on the first file, e.g. back to the filter above. */
+  readonly onLeaveTop: () => void;
+  readonly files: readonly Pick<CodeFile, 'id' | 'type' | 'fileName'>[];
+  readonly openId: CodeFileZuid | undefined;
+  readonly onOpen: (id: CodeFileZuid) => void;
+}) {
+  // A focused file is the Tab stop only until another file opens; then the open one is.
+  const [focus, setFocus] = useState<{
+    readonly id: CodeFileZuid;
+    readonly openId: CodeFileZuid | undefined;
+  }>();
+  const focusedId = focus && focus.openId === openId ? focus.id : undefined;
+  const keysHint = useId();
+  const listed = (id: CodeFileZuid | undefined) =>
+    id !== undefined && files.some((file) => file.id === id);
+  const tabStop = listed(focusedId) ? focusedId : listed(openId) ? openId : files[0]?.id;
+  return (
+    <>
+      <span id={keysHint} hidden>
+        Arrow keys move between files.
+      </span>
+      <ul
+        ref={ref}
+        className="grid gap-0.5"
+        onKeyDown={(event) => {
+          const move = listKeys[event.key];
+          if (!move) return;
+          const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('button')];
+          const index = buttons.indexOf(event.target as HTMLElement);
+          if (index < 0) return;
+          event.preventDefault();
+          if (index === 0 && event.key === 'ArrowUp') onLeaveTop();
+          else buttons[move(index, buttons.length)]?.focus();
+        }}
+      >
+        {files.map((file) => (
+          <li key={file.id}>
+            <button
+              type="button"
+              tabIndex={file.id === tabStop ? 0 : -1}
+              onFocus={() => setFocus({ id: file.id, openId })}
+              aria-describedby={keysHint}
+              onClick={() => onOpen(file.id)}
+              aria-current={file.id === openId ? 'true' : undefined}
+              className={cn(
+                'hover:bg-surface-menu-hover focus-visible:ring-ring/45 grid w-full rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2',
+                file.id === openId && 'bg-surface-menu-hover ring-primary/40 ring-1 ring-inset',
+              )}
+            >
+              <span className="truncate font-mono text-xs">{file.fileName}</span>
+              <span className="text-muted-foreground text-[11px]">{fileTypeLabel(file)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 // Parses once per file; re-analyzes as field schemas arrive, since each schema can reveal a
 // relationship whose related collection needs its own schema.
 function ExplainedFile({
@@ -463,6 +549,7 @@ function ExplainedFile({
   const source = (
     <CodeSourceView
       analysis={analysis}
+      code={file.code}
       saved={saved}
       formatted={formatted}
       presentation={presentation}

@@ -5,7 +5,9 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/80 hover:shadow-md',
+        // A lime ring on a lime button does not show, so primary buttons ring in the text color.
+        default:
+          'bg-primary text-primary-foreground shadow-sm hover:bg-primary/80 hover:shadow-md focus-visible:ring-foreground/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         outline:
           'border-border bg-panel text-foreground hover:border-input hover:bg-surface-menu-hover',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/70',

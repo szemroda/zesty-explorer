@@ -3,12 +3,22 @@ import { takeBrowserRequestSlot } from './browser-request-slots';
 
 export type RequestService = 'instances' | 'accounts' | 'webengine';
 /**
- * Interactive requests start before background ones. Background requests start highest group
- * first, and requests in one group start in the order they were made. The budget reads `group`
- * each time it picks a request, so a caller can raise work that is already queued.
+ * Where a queued background request stands. The budget reads it each time it picks the next
+ * request, so a caller can move work that is already queued without cancelling it.
+ * - `needed` work starts before `prefetch` work, highest `rank` first.
+ * - `prefetch` work also waits while the page is hidden.
+ * - `dropped` work leaves the queue without being sent, failing as `cancelled`.
+ * Requests of the same standing and rank start in the order they were made. Requests made under
+ * one priority belong together: once one of them has started, the rest are no longer dropped, so
+ * a load that sent anything completes.
  */
+export type BackgroundStanding =
+  { readonly kind: 'needed' | 'prefetch'; readonly rank: number } | { readonly kind: 'dropped' };
+
+/** Interactive requests start before background ones. */
 export type RequestPriority =
-  { readonly kind: 'interactive' } | { readonly kind: 'background'; readonly group: () => number };
+  | { readonly kind: 'interactive' }
+  | { readonly kind: 'background'; readonly standing: () => BackgroundStanding };
 class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()(
   'zesty/RequestPriority',
   { defaultValue: (): RequestPriority => ({ kind: 'interactive' }) },
@@ -16,6 +26,7 @@ class CurrentRequestPriority extends Context.Reference<CurrentRequestPriority>()
 
 export type RequestBudgetFailure =
   | { readonly kind: 'request-budget'; readonly message: string }
+  | { readonly kind: 'cancelled'; readonly message: string }
   | { readonly kind: 'rate-limit'; readonly message: string; readonly retryAt: number };
 
 export interface RequestBudget {
@@ -85,6 +96,14 @@ export function createRequestBudget({
   let cooldowns: Cooldowns = { instances: 0, accounts: 0, webengine: 0 };
   let initialized = false;
   let interactiveStreak = 0;
+  // Wakes a pump that waits because only prefetch work is queued while the page is hidden.
+  let wakePump: (() => void) | undefined;
+  // Priorities that have started a request; their other requests are not dropped.
+  const started = new WeakSet<RequestPriority>();
+  const notNeeded: RequestBudgetFailure = {
+    kind: 'cancelled',
+    message: 'The request was no longer needed, so it was not sent.',
+  };
   let unavailable: Extract<RequestBudgetFailure, { kind: 'request-budget' }> | undefined;
   const cooldown = (retryAt: number): Extract<RequestBudgetFailure, { kind: 'rate-limit' }> => ({
     kind: 'rate-limit',
@@ -111,6 +130,46 @@ export function createRequestBudget({
       ticket.fail(cooldown(cooldowns[ticket.service]));
     }
   };
+  const pageHidden = () => globalThis.document?.visibilityState === 'hidden';
+  // The next background ticket to start, dropping tickets no one needs any more on the way.
+  const nextBackground = (): Ticket | undefined => {
+    let next: Ticket | undefined;
+    let nextTier = -1;
+    let nextRank = -Infinity;
+    for (const ticket of [...queue]) {
+      if (ticket.priority.kind !== 'background') continue;
+      const asked = ticket.priority.standing();
+      // The rest of a load that already sent a request finishes first.
+      const standing =
+        asked.kind === 'dropped' && started.has(ticket.priority)
+          ? ({ kind: 'needed', rank: Infinity } as const)
+          : asked;
+      if (standing.kind === 'dropped') {
+        remove(ticket);
+        ticket.fail(notNeeded);
+        continue;
+      }
+      if (standing.kind === 'prefetch' && pageHidden()) continue;
+      const tier = standing.kind === 'needed' ? 1 : 0;
+      if (tier < nextTier || (tier === nextTier && standing.rank <= nextRank)) continue;
+      next = ticket;
+      nextTier = tier;
+      nextRank = standing.rank;
+    }
+    return next;
+  };
+  const waitForWake = (signal: AbortSignal) =>
+    new Promise<void>((resolve) => {
+      const wake = () => {
+        wakePump = undefined;
+        signal.removeEventListener('abort', wake);
+        globalThis.document?.removeEventListener('visibilitychange', wake);
+        resolve();
+      };
+      wakePump = wake;
+      signal.addEventListener('abort', wake, { once: true });
+      globalThis.document?.addEventListener('visibilitychange', wake);
+    });
   const wait = (delay: number, signal: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
       signal.throwIfAborted();
@@ -134,19 +193,16 @@ export function createRequestBudget({
         try {
           release = await takeSlot(controller.signal);
           const interactive = queue.find((ticket) => ticket.priority.kind === 'interactive');
-          // The earliest ticket of the highest background group.
-          let background: Ticket | undefined;
-          let backgroundGroup = -Infinity;
-          for (const ticket of queue) {
-            if (ticket.priority.kind !== 'background') continue;
-            const group = ticket.priority.group();
-            if (group <= backgroundGroup) continue;
-            background = ticket;
-            backgroundGroup = group;
-          }
+          const background = nextBackground();
           const ticket =
             interactiveStreak >= 8 && background ? background : (interactive ?? background);
-          if (!ticket) break;
+          if (!ticket) {
+            // Only prefetch work is left and the page is hidden: wait until it shows or work arrives.
+            release();
+            release = undefined;
+            if (queue.length) await waitForWake(controller.signal);
+            continue;
+          }
           const now = Date.now();
           if (cooldowns[ticket.service] > now) {
             remove(ticket);
@@ -162,6 +218,7 @@ export function createRequestBudget({
           nextStartAt = now + intervalMs + dispatchWindowMs;
           queue.splice(queue.indexOf(ticket), 1);
           interactiveStreak = ticket.priority.kind === 'interactive' ? interactiveStreak + 1 : 0;
+          started.add(ticket.priority);
           ticket.complete({ release, dispatchBefore: now + dispatchWindowMs });
           release = undefined;
         } finally {
@@ -213,6 +270,7 @@ export function createRequestBudget({
       };
       queue.push(ticket);
       startPump();
+      wakePump?.();
       return Effect.sync(() => {
         remove(ticket);
         granted?.release();

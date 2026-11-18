@@ -12,8 +12,11 @@ import {
   buildRelationshipIndex,
   createExplorerGraph,
   joinRelatedItems,
+  sortableValue,
   type ExplorerGraph,
+  type SortValue,
 } from '../explorer-core';
+import { relatedItemNames } from './content-item-presentation';
 import { snapshotQueryKey, type CollectionApi, type SnapshotLoadResult } from '../zesty-api';
 
 export interface LoadedCollection {
@@ -25,6 +28,38 @@ export interface LoadedView {
   readonly snapshots: SnapshotLoadResult;
   readonly schemas: ReadonlyMap<CollectionNodeId, CollectionSchema>;
   readonly schemaErrors: ReadonlyMap<CollectionNodeId, ExplorerError>;
+}
+
+const itemsByLoadedView = new WeakMap<LoadedView, ReadonlyMap<string, ContentItem>>();
+
+/** Every loaded item by ZUID, across the view's collections. ZUIDs are unique per instance. */
+export function loadedItemsById(view: LoadedView): ReadonlyMap<string, ContentItem> {
+  const cached = itemsByLoadedView.get(view);
+  if (cached) return cached;
+  const items = new Map<string, ContentItem>();
+  for (const state of view.snapshots.snapshots.values()) {
+    if (state.status === 'failed') continue;
+    for (const [id, item] of state.snapshot.itemsById) items.set(id, item);
+  }
+  itemsByLoadedView.set(view, items);
+  return items;
+}
+
+const namedSortValues = new WeakMap<LoadedView, SortValue>();
+
+/**
+ * Sorts a relationship column by the names its cells show, like relatedItemNames, rather than by
+ * ZUID. One function per view, so memos keyed on it hold while the view stays the same.
+ */
+export function namedSortValue(view: LoadedView): SortValue {
+  const cached = namedSortValues.get(view);
+  if (cached) return cached;
+  const valueOf: SortValue = (item, fieldPath) => {
+    const value = sortableValue(item, fieldPath);
+    return relatedItemNames(value, loadedItemsById(view)) ?? value;
+  };
+  namedSortValues.set(view, valueOf);
+  return valueOf;
 }
 
 export class ViewLoadError extends Error {

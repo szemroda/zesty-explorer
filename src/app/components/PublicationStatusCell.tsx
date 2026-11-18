@@ -1,11 +1,31 @@
-import { hashKey, useQuery } from '@tanstack/react-query';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { ContentItem, ContentItemReference } from '../../domain';
 import {
+  hashKey,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import type { ContentItem, ContentItemReference } from '../../domain';
+import type { BackgroundStanding } from '../../zesty-api';
+import { explorerFailure } from '../hooks/explorer-query';
+import {
+  countStatusOnScreen,
+  isStatusOnScreen,
   loadPublicationStatus,
   publicationStatusQueryPrefix,
   type PublicationStatusSource,
 } from '../hooks/publication-status-query';
+import { useNearViewport } from '../hooks/useNearViewport';
+import type { PublicationStatus } from '../publication-status';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
@@ -30,15 +50,40 @@ function currentRenderGroup(): number {
 }
 /** The newest group that shows each status query, so a queued load moves up when a newer row shows it. */
 const newestGroups = new Map<string, number>();
+/** The latest load of each status query; an earlier load that is still queued is not needed. */
+const latestLoads = new Map<string, symbol>();
+
+/**
+ * Where a queued status load stands each time the request budget picks the next request. Rows on
+ * or near the screen load first, then the rest of the table in the background. A status no cell
+ * shows any more, or one a later load replaced, leaves the queue unsent; one already sent
+ * finishes.
+ */
+function statusStanding(
+  queryClient: QueryClient,
+  queryHash: string,
+  load: symbol,
+  group: number,
+): BackgroundStanding {
+  if (
+    latestLoads.get(queryHash) !== load ||
+    !queryClient.getQueryCache().get(queryHash)?.getObserversCount()
+  ) {
+    return { kind: 'dropped' };
+  }
+  const rank = newestGroups.get(queryHash) ?? group;
+  return isStatusOnScreen(queryHash) ? { kind: 'needed', rank } : { kind: 'prefetch', rank };
+}
 
 export function PublicationStatusProvider({
   api,
   sessionToken,
   credentialRevision,
+  contentState,
   children,
 }: PublicationStatusSource & { readonly children: ReactNode }) {
   return (
-    <StatusSourceContext value={{ api, sessionToken, credentialRevision }}>
+    <StatusSourceContext value={{ api, sessionToken, credentialRevision, contentState }}>
       {children}
     </StatusSourceContext>
   );
@@ -50,6 +95,8 @@ function formatPublishTime(value: string): string {
   );
 }
 
+// Only the version number, colored by its role; the tooltip and accessible name say what it is.
+// A tab stop, so keyboard users can reach the tooltip.
 function StatusBadge({
   version,
   description,
@@ -69,97 +116,146 @@ function StatusBadge({
   );
 }
 
+interface PublicationStatusCellProps {
+  readonly item: ContentItem;
+  readonly reference: ContentItemReference;
+}
+
 function ConnectedPublicationStatusCell({
   source,
   item,
   reference,
-}: {
-  readonly source: PublicationStatusSource;
-  readonly item: ContentItem;
-  readonly reference: ContentItemReference;
-}) {
+}: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
+  const cell = useRef<HTMLSpanElement>(null);
+  const near = useNearViewport(cell);
+  const queryClient = useQueryClient();
   const [group] = useState(currentRenderGroup);
-  const queryKey = [
-    ...publicationStatusQueryPrefix,
-    source.credentialRevision,
-    reference.deployment,
-    reference.instanceZuid,
-    reference.modelZuid,
-    reference.itemZuid,
-  ];
+  const queryKey = useMemo(
+    () => [
+      ...publicationStatusQueryPrefix,
+      source.credentialRevision,
+      reference.deployment,
+      reference.instanceZuid,
+      reference.modelZuid,
+      reference.itemZuid,
+    ],
+    [source.credentialRevision, reference],
+  );
   const queryHash = hashKey(queryKey);
   useEffect(() => {
     newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
   }, [group, queryHash]);
+  useEffect(() => {
+    if (near) return countStatusOnScreen(queryHash);
+  }, [near, queryHash]);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) =>
-      loadPublicationStatus(
-        source,
-        reference,
-        item,
-        () => newestGroups.get(queryHash) ?? group,
-        signal,
-      ),
+    // The query function ignores TanStack's abort signal, so unmounting a row never aborts a sent
+    // request; the budget drops a request that has not been sent yet.
+    queryFn: () => {
+      const load = Symbol(queryHash);
+      latestLoads.set(queryHash, load);
+      return loadPublicationStatus(source, reference, item, () =>
+        statusStanding(queryClient, queryHash, load, group),
+      );
+    },
     retry: false,
     staleTime: Infinity,
     gcTime: cacheTime,
   });
 
-  if (query.isPending) {
+  return (
+    // Pills wrap rather than draw over the next column if the column is made narrow.
+    <span ref={cell} className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <StatusContent query={query} publishedFirst={source.contentState === 'published'} />
+    </span>
+  );
+}
+
+// In a published view the row shows the published version, so its pill leads.
+function StatusContent({
+  query,
+  publishedFirst,
+}: {
+  readonly query: UseQueryResult<PublicationStatus>;
+  readonly publishedFirst: boolean;
+}) {
+  // A load dropped unsent while no row showed it is not a failure: the row keeps what it had,
+  // and a row without a status loads it again when shown.
+  if (query.isError && explorerFailure(query.error)?.kind !== 'cancelled') {
     return (
-      <Skeleton
-        className="h-4.5 w-7 rounded-full"
-        role="status"
-        aria-label="Loading publication status"
-      />
-    );
-  }
-  if (query.isError) {
-    return (
-      <span className="flex items-center gap-1.5 text-muted-foreground">
-        Unavailable
+      <>
+        <span className="text-muted-foreground">Unavailable</span>
         <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>
           Retry
         </Button>
+      </>
+    );
+  }
+  const status = query.data;
+  if (status === undefined) {
+    return (
+      // Two pills, the usual shape, so a waiting row keeps the cell's width.
+      <span className="flex gap-1.5" role="status" aria-label="Loading publication status">
+        <Skeleton className="h-4.5 w-8 rounded-full" />
+        <Skeleton className="h-4.5 w-8 rounded-full" />
       </span>
     );
   }
 
-  const status = query.data;
-  return (
-    <span className="flex items-center gap-1.5">
+  const published = status.currentlyPublished;
+  const scheduled = status.nextScheduled;
+  const scheduledBadge = (version: number, publishAt: string, latest: boolean) => (
+    <StatusBadge
+      version={version}
+      description={`${latest ? 'Latest saved version' : 'Version'} v${version} scheduled to publish ${formatPublishTime(publishAt)}`}
+      className="border-amber-500/40 bg-amber-500/10 text-amber-300"
+    />
+  );
+  if (published === status.latestSaved) {
+    return (
+      <>
+        <StatusBadge
+          version={published}
+          description={`Version v${published} is the latest saved and currently published version`}
+          className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+        />
+        {scheduled ? scheduledBadge(scheduled.version, scheduled.publishAt, false) : null}
+      </>
+    );
+  }
+  // A scheduled latest version says so in its own pill instead of repeating it.
+  const latest =
+    scheduled?.version === status.latestSaved ? (
+      scheduledBadge(scheduled.version, scheduled.publishAt, true)
+    ) : (
       <StatusBadge
         version={status.latestSaved}
         description={`Latest saved version v${status.latestSaved}`}
         className="border-sky-500/40 bg-sky-500/10 text-sky-300"
       />
-      {status.currentlyPublished === undefined ? null : (
-        <StatusBadge
-          version={status.currentlyPublished}
-          description={`Currently published version v${status.currentlyPublished}`}
-          className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-        />
-      )}
-      {status.nextScheduled ? (
-        <StatusBadge
-          version={status.nextScheduled.version}
-          description={`Version v${status.nextScheduled.version} scheduled to publish ${formatPublishTime(status.nextScheduled.publishAt)}`}
-          className="border-amber-500/40 bg-amber-500/10 text-amber-300"
-        />
-      ) : null}
-    </span>
+    );
+  const live =
+    published === undefined ? null : (
+      <StatusBadge
+        version={published}
+        description={`Currently published version v${published}`}
+        className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      />
+    );
+  return (
+    <>
+      {publishedFirst ? live : latest}
+      {publishedFirst ? latest : live}
+      {scheduled && scheduled.version !== status.latestSaved
+        ? scheduledBadge(scheduled.version, scheduled.publishAt, false)
+        : null}
+    </>
   );
 }
 
-export function PublicationStatusCell({
-  item,
-  reference,
-}: {
-  readonly item: ContentItem;
-  readonly reference: ContentItemReference;
-}) {
+export function PublicationStatusCell(props: PublicationStatusCellProps) {
   const source = useContext(StatusSourceContext);
   if (!source) return null;
-  return <ConnectedPublicationStatusCell source={source} item={item} reference={reference} />;
+  return <ConnectedPublicationStatusCell source={source} {...props} />;
 }

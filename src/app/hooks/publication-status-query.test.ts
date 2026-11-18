@@ -1,8 +1,14 @@
+import { hashKey, QueryClient, QueryObserver } from '@tanstack/react-query';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference, ItemZuid } from '../../domain';
 import type { ItemVersionApi } from '../../zesty-api';
-import { loadPublicationStatus } from './publication-status-query';
+import {
+  countStatusOnScreen,
+  loadPublicationStatus,
+  publicationStatusQueryPrefix,
+  refreshActivePublicationStatuses,
+} from './publication-status-query';
 import { createRequestBudget } from '../../zesty-api/request-budget';
 import { memoryRequestSlots, memoryCooldownStorage } from '../../test/request-budget';
 
@@ -21,7 +27,7 @@ function referenceFor(itemZuid: ItemZuid): ContentItemReference {
 }
 
 describe('loadPublicationStatus', () => {
-  it('shares four HTTP slots with interactive work and skips requests for an aborted row', async () => {
+  it('shares four HTTP slots with interactive work and skips requests for a dropped row', async () => {
     const budget = createRequestBudget({
       takeSlot: memoryRequestSlots(),
       storage: memoryCooldownStorage(),
@@ -59,7 +65,12 @@ describe('loadPublicationStatus', () => {
         ),
       loadInstanceUsers: () => Effect.succeed([]),
     };
-    const source = { api, sessionToken: 'token', credentialRevision: 'revision' };
+    const source = {
+      api,
+      sessionToken: 'token',
+      credentialRevision: 'revision',
+      contentState: 'published' as const,
+    };
     const itemZuids: readonly ItemZuid[] = [
       '7-row-1',
       '7-row-2',
@@ -68,16 +79,12 @@ describe('loadPublicationStatus', () => {
       '7-row-5',
       '7-row-6',
     ];
+    const dropped = new Set<ItemZuid>();
     const rows = itemZuids.map((itemZuid) => {
-      const controller = new AbortController();
-      const status = loadPublicationStatus(
-        source,
-        referenceFor(itemZuid),
-        item,
-        () => 0,
-        controller.signal,
+      const status = loadPublicationStatus(source, referenceFor(itemZuid), item, () =>
+        dropped.has(itemZuid) ? { kind: 'dropped' } : { kind: 'needed', rank: 0 },
       );
-      return { itemZuid, controller, status };
+      return { itemZuid, status };
     });
 
     await vi.waitFor(() => expect(started).toHaveLength(4));
@@ -90,10 +97,9 @@ describe('loadPublicationStatus', () => {
     );
     const [, , , , waiting, last] = rows;
     if (!waiting || !last) throw new Error('Expected six rows.');
-    waiting.controller.abort();
-    await expect(waiting.status).rejects.toThrow();
-
+    dropped.add(waiting.itemZuid);
     releaseVersions();
+    await expect(waiting.status).rejects.toThrow();
     await Promise.all([
       interactive,
       ...rows.filter((row) => row !== waiting).map((row) => row.status),
@@ -103,5 +109,40 @@ describe('loadPublicationStatus', () => {
     expect(started[4]).toBe('interactive');
     expect(started).toContain(`${last.itemZuid}/versions`);
     expect(started.some((request) => request.startsWith(waiting.itemZuid))).toBe(false);
+  });
+
+  it('waits on Refresh only for statuses on screen, and reloads the rest in the background', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const loads: string[] = [];
+    const show = (name: string, reload: () => Promise<string>) => {
+      let loaded = false;
+      return new QueryObserver(client, {
+        queryKey: [...publicationStatusQueryPrefix, name],
+        queryFn: () => {
+          loads.push(name);
+          if (loaded) return reload();
+          loaded = true;
+          return Promise.resolve(name);
+        },
+        staleTime: Infinity,
+      }).subscribe(() => {});
+    };
+    show('on-screen', () => Promise.resolve('on-screen'));
+    // Below the screen, waiting while the tab is hidden: its reload does not settle.
+    show('below', () => new Promise<string>(() => {}));
+    await vi.waitFor(() =>
+      expect(
+        ['on-screen', 'below'].map((name) =>
+          client.getQueryData([...publicationStatusQueryPrefix, name]),
+        ),
+      ).toEqual(['on-screen', 'below']),
+    );
+    const leaveScreen = countStatusOnScreen(
+      hashKey([...publicationStatusQueryPrefix, 'on-screen']),
+    );
+
+    expect(await refreshActivePublicationStatuses(client)).toBe(true);
+    expect(loads.toSorted()).toEqual(['below', 'below', 'on-screen', 'on-screen']);
+    leaveScreen();
   });
 });

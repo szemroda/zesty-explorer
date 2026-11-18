@@ -24,7 +24,15 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
   );
 }
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
-  return <TabsPrimitive.Panel className={cn('outline-none', className)} {...props} />;
+  return (
+    <TabsPrimitive.Panel
+      className={cn(
+        'rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-4 focus-visible:ring-offset-background',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export { Tabs, TabsContent, TabsList, TabsTrigger };

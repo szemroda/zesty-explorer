@@ -21,6 +21,7 @@ import {
   filterNodeItemIds,
   scalarFieldPaths,
   sortItemIds,
+  type SortValue,
   validateRelationshipPaths,
   type ExplorerGraph,
 } from '../../explorer-core';
@@ -30,17 +31,24 @@ import {
   createContentTableColumns,
   useContentTable,
 } from '../content-table-model';
-import { loadedSnapshot, type LoadedView } from '../load-view';
+import { loadedItemsById, loadedSnapshot, namedSortValue, type LoadedView } from '../load-view';
 import { describeExplorerError } from '../error-message';
 import {
   columnIdForSort,
   contentItemColumns,
   hiddenColumnIds,
+  cellText,
   sortForColumn,
   visibleColumnIds,
 } from '../content-item-presentation';
 import { CellValue } from './CellValue';
-import { ContentColumnsMenu, ContentTableGrid, ContentTablePagination } from './ContentTable';
+import {
+  ContentColumnsMenu,
+  ContentTableGrid,
+  ContentTablePagination,
+  HiddenSortNote,
+} from './ContentTable';
+import { shownCount } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { tableFilterControls } from './FilterControls';
 import { PublicationStatusCell } from './PublicationStatusCell';
@@ -136,6 +144,8 @@ interface SortedIdsInput {
   readonly filters: readonly ViewFilter[];
   readonly freeText: string;
   readonly sort: SortState;
+  /** Set when the sort column holds relationships, to order them by name. */
+  readonly valueOf: SortValue | undefined;
 }
 
 function createSortedIdsMemo() {
@@ -151,7 +161,8 @@ function createSortedIdsMemo() {
       previousInput.parentItemId === input.parentItemId &&
       previousInput.filters === input.filters &&
       previousInput.freeText === input.freeText &&
-      previousInput.sort === input.sort
+      previousInput.sort === input.sort &&
+      previousInput.valueOf === input.valueOf
     ) {
       return previousResult;
     }
@@ -170,7 +181,7 @@ function createSortedIdsMemo() {
       input.filters,
       input.freeText,
     );
-    previousResult = sortItemIds(input.snapshot, filtered, input.sort);
+    previousResult = sortItemIds(input.snapshot, filtered, input.sort, input.valueOf);
     return previousResult;
   };
 }
@@ -261,16 +272,32 @@ export function NestedTable(props: NestedTableProps) {
     filters: sharedState.filters,
     freeText: sharedState.freeText,
     sort: sharedState.sort,
+    valueOf: columns.some(
+      (column) =>
+        column.id === columnIdForSort(sharedState.sort) &&
+        column.kind === 'value' &&
+        column.relationship,
+    )
+      ? namedSortValue(loadedView)
+      : undefined,
   });
 
   const items = deriveItems(childSnapshot, sortedIds);
+  // Before this table's search and filters, for "2 of 5" and to tell "none" from "none match".
+  const relatedCount = graph.relatedItemIds(node.id, parentItemId).length;
   const hasManagerLink = node.reference.area !== 'other';
   const canExpand = node.children.length > 0;
   const actionColumnWidth = contentActionColumnWidth(canExpand, hasManagerLink);
   const tableColumns = createContentTableColumns({
     definitions: columns,
     actionColumnWidth,
-    renderValue: (value, column) => <CellValue value={value} richText={column.richText} />,
+    renderValue: (value, column) => (
+      <CellValue
+        value={value}
+        richText={column.richText}
+        text={cellText(column, value, () => loadedItemsById(loadedView))}
+      />
+    ),
     renderStatus: (item) => (
       <PublicationStatusCell item={item} reference={{ ...node.reference, itemZuid: item.id }} />
     ),
@@ -391,11 +418,12 @@ export function NestedTable(props: NestedTableProps) {
       className="relative min-w-0 overflow-visible rounded-lg border border-divider-emphasis bg-surface-nested"
       aria-label={`${node.name} related items`}
     >
-      <div className="flex min-h-14 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
+      <div className="flex min-h-12 items-center justify-between gap-4 rounded-t-lg border-b border-border bg-surface-control px-2.5 py-2 pl-3.5 max-lg:items-start max-lg:flex-col">
         <div className="min-w-28">
           <strong className="text-xs">{node.name}</strong>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {sortedIds.length} related items
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            <span>{shownCount(items.length, relatedCount, 'related item', 'related items')}</span>
+            <HiddenSortNote table={table} columns={columns} />
           </span>
         </div>
         <div className="flex items-center gap-2 max-lg:w-full">
@@ -432,7 +460,13 @@ export function NestedTable(props: NestedTableProps) {
         canExpand={canExpand}
         onOpenDetails={onOpenDetails}
         emptyContent={
-          <p className="m-0 p-4.5 text-xs text-muted-foreground">No related items match.</p>
+          <p className="m-0 p-4.5 text-xs text-muted-foreground">
+            {relatedCount > 0
+              ? 'No related items match these filters.'
+              : contentScope.state === 'published'
+                ? `This item has no published related ${node.name}.`
+                : `This item has no related ${node.name}.`}
+          </p>
         }
         renderExpandedRow={(item) => (
           <div className="grid gap-2.5 border-l-3 border-accent/30 py-3 pr-3 pl-4.5">
@@ -448,7 +482,7 @@ export function NestedTable(props: NestedTableProps) {
           </div>
         )}
       />
-      <ContentTablePagination table={table} itemCount={items.length} itemLabel="related items" />
+      <ContentTablePagination table={table} itemCount={items.length} />
     </section>
   );
 }

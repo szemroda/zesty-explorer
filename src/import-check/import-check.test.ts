@@ -461,7 +461,7 @@ describe('exports', () => {
 
     expect(report).toContain('# Import check: cities.csv → Cities');
     expect(report).toContain('**3 items expected** from 12 lines.');
-    expect(report).toContain('12 lines − 6 won’t import − 3 lines that aren’t entries = 3 items');
+    expect(report).toContain('12 lines − 6 won’t import − 3 lines that aren’t rows = 3 items');
     expect(report).toContain('## Won’t import (−6)');
     expect(report).toContain(
       'Columns: title → Title, rating → Rating, country → Country, body → Body. Path part from path.',

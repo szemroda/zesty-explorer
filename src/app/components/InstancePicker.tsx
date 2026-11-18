@@ -7,6 +7,7 @@ import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { Button } from './ui/button';
 import { Combobox } from './ui/combobox';
 import { Field, FieldLabel } from './ui/field';
+import { Input } from './ui/input';
 
 interface InstancePickerProps {
   readonly query: InstanceListQueryResult;
@@ -64,7 +65,7 @@ export function InstancePicker({
     <div className="grid gap-3">
       <Field error={error}>
         <Combobox.Root
-          key={`${value?.deployment ?? ''}:${value?.instanceZuid ?? 'empty'}`}
+          autoHighlight
           items={choices}
           value={selected ?? null}
           onValueChange={(choice) => onChange(choice?.reference)}
@@ -84,7 +85,7 @@ export function InstancePicker({
           <Combobox.InputGroup className="relative flex items-center">
             <Combobox.Input
               ref={inputRef}
-              className={`border-input bg-background ring-offset-background placeholder:text-muted-foreground hover:border-ring/60 focus-visible:ring-ring data-invalid:border-destructive data-invalid:focus-visible:ring-destructive/30 h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${loading ? 'pr-24' : 'pr-16'}`}
+              render={<Input className={loading ? 'pr-24' : 'pr-16'} />}
               placeholder={loading ? 'Loading instances…' : 'Search instances by name or ZUID'}
             />
             <div className="absolute right-1 flex items-center gap-0.5">
@@ -122,7 +123,7 @@ export function InstancePicker({
                 ) : (
                   <Combobox.Empty>
                     <div className="text-muted-foreground px-3 py-6 text-center text-sm">
-                      No instances found.
+                      No instance matches. Press Esc, then paste its Zesty URL below.
                     </div>
                   </Combobox.Empty>
                 )}
@@ -133,9 +134,11 @@ export function InstancePicker({
                       value={choice}
                       className="data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground hover:bg-surface-menu-hover relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                     >
-                      <Combobox.ItemIndicator className="flex size-4 shrink-0 items-center justify-center">
-                        <Check size={14} />
-                      </Combobox.ItemIndicator>
+                      <span className="flex size-4 shrink-0 items-center justify-center">
+                        <Combobox.ItemIndicator className="flex">
+                          <Check size={14} />
+                        </Combobox.ItemIndicator>
+                      </span>
                       <span className="flex min-w-0 flex-col">
                         <strong className="truncate font-medium">
                           {choice.name ?? choice.reference.instanceZuid}

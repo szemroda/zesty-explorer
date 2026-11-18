@@ -80,7 +80,7 @@ export function AddFilterButton({
       trigger={
         <PopoverTrigger
           render={
-            <Button variant="outline" aria-label={addLabel}>
+            <Button variant="outline" size="sm" aria-label={addLabel}>
               <ListFilter size={14} /> Filter
             </Button>
           }
@@ -353,9 +353,11 @@ function FieldPicker({ label, groups, field, onChoose }: FieldPickerProps) {
                         value={candidate}
                         className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-highlighted:bg-surface-menu-hover"
                       >
-                        <Combobox.ItemIndicator className="flex size-3.5 shrink-0 items-center justify-center text-primary">
-                          <Check size={13} />
-                        </Combobox.ItemIndicator>
+                        <span className="flex size-3.5 shrink-0 items-center justify-center text-primary">
+                          <Combobox.ItemIndicator className="flex">
+                            <Check size={13} />
+                          </Combobox.ItemIndicator>
+                        </span>
                         <span className="min-w-0 flex-1 truncate">{candidate.field.label}</span>
                         {isSearchField(candidate.field) ? (
                           <Search

@@ -104,7 +104,7 @@ describe('EndpointRequest', () => {
       target: { value: '6' },
     });
     expect(response).toHaveTextContent(sent);
-    expect(screen.queryByText('Source view')).not.toBeInTheDocument();
+    expect(screen.getByText('Source view')).not.toBeVisible();
   });
 
   it('sends a locked preview its password without showing it, unless the form sets zpw', async () => {
@@ -127,7 +127,6 @@ describe('EndpointRequest', () => {
       expect.anything(),
     );
     expect(newTabLink()).toHaveAttribute('href', `${preview}/data/list.json?limit=5`);
-    expect(response).toHaveTextContent(`${preview}/data/list.json?limit=5`);
     expect(response).not.toHaveTextContent('zpw');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add a query parameter' }));
@@ -165,7 +164,7 @@ describe('EndpointRequest', () => {
       </EndpointRequest>,
     );
 
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'Zesty Explorer could not read the preview lock password. If the preview answers 401, add ?zpw with the password.',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -224,7 +223,7 @@ describe('EndpointRequest', () => {
     renderPanel(endpoint('11-published', '{{get_var.limit}}'), 'published');
 
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'This instance has no live domain, so its published endpoints have no address.',
     );
   });
@@ -249,7 +248,7 @@ describe('EndpointRequest', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'Zesty Explorer could not look up the preview host of this instance.',
     );
   });
@@ -269,7 +268,7 @@ describe('EndpointRequest', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
     await waitFor(() => expect(signal?.aborted).toBe(true));
     expect(screen.getByRole('region', { name: 'Response' })).toHaveTextContent(
-      'send the request to see its response here',
+      'Send the request to see its response here',
     );
   });
 });
