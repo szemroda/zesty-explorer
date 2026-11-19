@@ -2,6 +2,7 @@ import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type {
   CollectionNode,
+  CollectionReference,
   ContentState,
   ItemPublishing,
   ItemZuid,
@@ -18,7 +19,7 @@ export type ViewPublications =
   /** Published content has no newer saved version to compare with, so it has no state. */
   | { readonly kind: 'published-content' }
   | { readonly kind: 'loading' }
-  | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'failed'; readonly message: string; readonly tokenRejected: boolean }
   | {
       readonly kind: 'ready';
       /** The version live now, or undefined when the item has none. */
@@ -31,22 +32,42 @@ const notNeeded: ViewPublications = { kind: 'not-needed' };
 const publishedContent: ViewPublications = { kind: 'published-content' };
 const loading: ViewPublications = { kind: 'loading' };
 
-/** Whether a view filter or any table filter of the view tests publication state. */
-export function filtersByPublication(
-  root: CollectionNode | undefined,
+/**
+ * The collections whose items publication filters test, one per model. A view filter tests the
+ * root's items, a table filter its own node's items, and "or below" every collection under them.
+ */
+function testedCollections(
+  root: CollectionNode,
   viewFilters: readonly ViewFilter[],
-): boolean {
-  if (viewFilters.some(isPublicationFilter)) return true;
-  if (!root) return false;
-  return flattenCollectionNodes(root).some((node) =>
-    node.presentation.filters.some(isPublicationFilter),
-  );
+): readonly CollectionReference[] {
+  const byModel = new Map<string, CollectionReference>();
+  const add = (owner: CollectionNode, filter: ViewFilter) => {
+    if (!isPublicationFilter(filter)) return;
+    let target: CollectionNode | undefined = owner;
+    for (const id of filter.nodePath) target = target?.children.find((child) => child.id === id);
+    if (!target) return;
+    const tested =
+      filter.operator === 'one-of-or-below' ? flattenCollectionNodes(target) : [target];
+    for (const node of tested) byModel.set(node.reference.modelZuid, node.reference);
+  };
+  viewFilters.forEach((filter) => add(root, filter));
+  for (const node of flattenCollectionNodes(root)) {
+    node.presentation.filters.forEach((filter) => add(node, filter));
+  }
+  return [...byModel.values()];
 }
 
-function combinePublications(results: readonly UseQueryResult<Publications, Error>[]) {
+function combinePublications(
+  results: readonly UseQueryResult<Publications, Error>[],
+): ViewPublications {
   const error = results.find((result) => result.error)?.error;
   if (error) {
-    return { kind: 'failed', message: (explorerFailure(error) ?? error).message } as const;
+    const failure = explorerFailure(error);
+    return {
+      kind: 'failed',
+      message: (failure ?? error).message,
+      tokenRejected: failure?.kind === 'authentication',
+    };
   }
   const maps = results.flatMap((result) => (result.data ? [result.data] : []));
   if (maps.length < results.length) return loading;
@@ -58,38 +79,36 @@ function combinePublications(results: readonly UseQueryResult<Publications, Erro
     }
     return undefined;
   };
-  return { kind: 'ready', publishedVersion } as const;
+  return { kind: 'ready', publishedVersion };
 }
 
 /**
- * Loads the publication state of every collection in the view when a filter needs it. Each model
- * is read once, however many nodes show it.
+ * Loads the publication state of the collections that publication filters test, each model once
+ * however many nodes show it. Nothing loads while no filter tests publication state.
  */
 export function useViewPublications({
   source,
   root,
+  viewFilters,
   contentState,
-  needed,
+  enabled,
 }: {
   readonly source: ModelPublicationsSource;
   readonly root: CollectionNode | undefined;
+  readonly viewFilters: readonly ViewFilter[];
   readonly contentState: ContentState;
-  readonly needed: boolean;
+  readonly enabled: boolean;
 }): ViewPublications {
-  const loads = needed && contentState === 'latest' && root !== undefined;
-  const references = useMemo(() => {
-    if (!loads) return [];
-    const byModel = new Map(
-      flattenCollectionNodes(root).map((node) => [node.reference.modelZuid, node.reference]),
-    );
-    return [...byModel.values()];
-  }, [loads, root]);
+  const references = useMemo(
+    () => (enabled && root ? testedCollections(root, viewFilters) : []),
+    [enabled, root, viewFilters],
+  );
+  const loads = contentState === 'latest' && references.length > 0;
   const queries = useQueries({
-    queries: references.map((reference) => modelPublicationsQuery(source, reference)),
+    queries: loads ? references.map((reference) => modelPublicationsQuery(source, reference)) : [],
     // A module-level function keeps its identity, so TanStack can reuse the combined result.
     combine: combinePublications,
   });
-  if (!needed) return notNeeded;
-  if (contentState === 'published') return publishedContent;
-  return references.length === 0 ? loading : queries;
+  if (references.length === 0) return notNeeded;
+  return loads ? queries : publishedContent;
 }

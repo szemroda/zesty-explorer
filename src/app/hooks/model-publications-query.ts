@@ -43,9 +43,15 @@ export function modelPublicationsQuery(
   });
 }
 
-/** Reloads the publications shown now and reports whether they all loaded. */
+/**
+ * Reloads the publications in use and reports whether they all loaded. The rest reload when a
+ * filter or cell next needs them.
+ */
 export async function refreshActiveModelPublications(queryClient: QueryClient): Promise<boolean> {
-  await queryClient.refetchQueries({ queryKey: modelPublicationsQueryPrefix, type: 'active' });
+  await queryClient.invalidateQueries({
+    queryKey: modelPublicationsQueryPrefix,
+    refetchType: 'active',
+  });
   return queryClient
     .getQueryCache()
     .findAll({ queryKey: modelPublicationsQueryPrefix, type: 'active' })

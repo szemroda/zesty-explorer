@@ -62,11 +62,7 @@ import {
   clearModelPublicationsOutsideScope,
   refreshActiveModelPublications,
 } from './hooks/model-publications-query';
-import {
-  filtersByPublication,
-  useViewPublications,
-  type ViewPublications,
-} from './hooks/useViewPublications';
+import { useViewPublications, type ViewPublications } from './hooks/useViewPublications';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
@@ -455,6 +451,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     refresh: refreshCollections,
     retryRoot,
   } = loadedViewQuery;
+  const viewPublications = useViewPublications({
+    source: { api, sessionToken: activeToken, credentialRevision },
+    root: treeRoot,
+    viewFilters,
+    contentState,
+    enabled: screen === 'view',
+  });
   const catalogQuery = useCollectionCatalog({
     api,
     reference: catalogInstance,
@@ -537,6 +540,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       instanceListAuthenticationFailed ||
       catalogAuthenticationFailed ||
       authenticationFailed ||
+      (viewPublications.kind === 'failed' && viewPublications.tokenRejected) ||
       previewAuthenticationFailureRevision === credentialRevision ||
       workspaceAuthenticationFailureRevision === credentialRevision;
     if (!tokenRejected || !activeToken) return;
@@ -549,6 +553,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [
     activeToken,
     authenticationFailed,
+    viewPublications,
     catalogAuthenticationFailed,
     instanceListAuthenticationFailed,
     workspaceAuthenticationFailureRevision,
@@ -578,12 +583,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }, [contentScope, loadedView, selectedItemId, treeRoot]);
 
-  const viewPublications = useViewPublications({
-    source: { api, sessionToken: activeToken, credentialRevision },
-    root: treeRoot,
-    contentState,
-    needed: screen === 'view' && filtersByPublication(treeRoot, viewFilters),
-  });
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
   const loadRelationshipSchema = useMemo(
     () => schemaLoader(api, activeToken, relationshipSchemaSemaphore),
