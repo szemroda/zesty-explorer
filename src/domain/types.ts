@@ -154,6 +154,15 @@ export interface ItemPublishing {
   readonly active: boolean;
 }
 
+/** One record from a model's bulk publishing list. Each publish of an item adds one. */
+export interface ModelPublishing {
+  readonly itemZuid: ItemZuid;
+  readonly version: number;
+  readonly publishAt: string;
+  /** When the record stopped being live; absent while it is live or still to come. */
+  readonly unpublishAt?: string;
+}
+
 export interface InstanceUser {
   readonly id: UserZuid;
   readonly firstName?: string;
@@ -306,6 +315,7 @@ export type ExplorerRequestOperation =
   | 'load-collection-items'
   | 'load-item-versions'
   | 'load-item-publishings'
+  | 'load-model-publishings'
   | 'load-instance-users'
   | 'load-code-files'
   | 'load-code-file-versions'

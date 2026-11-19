@@ -88,6 +88,7 @@ function api(
     loadItemVersions: () => Effect.succeed([]),
     loadItemPublishings: () => Effect.succeed([]),
     loadInstanceUsers: () => Effect.succeed([]),
+    loadModelPublishings: () => Effect.succeed([]),
     loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
     loadCodeFileVersions: () => Effect.succeed({ versions: [], total: 0 }),
     loadWebEngineBaseUrls: () => Effect.succeed([]),

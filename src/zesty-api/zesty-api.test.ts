@@ -744,6 +744,63 @@ describe('ZestyApi', () => {
     );
   });
 
+  it('reads every page of bulk model publishings until a short page', async () => {
+    const record = (item: string, page: number) => ({
+      ZUID: `18-${item}-${page}`,
+      itemZUID: `7-${item}`,
+      version: page,
+      versionZUID: `9-${item}`,
+      publishAt: '2026-02-03T12:00:00Z',
+      unpublishAt: page === 1 ? '2026-03-03T12:00:00Z' : null,
+      publishedByUserZUID: '5-publisher',
+      message: null,
+    });
+    const fake = fakeTransport((request) => {
+      const url = new URL(request.url);
+      const page = Number(url.searchParams.get('page'));
+      const limit = Number(url.searchParams.get('limit'));
+      // A full first page, then a short one.
+      const data =
+        page === 1
+          ? Array.from({ length: limit }, (_, index) => record(`full-${index}`, 1))
+          : [record('last-one', 2), { ...record('never-live', 2), publishAt: null }];
+      return Effect.succeed({ status: 200, headers: {}, body: { data } });
+    });
+
+    const records = await Effect.runPromise(
+      createZestyApi(fake.transport).loadModelPublishings(reference, 'private-token'),
+    );
+
+    expect(records).toHaveLength(10_001);
+    expect(records[0]).toEqual({
+      itemZuid: '7-full-0',
+      version: 1,
+      publishAt: '2026-02-03T12:00:00Z',
+      unpublishAt: '2026-03-03T12:00:00Z',
+    });
+    expect(records.at(-1)).toEqual({
+      itemZuid: '7-last-one',
+      version: 2,
+      publishAt: '2026-02-03T12:00:00Z',
+    });
+    expect(fake.requests.map((request) => request.url)).toEqual([
+      'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/publishings?limit=10000&page=1',
+      'https://8-abc123.api.zesty.io/v1/content/models/6-model123/items/publishings?limit=10000&page=2',
+    ]);
+  });
+
+  it('rejects bulk publishings in an unexpected shape', async () => {
+    const error = await Effect.runPromise(
+      Effect.flip(
+        createZestyApi(
+          respondWith({ data: [{ itemZUID: 'not-an-item', version: 1 }] }).transport,
+        ).loadModelPublishings(reference, 'private-token'),
+      ),
+    );
+
+    expect(error.message).toBe('Zesty returned model publishings in an unsupported shape.');
+  });
+
   it('loads instance users from the deployment-specific Accounts API', async () => {
     const fake = respondWith({
       data: [

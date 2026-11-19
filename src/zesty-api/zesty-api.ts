@@ -8,6 +8,7 @@ import {
   decodeItemVersions,
   isCodeFileZuid,
   isModelZuid,
+  ItemZuidSchema,
   safeRequestUrl,
   unsupportedShapeError,
   UserZuidSchema,
@@ -37,6 +38,7 @@ import {
   type InstanceListEntry,
   type InstanceUser,
   type ItemPublishing,
+  type ModelPublishing,
   type PreviewLock,
 } from '../domain';
 import type {
@@ -129,6 +131,16 @@ const RawPublishingSchema = Schema.Struct({
   _active: Schema.Boolean,
 });
 const RawPublishingsResponseSchema = Schema.Struct({ data: Schema.Array(RawPublishingSchema) });
+// A model's bulk list has no `_active` flag; its records are live between their two times.
+const RawModelPublishingSchema = Schema.Struct({
+  itemZUID: ItemZuidSchema,
+  version: Schema.Number,
+  publishAt: Schema.optional(Schema.NullOr(Schema.String)),
+  unpublishAt: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const RawModelPublishingsResponseSchema = Schema.Struct({
+  data: Schema.Array(RawModelPublishingSchema),
+});
 const RawInstanceUserSchema = Schema.Struct({
   ZUID: UserZuidSchema,
   firstName: Schema.optional(Schema.NullOr(Schema.String)),
@@ -186,6 +198,8 @@ const defaultOptions = {
 
 // Zesty loads no faster with more pages at once, and at four it starts to answer with errors.
 const collectionPageConcurrency = 2;
+// What Zesty's own content list asks for. A page of 10,000 records took Zesty about one second.
+const modelPublishingsPageSize = 10_000;
 
 function fieldKind(datatype: string): FieldKind {
   const normalized = datatype.toLowerCase().replaceAll('_', '-');
@@ -486,6 +500,30 @@ function decodePublishings(
       ...(publishing.unpublishAt ? { unpublishAt: publishing.unpublishAt } : {}),
       active: publishing._active,
     })),
+  );
+}
+
+function decodeModelPublishings(
+  input: unknown,
+): Either.Either<readonly ModelPublishing[], ExplorerError> {
+  const decoded = Schema.decodeUnknownEither(RawModelPublishingsResponseSchema, {
+    errors: 'all',
+  })(input);
+  if (Either.isLeft(decoded)) {
+    return Either.left(
+      unsupportedShapeError(
+        'Zesty returned model publishings in an unsupported shape.',
+        decoded.left,
+      ),
+    );
+  }
+  // A record without a start time was never live, so the status has nothing to read from it.
+  return Either.right(
+    decoded.right.data.flatMap(({ itemZUID, version, publishAt, unpublishAt }) =>
+      publishAt
+        ? [{ itemZuid: itemZUID, version, publishAt, ...(unpublishAt ? { unpublishAt } : {}) }]
+        : [],
+    ),
   );
 }
 
@@ -968,6 +1006,33 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
         ),
       );
     },
+
+    loadModelPublishings: (reference, sessionToken) =>
+      Effect.gen(function* () {
+        const records: ModelPublishing[] = [];
+        // Zesty reports only the size of each page, so the list ends at a short page.
+        for (let page = 1; ; page += 1) {
+          const url = new URL(
+            `${reference.apiBaseUrl}/content/models/${reference.modelZuid}/items/publishings`,
+          );
+          url.searchParams.set('limit', String(modelPublishingsPageSize));
+          url.searchParams.set('page', String(page));
+          const requestUrl = url.toString();
+          const operation = 'load-model-publishings' as const;
+          const response = yield* requestCollectionPage(
+            authenticatedRequest(requestUrl, sessionToken),
+            operation,
+          );
+          const decoded = decodeModelPublishings(response.body);
+          if (Either.isLeft(decoded)) {
+            return yield* Effect.fail(
+              withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
+            );
+          }
+          records.push(...decoded.right);
+          if (decoded.right.length < modelPublishingsPageSize) return records;
+        }
+      }),
 
     loadCodeFiles: (reference, state, sessionToken) => {
       const url = new URL(`${reference.apiBaseUrl}/web/views`);

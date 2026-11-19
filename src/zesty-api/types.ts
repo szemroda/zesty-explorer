@@ -20,6 +20,7 @@ import type {
   InstanceReference,
   InstanceUser,
   ItemPublishing,
+  ModelPublishing,
 } from '../domain';
 
 export interface ZestyTransportRequest {
@@ -85,6 +86,14 @@ export interface ItemVersionApi {
   ): Effect.Effect<readonly InstanceUser[], ExplorerError>;
 }
 
+export interface ModelPublishingApi {
+  /** Every publishing record of the model's items, in every language, history included. */
+  loadModelPublishings(
+    reference: CollectionReference,
+    sessionToken: string,
+  ): Effect.Effect<readonly ModelPublishing[], ExplorerError>;
+}
+
 export interface CodeFileApi {
   /** Lists every `/web/views` file with its source in one code state. */
   loadCodeFiles(
@@ -122,7 +131,8 @@ export interface InstanceApi {
   ): Effect.Effect<InstanceList, ExplorerError>;
 }
 
-export interface ZestyApi extends CollectionApi, ItemVersionApi, CodeFileApi, InstanceApi {}
+export interface ZestyApi
+  extends CollectionApi, ItemVersionApi, ModelPublishingApi, CodeFileApi, InstanceApi {}
 
 export interface ZestyApiOptions {
   readonly budget?: RequestBudget;
