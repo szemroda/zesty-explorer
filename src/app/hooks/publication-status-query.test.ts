@@ -2,12 +2,12 @@ import { hashKey, QueryClient, QueryObserver } from '@tanstack/react-query';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference, ItemZuid } from '../../domain';
-import type { ItemVersionApi } from '../../zesty-api';
 import {
   countStatusOnScreen,
-  loadPublicationStatus,
-  publicationStatusQueryPrefix,
+  loadSavedVersions,
+  savedVersionsQueryPrefix,
   refreshActivePublicationStatuses,
+  type PublicationStatusSource,
 } from './publication-status-query';
 import { createRequestBudget } from '../../zesty-api/request-budget';
 import { memoryRequestSlots, memoryCooldownStorage } from '../../test/request-budget';
@@ -26,7 +26,7 @@ function referenceFor(itemZuid: ItemZuid): ContentItemReference {
   };
 }
 
-describe('loadPublicationStatus', () => {
+describe('loadSavedVersions', () => {
   it('shares four HTTP slots with interactive work and skips requests for a dropped row', async () => {
     const budget = createRequestBudget({
       takeSlot: memoryRequestSlots(),
@@ -40,11 +40,11 @@ describe('loadPublicationStatus', () => {
     const started: string[] = [];
     let active = 0;
     let peak = 0;
-    const api: ItemVersionApi = {
+    const api: PublicationStatusSource['api'] = {
       loadItemVersions: (reference) =>
         budget.run('instances', () =>
           Effect.promise(async () => {
-            started.push(`${reference.itemZuid}/versions`);
+            started.push(reference.itemZuid);
             active += 1;
             peak = Math.max(peak, active);
             await versionsReleased;
@@ -52,18 +52,9 @@ describe('loadPublicationStatus', () => {
             return [{ number: 1, item }];
           }),
         ),
-      loadItemPublishings: (reference) =>
-        budget.run('instances', () =>
-          Effect.promise(async () => {
-            started.push(`${reference.itemZuid}/publishings`);
-            active += 1;
-            peak = Math.max(peak, active);
-            await versionsReleased;
-            active -= 1;
-            return [];
-          }),
-        ),
+      loadItemPublishings: () => Effect.succeed([]),
       loadInstanceUsers: () => Effect.succeed([]),
+      loadModelPublishings: () => Effect.succeed([]),
     };
     const source = {
       api,
@@ -81,10 +72,10 @@ describe('loadPublicationStatus', () => {
     ];
     const dropped = new Set<ItemZuid>();
     const rows = itemZuids.map((itemZuid) => {
-      const status = loadPublicationStatus(source, referenceFor(itemZuid), item, () =>
+      const versions = loadSavedVersions(source, referenceFor(itemZuid), () =>
         dropped.has(itemZuid) ? { kind: 'dropped' } : { kind: 'needed', rank: 0 },
       );
-      return { itemZuid, status };
+      return { itemZuid, versions };
     });
 
     await vi.waitFor(() => expect(started).toHaveLength(4));
@@ -99,16 +90,14 @@ describe('loadPublicationStatus', () => {
     if (!waiting || !last) throw new Error('Expected six rows.');
     dropped.add(waiting.itemZuid);
     releaseVersions();
-    await expect(waiting.status).rejects.toThrow();
-    await Promise.all([
-      interactive,
-      ...rows.filter((row) => row !== waiting).map((row) => row.status),
-    ]);
+    await expect(waiting.versions).rejects.toThrow();
+    const loaded = await Promise.all(
+      rows.filter((row) => row !== waiting).map((row) => row.versions),
+    );
+    await interactive;
     expect(peak).toBe(4);
-    expect(started).toHaveLength(11);
-    expect(started[4]).toBe('interactive');
-    expect(started).toContain(`${last.itemZuid}/versions`);
-    expect(started.some((request) => request.startsWith(waiting.itemZuid))).toBe(false);
+    expect(started).toEqual(['7-row-1', '7-row-2', '7-row-3', '7-row-4', 'interactive', '7-row-6']);
+    expect(loaded).toEqual(Array.from({ length: 5 }, () => [{ number: 1 }]));
   });
 
   it('waits on Refresh only for statuses on screen, and reloads the rest in the background', async () => {
@@ -117,7 +106,7 @@ describe('loadPublicationStatus', () => {
     const show = (name: string, reload: () => Promise<string>) => {
       let loaded = false;
       return new QueryObserver(client, {
-        queryKey: [...publicationStatusQueryPrefix, name],
+        queryKey: [...savedVersionsQueryPrefix, name],
         queryFn: () => {
           loads.push(name);
           if (loaded) return reload();
@@ -133,13 +122,11 @@ describe('loadPublicationStatus', () => {
     await vi.waitFor(() =>
       expect(
         ['on-screen', 'below'].map((name) =>
-          client.getQueryData([...publicationStatusQueryPrefix, name]),
+          client.getQueryData([...savedVersionsQueryPrefix, name]),
         ),
       ).toEqual(['on-screen', 'below']),
     );
-    const leaveScreen = countStatusOnScreen(
-      hashKey([...publicationStatusQueryPrefix, 'on-screen']),
-    );
+    const leaveScreen = countStatusOnScreen(hashKey([...savedVersionsQueryPrefix, 'on-screen']));
 
     expect(await refreshActivePublicationStatuses(client)).toBe(true);
     expect(loads.toSorted()).toEqual(['below', 'below', 'on-screen', 'on-screen']);
