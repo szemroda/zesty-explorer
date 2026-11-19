@@ -803,6 +803,79 @@ describe('root collection browser', () => {
     expect(window.location.href).not.toContain('stored-session-token');
   });
 
+  it('filters a shared view by publication status read in one request per model', async () => {
+    const loadModelPublishings = vi.fn<ZestyApi['loadModelPublishings']>(() =>
+      Effect.succeed([
+        // The first story has a newer save than the one live; the second story is live as saved.
+        { itemZuid: '7-000000-aaaaaa', version: 1, publishAt: '2026-01-05T12:00:00Z' },
+        { itemZuid: '7-000000-bbbbbb', version: 1, publishAt: '2026-01-05T12:00:00Z' },
+      ]),
+    );
+    openSharedView(
+      { ...rootWithChild, children: [] },
+      {
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator: 'one-of',
+            value: ['not-published', 'unpublished-changes'],
+          },
+        ],
+      },
+    );
+
+    render(
+      <App
+        api={{ ...api(), loadModelPublishings }}
+        tokenStore={memoryTokenStore([['production', 'stored-session-token']])}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Edit filter Publication status is Not published, Unpublished changes',
+      }),
+    ).toBeInTheDocument();
+    // Rows stay hidden while the status loads, and role queries skip hidden rows.
+    expect(await screen.findByRole('row', { name: /First story/ })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /Second story/ })).not.toBeInTheDocument();
+    expect(loadModelPublishings).toHaveBeenCalledTimes(1);
+    expect(loadModelPublishings.mock.calls[0]?.[0].modelZuid).toBe('6-model123');
+  });
+
+  it('explains that published content has no publication status to filter by', async () => {
+    const loadModelPublishings = vi.fn<ZestyApi['loadModelPublishings']>(() => Effect.succeed([]));
+    openSharedView(
+      { ...rootWithChild, children: [] },
+      {
+        contentState: 'published',
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator: 'one-of',
+            value: ['published'],
+          },
+        ],
+      },
+    );
+
+    render(
+      <App
+        api={{ ...api(), loadModelPublishings }}
+        tokenStore={memoryTokenStore([['production', 'stored-session-token']])}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Publication status is known only for latest content/),
+    ).toBeInTheDocument();
+    expect(loadModelPublishings).not.toHaveBeenCalled();
+  });
+
   it('offers raw-data recovery and a reset for malformed links', () => {
     window.history.replaceState(null, '', '#view=truncated-data');
     render(<App api={api()} tokenStore={memoryTokenStore()} />);

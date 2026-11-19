@@ -4,6 +4,7 @@ import type {
   ContentItem,
   FieldPath,
   ItemZuid,
+  PublicationState,
   Scalar,
   SortState,
   ViewFilter,
@@ -22,6 +23,12 @@ export interface FilterCondition {
   readonly value?: unknown;
 }
 
+/**
+ * The field path filters use for an item's publication state. The state comes from the graph,
+ * not from the item, so `resolveFieldPath` never finds it.
+ */
+export const publicationFieldPath: FieldPath = ['$publication'];
+
 export interface ExplorerGraphInput {
   readonly rootNodeId: CollectionNodeId;
   readonly snapshots: ReadonlyMap<CollectionNodeId, CollectionSnapshot>;
@@ -37,6 +44,18 @@ export interface ExplorerGraph {
   snapshot(nodeId: CollectionNodeId): CollectionSnapshot;
   childNodeIds(nodeId: CollectionNodeId): readonly CollectionNodeId[];
   relatedItemIds(childNodeId: CollectionNodeId, parentItemId: ItemZuid): readonly ItemZuid[];
+  /** Undefined until the publication state of the view's items has loaded. */
+  publicationState(item: ContentItem): PublicationState | undefined;
+}
+
+/** The item's state from its latest saved version and the version live now, if any. */
+export function publicationStateOf(
+  latestVersion: number | undefined,
+  publishedVersion: number | undefined,
+): PublicationState | undefined {
+  if (latestVersion === undefined) return undefined;
+  if (publishedVersion === undefined) return 'not-published';
+  return publishedVersion < latestVersion ? 'unpublished-changes' : 'published';
 }
 
 const missing: ResolvedFieldValue = { kind: 'missing' };
@@ -152,7 +171,7 @@ export function matchesFilter(item: ContentItem, filter: FilterCondition): boole
   if (filter.operator === 'true' || filter.operator === 'false') {
     return optionKey(value) === filter.operator;
   }
-  if (filter.operator === 'one-of') {
+  if (filter.operator === 'one-of' || filter.operator === 'one-of-or-below') {
     const key = optionKey(value);
     return (
       Array.isArray(filter.value) &&
@@ -199,6 +218,7 @@ export function createExplorerGraph(input: ExplorerGraphInput): ExplorerGraph {
     childNodeIds: (nodeId) => input.childrenByNode.get(nodeId) ?? [],
     relatedItemIds: (childNodeId, parentItemId) =>
       input.relationshipsByChildNode.get(childNodeId)?.get(parentItemId) ?? noRelatedItems,
+    publicationState: () => undefined,
   };
 }
 
@@ -222,22 +242,81 @@ function someRelatedItem(
   return answer;
 }
 
+/** Answers for one walk down the tree from some items. One memo serves one item test. */
+interface TreeMemo {
+  readonly items: Map<CollectionNodeId, Map<ItemZuid, boolean>>;
+  readonly relatedLists: RelatedListMemo;
+}
+
+function emptyTreeMemo(): TreeMemo {
+  return { items: new Map(), relatedLists: new Map() };
+}
+
+// Whether the item or any related item below it passes `matches`.
+function matchesHereOrBelow(
+  graph: ExplorerGraph,
+  nodeId: CollectionNodeId,
+  itemId: ItemZuid,
+  matches: (item: ContentItem) => boolean,
+  memo: TreeMemo,
+): boolean {
+  const nodeMemo = memo.items.get(nodeId) ?? new Map<ItemZuid, boolean>();
+  if (!memo.items.has(nodeId)) memo.items.set(nodeId, nodeMemo);
+  const cached = nodeMemo.get(itemId);
+  if (cached !== undefined) return cached;
+
+  const item = graph.snapshot(nodeId).itemsById.get(itemId);
+  if (!item) {
+    nodeMemo.set(itemId, false);
+    return false;
+  }
+  if (matches(item)) {
+    nodeMemo.set(itemId, true);
+    return true;
+  }
+  const result = graph
+    .childNodeIds(nodeId)
+    .some((childNodeId) =>
+      someRelatedItem(graph, childNodeId, itemId, memo.relatedLists, (childId) =>
+        matchesHereOrBelow(graph, childNodeId, childId, matches, memo),
+      ),
+    );
+  nodeMemo.set(itemId, result);
+  return result;
+}
+
+// Whether one item passes the filter's own test, before following relationships.
+function itemTest(graph: ExplorerGraph, filter: ViewFilter): (item: ContentItem) => boolean {
+  if (filter.fieldPath.join('.') !== publicationFieldPath.join('.')) {
+    return (item) => matchesFilter(item, filter);
+  }
+  const states: readonly unknown[] = Array.isArray(filter.value) ? filter.value : [];
+  return (item) => {
+    const state = graph.publicationState(item);
+    return state !== undefined && states.includes(state);
+  };
+}
+
 function matchesPath(
   graph: ExplorerGraph,
   nodeId: CollectionNodeId,
   itemId: ItemZuid,
   nodePath: readonly CollectionNodeId[],
   filter: ViewFilter,
-  memo: RelatedListMemo,
+  matches: (item: ContentItem) => boolean,
+  memo: TreeMemo,
 ): boolean {
   if (nodePath.length === 0) {
+    if (filter.operator === 'one-of-or-below') {
+      return matchesHereOrBelow(graph, nodeId, itemId, matches, memo);
+    }
     const item = graph.snapshot(nodeId).itemsById.get(itemId);
-    return item ? matchesFilter(item, filter) : false;
+    return item ? matches(item) : false;
   }
   const [childNodeId, ...rest] = nodePath;
   if (!childNodeId || !graph.childNodeIds(nodeId).includes(childNodeId)) return false;
-  return someRelatedItem(graph, childNodeId, itemId, memo, (childId) =>
-    matchesPath(graph, childNodeId, childId, rest, filter, memo),
+  return someRelatedItem(graph, childNodeId, itemId, memo.relatedLists, (childId) =>
+    matchesPath(graph, childNodeId, childId, rest, filter, matches, memo),
   );
 }
 
@@ -279,43 +358,6 @@ function itemContains(item: ContentItem, search: string): boolean {
   return values.some((value) => value.includes(search));
 }
 
-interface SearchMemo {
-  readonly items: Map<CollectionNodeId, Map<ItemZuid, boolean>>;
-  readonly relatedLists: RelatedListMemo;
-}
-
-function graphContains(
-  graph: ExplorerGraph,
-  nodeId: CollectionNodeId,
-  itemId: ItemZuid,
-  search: string,
-  memo: SearchMemo,
-): boolean {
-  const nodeMemo = memo.items.get(nodeId) ?? new Map<ItemZuid, boolean>();
-  if (!memo.items.has(nodeId)) memo.items.set(nodeId, nodeMemo);
-  const cached = nodeMemo.get(itemId);
-  if (cached !== undefined) return cached;
-
-  const item = graph.snapshot(nodeId).itemsById.get(itemId);
-  if (!item) {
-    nodeMemo.set(itemId, false);
-    return false;
-  }
-  if (itemContains(item, search)) {
-    nodeMemo.set(itemId, true);
-    return true;
-  }
-  const result = graph
-    .childNodeIds(nodeId)
-    .some((childNodeId) =>
-      someRelatedItem(graph, childNodeId, itemId, memo.relatedLists, (childId) =>
-        graphContains(graph, childNodeId, childId, search, memo),
-      ),
-    );
-  nodeMemo.set(itemId, result);
-  return result;
-}
-
 export function filterNodeItemIds(
   graph: ExplorerGraph,
   nodeId: CollectionNodeId,
@@ -325,15 +367,18 @@ export function filterNodeItemIds(
 ): readonly ItemZuid[] {
   const search = normalizedText(freeText);
   if (filters.length === 0 && !search) return itemIds;
-  const searchMemo: SearchMemo = { items: new Map(), relatedLists: new Map() };
+  const searchMemo = emptyTreeMemo();
+  const containsSearch = (item: ContentItem) => itemContains(item, search);
   const filterChecks = filters.map((filter) => {
-    const memo: RelatedListMemo = new Map();
-    return (itemId: ItemZuid) => matchesPath(graph, nodeId, itemId, filter.nodePath, filter, memo);
+    const memo = emptyTreeMemo();
+    const matches = itemTest(graph, filter);
+    return (itemId: ItemZuid) =>
+      matchesPath(graph, nodeId, itemId, filter.nodePath, filter, matches, memo);
   });
   return itemIds.filter(
     (itemId) =>
-      filterChecks.every((matches) => matches(itemId)) &&
-      (!search || graphContains(graph, nodeId, itemId, search, searchMemo)),
+      filterChecks.every((check) => check(itemId)) &&
+      (!search || matchesHereOrBelow(graph, nodeId, itemId, containsSearch, searchMemo)),
   );
 }
 

@@ -62,6 +62,11 @@ import {
   clearModelPublicationsOutsideScope,
   refreshActiveModelPublications,
 } from './hooks/model-publications-query';
+import {
+  filtersByPublication,
+  useViewPublications,
+  type ViewPublications,
+} from './hooks/useViewPublications';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
@@ -422,7 +427,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const requiresCompleteView = Boolean(
     treeRoot?.children.length &&
-    (treeRoot.presentation.freeText || viewFilters.some((filter) => filter.nodePath.length > 0)),
+    (treeRoot.presentation.freeText ||
+      viewFilters.some(
+        (filter) => filter.nodePath.length > 0 || filter.operator === 'one-of-or-below',
+      )),
   );
   const loadedViewQuery = useLoadedView({
     api,
@@ -570,6 +578,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return undefined;
   }, [contentScope, loadedView, selectedItemId, treeRoot]);
 
+  const viewPublications = useViewPublications({
+    source: { api, sessionToken: activeToken, credentialRevision },
+    root: treeRoot,
+    contentState,
+    needed: screen === 'view' && filtersByPublication(treeRoot, viewFilters),
+  });
   const descendantResultsPending = loadStatus.kind === 'loading-related-data';
   const loadRelationshipSchema = useMemo(
     () => schemaLoader(api, activeToken, relationshipSchemaSemaphore),
@@ -1363,6 +1377,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   ready.
                 </p>
               ) : null}
+              <PublicationNotice publications={viewPublications} />
               {viewIsIncomplete ? (
                 <p
                   className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
@@ -1388,7 +1403,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   treeRoot={treeRoot}
                   loadedView={loadedView}
                   contentScope={contentScope}
-                  resultsPending={descendantResultsPending}
+                  resultsPending={descendantResultsPending || viewPublications.kind === 'loading'}
+                  publishedVersion={
+                    viewPublications.kind === 'ready'
+                      ? viewPublications.publishedVersion
+                      : undefined
+                  }
                   viewFilters={viewFilters}
                   onViewFiltersChange={setViewFilters}
                   onOpenDetails={openDetails}
@@ -1524,5 +1544,26 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
       </TooltipProvider>
       <Toaster />
     </QueryClientProvider>
+  );
+}
+
+/** Says why filters on publication status can't show their results yet, or at all. */
+function PublicationNotice({ publications }: { readonly publications: ViewPublications }) {
+  const text =
+    publications.kind === 'loading'
+      ? 'Publication status is loading. Results filtered by it will appear when it is ready.'
+      : publications.kind === 'failed'
+        ? `Publication status could not load: ${publications.message} Filters on it match no items until Refresh loads it.`
+        : publications.kind === 'published-content'
+          ? 'Publication status is known only for latest content. Filters on it match no items here. Switch to Latest to use them.'
+          : undefined;
+  if (!text) return null;
+  return (
+    <p
+      className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
+      role="status"
+    >
+      {text}
+    </p>
   );
 }

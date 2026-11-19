@@ -154,6 +154,9 @@ export interface ItemPublishing {
   readonly active: boolean;
 }
 
+/** Whether an item's latest saved version is the one live now. */
+export type PublicationState = 'not-published' | 'unpublished-changes' | 'published';
+
 /** One record from a model's bulk publishing list. Each publish of an item adds one. */
 export interface ModelPublishing {
   readonly itemZuid: ItemZuid;
@@ -238,7 +241,9 @@ export type FilterOperator =
   | 'is-not-empty'
   | 'true'
   | 'false'
-  | 'one-of';
+  | 'one-of'
+  // `one-of` on the item itself or on any related item below it.
+  | 'one-of-or-below';
 
 export interface ViewFilter {
   readonly id: string;
