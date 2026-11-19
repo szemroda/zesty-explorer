@@ -249,6 +249,86 @@ describe('publication status cell', () => {
     expect(loaded).toEqual(['7-root-3', '7-nested-1', '7-nested-2', '7-root-1', '7-root-2']);
   });
 
+  it('shows the latest saved version from a latest view after switching to published', async () => {
+    const loadItemVersions = vi.fn<StatusApi['loadItemVersions']>(() =>
+      Effect.die('The latest view already showed the latest saved version.'),
+    );
+    const api = statusApi({
+      loadItemVersions,
+      loadModelPublishings: () => Effect.succeed([live(5)]),
+    });
+    const client = new QueryClient();
+    const view = (contentState: ContentState, row: ContentItem) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState={contentState}
+        >
+          <PublicationStatusCell item={row} reference={reference} />
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view('latest', item));
+    expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toBeVisible();
+
+    // The published view lists the item at its published version.
+    rerender(view('published', { ...item, metadata: { version: 5 } }));
+    expect(screen.getAllByRole('img').map((badge) => badge.getAttribute('aria-label'))).toEqual([
+      'Currently published version v5',
+      'Latest saved version v8',
+    ]);
+  });
+
+  it('sends no queued saved-versions request after the view switches to latest', async () => {
+    const takeSlot = memoryRequestSlots(1);
+    const release = await takeSlot(new AbortController().signal);
+    const budget = createRequestBudget({
+      takeSlot,
+      storage: memoryCooldownStorage(),
+      intervalMs: 0,
+    });
+    const sent: string[] = [];
+    const api = statusApi({
+      loadItemVersions: (itemReference) =>
+        budget.run('instances', () =>
+          Effect.sync(() => {
+            sent.push(itemReference.itemZuid);
+            return [{ number: 8, item }];
+          }),
+        ),
+    });
+    const client = new QueryClient();
+    const view = (contentState: ContentState) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState={contentState}
+        >
+          {(['7-row-1', '7-row-2'] as const).map((id) => (
+            <PublicationStatusCell
+              key={id}
+              item={item}
+              reference={{ ...reference, itemZuid: id }}
+            />
+          ))}
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    // Every slot is busy, so both rows' saved versions are still queued when the view switches.
+    const { rerender } = render(view('published'));
+    await act(() => Promise.resolve());
+    rerender(view('latest'));
+    release();
+
+    expect(await screen.findAllByRole('img', { name: 'Latest saved version v8' })).toHaveLength(2);
+    await act(() => Effect.runPromise(budget.run('instances', () => Effect.void)));
+    expect(sent).toEqual([]);
+  });
+
   it('sends each saved-versions request once per Refresh when Refresh is used again before it starts', async () => {
     const takeSlot = memoryRequestSlots(1);
     const budget = createRequestBudget({

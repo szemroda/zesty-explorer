@@ -72,7 +72,8 @@ function statusStanding(
 ): BackgroundStanding {
   if (
     latestLoads.get(queryHash) !== load ||
-    !queryClient.getQueryCache().get(queryHash)?.getObserversCount()
+    // A row of a latest view still observes the query, disabled, and needs no saved versions.
+    !queryClient.getQueryCache().get(queryHash)?.isActive()
   ) {
     return { kind: 'dropped' };
   }
@@ -128,10 +129,12 @@ interface PublicationStatusCellProps {
 
 /**
  * The item's saved versions, for a published view only: its rows show the published version, so
- * the latest saved one is read per item, queued behind rows on or near the screen.
+ * the latest saved one is read per item, queued behind rows on or near the screen. A row of a latest
+ * view is its latest saved version and records it, so switching to Published needs no request.
  */
 function useSavedVersions(
   source: PublicationStatusSource,
+  item: ContentItem,
   reference: ContentItemReference,
   cell: RefObject<HTMLElement | null>,
 ) {
@@ -151,6 +154,11 @@ function useSavedVersions(
     [source.credentialRevision, reference],
   );
   const queryHash = hashKey(queryKey);
+  const latestVersion = enabled ? undefined : contentItemVersionNumber(item);
+  useEffect(() => {
+    if (latestVersion !== undefined)
+      queryClient.setQueryData(queryKey, [{ number: latestVersion }]);
+  }, [latestVersion, queryClient, queryKey]);
   useEffect(() => {
     if (!enabled) return;
     newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
@@ -188,7 +196,7 @@ function ConnectedPublicationStatusCell({
 }: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
   const publications = useQuery(modelPublicationsQuery(source, reference));
-  const savedVersions = useSavedVersions(source, reference, cell);
+  const savedVersions = useSavedVersions(source, item, reference, cell);
   const versions = source.contentState === 'published' ? savedVersions.data : latestHasNoHistory;
   const status = useMemo(
     () =>
