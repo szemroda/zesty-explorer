@@ -52,7 +52,7 @@ import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } 
 import { SessionTokenForm } from './components/SessionTokenForm';
 import { useSessionTokens } from './hooks/useSessionTokens';
 import { useInstanceList } from './hooks/useInstanceList';
-import { InstanceList } from './components/InstanceList';
+import { InstancePicker } from './components/InstancePicker';
 import { InstanceDialog, InstanceSwitcherButton } from './components/InstanceSwitcher';
 import { RootPicker } from './components/RootPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
@@ -323,8 +323,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   const [schemasRefreshedAt, setSchemasRefreshedAt] = useState(0);
   const [schemaIndexSemaphore] = useState(() => Effect.runSync(Effect.makeSemaphore(2)));
 
-  // The selected instance owns both tabs. Selecting a different one resets the Code tab; the
-  // Explorer view is replaced when a root from the new instance is opened.
+  // The selected instance owns every tab. Switching to another one closes the Explorer view and
+  // resets the Code tab.
   const instance = useMemo(
     () => catalogInstance ?? (reference ? instanceReference(reference) : undefined),
     [catalogInstance, reference],
@@ -648,9 +648,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   // Opens another instance in the open tab. An open view closes, and the notice can bring it back.
   function switchInstance(next: InstanceReference) {
+    // A new setup withdraws the undo of an earlier reset or switch.
     withdrawUndo();
-    setInstanceDialogOpen(false);
-    setRootPickerOpen(false);
     const tab = activeTab;
     closeView('Switched instance', 'Undo to reopen the previous view.');
     setActiveTab(tab);
@@ -659,7 +658,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }
 
   function changeDeployment(next: Deployment) {
-    setInstanceDialogOpen(false);
     closeView('Switched deployment', 'Undo to reopen the previous view.');
     setChosenDeployment(next);
   }
@@ -686,6 +684,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setCatalogInstance(next);
     setSelectedRootZuid(next.suggestedModelZuid);
     setInstanceDialogOpen(false);
+    // A collection URL pasted on the Code or Import check tab is for Explorer.
+    setActiveTab('explorer');
     if (treeRoot) setRootPickerOpen(true);
     return undefined;
   }
@@ -801,6 +801,8 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setStep('picker');
+    setInstanceDialogOpen(false);
+    setRootPickerOpen(false);
     setCatalogInstance(undefined);
     setSelectedRootZuid(undefined);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
@@ -869,7 +871,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         <MoreHorizontal size={17} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => resetView()}>
+        <DropdownMenuItem onClick={resetView}>
           <RotateCcw size={14} /> Reset view
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -893,7 +895,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     </>
   );
 
-  const instanceListProps = {
+  const instancePickerProps = {
     query: instanceList,
     deployment,
     current: instance,
@@ -1213,18 +1215,23 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     }
               }
               onBack={
-                step === 'picker' && catalogInstance
-                  ? () => {
-                      setCatalogInstance(undefined);
-                      setSelectedRootZuid(undefined);
-                    }
-                  : undefined
+                // Back from changing the token for the instance list, or from a token request
+                // for a pasted URL's deployment.
+                step === 'credentials' && activeToken
+                  ? () => setStep('picker')
+                  : step === 'picker' && catalogInstance
+                    ? () => {
+                        setCatalogInstance(undefined);
+                        setSelectedRootZuid(undefined);
+                      }
+                    : undefined
               }
               onSubmit={saveSessionToken}
             />
           ) : screen === 'picker' && catalogInstance ? (
-            <Card className="mx-auto my-[3vh] h-[min(680px,calc(100vh-220px))] w-full max-w-[960px] gap-0 overflow-hidden py-0">
-              {/* Short enough that a notice in the corner leaves the Open button visible. */}
+            <Card className="mx-auto my-[3vh] h-[min(680px,calc(100vh-220px))] min-h-[440px] w-full max-w-[960px] gap-0 overflow-hidden py-0">
+              {/* Short enough that a notice in the corner leaves the Open button visible, and
+                  tall enough that the list keeps its room on a short screen. */}
               <RootPicker key={instanceKey(catalogInstance)} {...rootPickerProps} />
             </Card>
           ) : screen === 'picker' ? (
@@ -1233,10 +1240,21 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <h2 className="text-xl font-semibold">Choose an instance</h2>
                 <p className="text-muted-foreground mt-1 text-sm">
                   The instances your session token can read. You can switch at any time from the top
-                  bar.
+                  bar.{' '}
+                  <button
+                    type="button"
+                    className="text-foreground underline underline-offset-2 hover:no-underline"
+                    onClick={() => setStep('credentials')}
+                  >
+                    Use another session token
+                  </button>
                 </p>
               </div>
-              <InstanceList className="max-h-[min(560px,65vh)]" autoFocus {...instanceListProps} />
+              <InstancePicker
+                className="max-h-[min(560px,65vh)]"
+                autoFocus
+                {...instancePickerProps}
+              />
             </Card>
           ) : null}
 
@@ -1391,12 +1409,15 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         }}
       />
       <InstanceDialog
-        open={instanceDialogOpen}
+        open={instanceDialogOpen && showTabs}
         onOpenChange={setInstanceDialogOpen}
         viewOpen={Boolean(treeRoot)}
-        {...instanceListProps}
+        {...instancePickerProps}
       />
-      <Dialog open={rootPickerOpen} onOpenChange={setRootPickerOpen}>
+      <Dialog
+        open={rootPickerOpen && screen === 'view' && Boolean(treeRoot)}
+        onOpenChange={setRootPickerOpen}
+      >
         <DialogContent
           aria-labelledby={rootPickerTitle}
           className="flex h-[min(680px,88vh)] w-[min(960px,calc(100vw-32px))] flex-col gap-0 overflow-hidden p-0"

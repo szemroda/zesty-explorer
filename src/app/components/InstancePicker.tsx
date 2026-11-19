@@ -11,11 +11,11 @@ import type { InstanceListQueryResult } from '../hooks/useInstanceList';
 import { cn } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { looksLikeUrl } from '../pasted-url';
-import { PastedUrlOption, PickerSearch } from './PickerSearch';
+import { PastedUrlHelp, PastedUrlOption, PickerSearch } from './PickerSearch';
 import { Button } from './ui/button';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
-interface InstanceListProps {
+interface InstancePickerProps {
   readonly query: InstanceListQueryResult;
   readonly deployment: Deployment;
   /** The instance open now, shown first when the instance list does not include it. */
@@ -42,7 +42,7 @@ function sameInstance(left: InstanceReference, right: InstanceReference): boolea
  * The instances one session token can read in one deployment, searchable by name or ZUID. The
  * search also takes a pasted Zesty URL, which opens an instance the list does not show.
  */
-export function InstanceList({
+export function InstancePicker({
   query,
   deployment,
   current,
@@ -51,7 +51,7 @@ export function InstanceList({
   onDeploymentChange,
   autoFocus = false,
   className,
-}: InstanceListProps) {
+}: InstancePickerProps) {
   const listId = useId();
   const list = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
@@ -83,7 +83,7 @@ export function InstanceList({
           .toLocaleLowerCase()
           .includes(needle),
       );
-  const active = Math.min(activeIndex, Math.max(visible.length - 1, 0));
+  const active = Math.min(Math.max(activeIndex, 0), Math.max(visible.length - 1, 0));
   const optionId = (index: number) => `${listId}-option-${index}`;
   const failure = query.error
     ? { ...describeExplorerError(query.error, window.location.origin), error: query.error }
@@ -147,36 +147,12 @@ export function InstanceList({
           </ToggleGroup>
         </div>
       </div>
-      <div
-        ref={list}
-        id={listId}
-        role="listbox"
-        aria-label="Instances"
-        className="border-border min-h-0 flex-1 overflow-y-auto border-t p-2"
-      >
-        {pastingUrl ? (
-          <PastedUrlOption
-            id={optionId(0)}
-            problemId={`${listId}-problem`}
-            url={search}
-            active
-            problem={urlProblem}
-            description="A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for an instance the list does not show."
-            onChoose={() => openUrl(search)}
-          />
-        ) : null}
-        {!pastingUrl && query.isLoading ? (
-          <p
-            className="text-muted-foreground flex items-center gap-2 px-3 py-4 text-sm"
-            role="status"
-            aria-label="Loading instance list"
-          >
-            <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
-            Loading instances…
-          </p>
-        ) : null}
-        {!pastingUrl
-          ? visible.map((choice, index) => {
+      <div ref={list} className="border-border min-h-0 flex-1 overflow-y-auto border-t p-2">
+        <div id={listId} role="listbox" aria-label="Instances">
+          {pastingUrl ? (
+            <PastedUrlOption id={optionId(0)} url={search} onChoose={() => openUrl(search)} />
+          ) : (
+            visible.map((choice, index) => {
               const isCurrent = Boolean(current && sameInstance(choice.reference, current));
               return (
                 <div
@@ -216,7 +192,25 @@ export function InstanceList({
                 </div>
               );
             })
-          : null}
+          )}
+        </div>
+        {pastingUrl ? (
+          <PastedUrlHelp
+            problemId={`${listId}-problem`}
+            problem={urlProblem}
+            description="A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for an instance the list does not show."
+          />
+        ) : null}
+        {!pastingUrl && query.isLoading ? (
+          <p
+            className="text-muted-foreground flex items-center gap-2 px-3 py-4 text-sm"
+            role="status"
+            aria-label="Loading instance list"
+          >
+            <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+            Loading instances…
+          </p>
+        ) : null}
         {!pastingUrl && query.list && choices.length > 0 && visible.length === 0 ? (
           <p className="text-muted-foreground px-3 py-4 text-sm">
             No instance matches. Paste its Zesty URL to open it.

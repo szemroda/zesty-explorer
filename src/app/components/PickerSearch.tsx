@@ -1,6 +1,5 @@
 import { Link2, Search } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
-import { cn } from '../lib/utils';
 import { looksLikeUrl } from '../pasted-url';
 import { Input } from './ui/input';
 
@@ -43,7 +42,8 @@ export function PickerSearch({
       onMove(event.key === 'ArrowDown' ? 1 : -1);
       return;
     }
-    if (event.key !== 'Enter') return;
+    // Enter that ends an IME composition commits text; it does not choose.
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
     event.preventDefault();
     onEnter();
   };
@@ -89,43 +89,46 @@ export function PickerSearch({
 /** The single option a picker list shows while its search holds a URL. */
 export function PastedUrlOption({
   id,
-  problemId,
   url,
-  active,
-  problem,
-  description,
   onChoose,
 }: {
   readonly id: string;
-  readonly problemId: string;
   readonly url: string;
-  readonly active: boolean;
-  readonly problem: string | undefined;
-  readonly description: string;
   readonly onChoose: () => void;
 }) {
   return (
-    <div className="grid gap-2 p-1">
-      <div
-        id={id}
-        role="option"
-        aria-selected={active}
-        tabIndex={-1}
-        className={cn(
-          'flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-sm',
-          active ? 'bg-accent' : 'hover:bg-surface-menu-hover',
-        )}
-        onClick={onChoose}
-      >
-        <Link2 size={16} className="text-muted-foreground shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1">
-          <span className="block font-medium">Open this Zesty URL</span>
-          <span className="text-muted-foreground block truncate text-xs">{url.trim()}</span>
-        </span>
-      </div>
-      <p className="text-muted-foreground px-3 text-xs">{description}</p>
+    <div
+      id={id}
+      role="option"
+      aria-selected="true"
+      tabIndex={-1}
+      className="bg-accent m-1 flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-sm"
+      onClick={onChoose}
+    >
+      <Link2 size={16} className="text-muted-foreground shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">Open this Zesty URL</span>
+        <span className="text-muted-foreground block truncate text-xs">{url.trim()}</span>
+      </span>
+    </div>
+  );
+}
+
+/** What a pasted URL may name, and what is wrong with it; it sits below the list, not in it. */
+export function PastedUrlHelp({
+  problemId,
+  problem,
+  description,
+}: {
+  readonly problemId: string;
+  readonly problem: string | undefined;
+  readonly description: string;
+}) {
+  return (
+    <div className="grid gap-2 px-4 py-2">
+      <p className="text-muted-foreground text-xs">{description}</p>
       {problem ? (
-        <p id={problemId} className="text-destructive px-3 text-sm" role="alert">
+        <p id={problemId} className="text-destructive text-sm" role="alert">
           {problem}
         </p>
       ) : null}

@@ -12,7 +12,7 @@ import { relationshipSchemaQuery, type SchemaLoader } from '../hooks/useSchemaIn
 import { cn } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { looksLikeUrl } from '../pasted-url';
-import { PastedUrlOption, PickerSearch } from './PickerSearch';
+import { PastedUrlHelp, PastedUrlOption, PickerSearch } from './PickerSearch';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 
@@ -58,6 +58,7 @@ const modelTypes: Readonly<Record<string, { readonly name: string; readonly hint
   templateset: { name: 'Single page model', hint: 'One item with one page.' },
   dataset: { name: 'Headless dataset', hint: 'Items without pages, used by other content.' },
   block: { name: 'Block', hint: 'Reusable content placed on pages.' },
+  blocks: { name: 'Block', hint: 'Reusable content placed on pages.' },
   uncatalogued: {
     name: 'Uncatalogued collection',
     hint: 'Your session cannot see it in the collection catalog. It can still open.',
@@ -186,7 +187,9 @@ export function RootPicker({
           <p className="text-muted-foreground mt-0.5 text-sm">
             {loading
               ? `Loading the collections of ${instanceName}…`
-              : `${instanceName} has ${collections.length} ${collections.length === 1 ? 'collection' : 'collections'}. The one you open fills the main table.`}{' '}
+              : error
+                ? `The collections of ${instanceName} could not load.`
+                : `${instanceName} has ${collections.length} ${collections.length === 1 ? 'collection' : 'collections'}. The one you open fills the main table.`}{' '}
             <button
               type="button"
               className="text-foreground underline underline-offset-2 hover:no-underline"
@@ -233,24 +236,7 @@ export function RootPicker({
           !pastingUrl && 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]',
         )}
       >
-        <div
-          ref={list}
-          id={listId}
-          role="listbox"
-          aria-labelledby={titleId}
-          className="min-h-0 overflow-y-auto p-2"
-        >
-          {pastingUrl ? (
-            <PastedUrlOption
-              id={optionId(0)}
-              problemId={`${listId}-problem`}
-              url={search}
-              active
-              problem={urlProblem}
-              description="A Zesty Manager or Instances API URL of a collection or item. An item URL also opens that item's details."
-              onChoose={() => openUrl(search)}
-            />
-          ) : null}
+        <div ref={list} className="min-h-0 overflow-y-auto p-2">
           {!pastingUrl && error ? (
             <div
               className="border-destructive/40 bg-destructive/10 text-destructive m-1 grid gap-2 rounded-md border p-3 text-sm"
@@ -282,41 +268,76 @@ export function RootPicker({
                 : 'No collection matches. Paste its Zesty URL to open it.'}
             </p>
           ) : null}
-          {visible.map((entry, index) => (
-            <div key={entry.reference.modelZuid}>
-              {entry.group !== visible[index - 1]?.group ? (
-                <p
-                  className={cn(
-                    'text-muted-foreground px-3 pb-1 text-xs font-medium',
-                    index === 0 ? 'pt-1' : 'pt-4',
-                  )}
-                  aria-hidden="true"
-                >
-                  {groupLabels[entry.group]}
-                </p>
-              ) : null}
-              <div
-                id={optionId(index)}
-                data-index={index}
-                role="option"
-                aria-selected={entry === highlighted}
-                tabIndex={-1}
-                className={cn(
-                  'flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm',
-                  entry === highlighted ? 'bg-accent font-medium' : 'hover:bg-surface-menu-hover',
-                )}
-                onClick={() => onSelect(entry.reference.modelZuid)}
-                onDoubleClick={() => onOpen(entry.reference.modelZuid)}
-              >
-                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                {entry.reference.modelZuid === openRoot ? (
-                  <span className="text-primary text-xs font-medium">Open now</span>
-                ) : inView.has(entry.reference.modelZuid) ? (
-                  <span className="text-muted-foreground text-xs font-normal">In this view</span>
-                ) : null}
-              </div>
-            </div>
-          ))}
+          <div id={listId} role="listbox" aria-labelledby={titleId}>
+            {pastingUrl ? (
+              <PastedUrlOption id={optionId(0)} url={search} onChoose={() => openUrl(search)} />
+            ) : (
+              groupOrder.map((group) => {
+                const entries = visible.filter((entry) => entry.group === group);
+                if (entries.length === 0) return null;
+                const labelId = `${listId}-${group}`;
+                return (
+                  <div key={group} role="group" aria-labelledby={labelId}>
+                    <p
+                      id={labelId}
+                      className={cn(
+                        'text-muted-foreground px-3 pb-1 text-xs font-medium',
+                        entries[0] === visible[0] ? 'pt-1' : 'pt-4',
+                      )}
+                    >
+                      {groupLabels[group]}
+                    </p>
+                    {entries.map((entry) => {
+                      const index = visible.indexOf(entry);
+                      return (
+                        <div
+                          key={entry.reference.modelZuid}
+                          id={optionId(index)}
+                          data-index={index}
+                          role="option"
+                          aria-selected={entry === highlighted}
+                          tabIndex={-1}
+                          className={cn(
+                            'flex cursor-pointer items-center gap-3 rounded-md px-3 py-1.5 text-sm',
+                            entry === highlighted ? 'bg-accent' : 'hover:bg-surface-menu-hover',
+                          )}
+                          onClick={() => onSelect(entry.reference.modelZuid)}
+                          onDoubleClick={() => onOpen(entry.reference.modelZuid)}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span
+                              className={cn(
+                                'block truncate',
+                                entry === highlighted && 'font-medium',
+                              )}
+                            >
+                              {entry.label}
+                            </span>
+                            {/* Tells apart collections that share a label. */}
+                            <span className="text-muted-foreground block truncate text-xs">
+                              {entry.name} · {entry.reference.modelZuid}
+                            </span>
+                          </span>
+                          {entry.reference.modelZuid === openRoot ? (
+                            <span className="text-primary text-xs font-medium">Open now</span>
+                          ) : inView.has(entry.reference.modelZuid) ? (
+                            <span className="text-muted-foreground text-xs">In this view</span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {pastingUrl ? (
+            <PastedUrlHelp
+              problemId={`${listId}-problem`}
+              problem={urlProblem}
+              description="A Zesty Manager or Instances API URL of a collection or item. An item URL also opens that item's details."
+            />
+          ) : null}
         </div>
 
         <div
@@ -374,13 +395,15 @@ export function RootPicker({
 }
 
 function fieldType(field: CollectionField, collections: readonly CollectionCatalogEntry[]): string {
+  // Zesty spells some datatypes with hyphens and others with underscores.
+  const datatype = (field.datatype ?? '').toLowerCase().replaceAll('-', '_');
   if (field.relatedModelZuid) {
     const related =
       collections.find((entry) => entry.reference.modelZuid === field.relatedModelZuid)?.label ??
       field.relatedModelZuid;
-    return `${field.datatype === 'one_to_many' ? 'Links' : 'Link'} to ${related}`;
+    return `${datatype === 'one_to_many' ? 'Links' : 'Link'} to ${related}`;
   }
-  return fieldTypes[field.datatype ?? ''] ?? field.datatype ?? field.kind;
+  return fieldTypes[datatype] ?? field.datatype ?? field.kind;
 }
 
 function CollectionPreview({
@@ -393,7 +416,7 @@ function CollectionPreview({
   readonly loadSchema: SchemaLoader;
 }) {
   const schema = useQuery(relationshipSchemaQuery(entry.reference, loadSchema, 'dialog'));
-  const type = modelTypes[entry.type];
+  const type = modelTypes[entry.type.trim().toLowerCase()];
   // Collections outside content and blocks have no Manager page.
   const managerUrl =
     entry.reference.area === 'other'

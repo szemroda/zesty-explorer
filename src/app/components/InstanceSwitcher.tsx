@@ -1,7 +1,7 @@
 import { Building2, ChevronsUpDown } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { deploymentLabels, type Deployment } from '../../domain';
-import { InstanceList } from './InstanceList';
+import { InstancePicker } from './InstancePicker';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { TooltipTrigger } from './ui/tooltip';
 
@@ -26,7 +26,7 @@ export function InstanceSwitcherButton({
       render={
         <button
           type="button"
-          aria-label={`Switch instance, ${name ?? instanceZuid} is open`}
+          aria-label={`Switch instance, ${name ?? instanceZuid} is open${deployment === 'production' ? '' : ` in ${deploymentLabels[deployment]}`}`}
           className="hover:bg-surface-menu-hover focus-visible:ring-ring/45 flex h-9 max-w-72 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm outline-none focus-visible:ring-2"
           onClick={onClick}
         />
@@ -44,7 +44,7 @@ export function InstanceSwitcherButton({
   );
 }
 
-type InstanceListProps = ComponentProps<typeof InstanceList>;
+type InstancePickerProps = ComponentProps<typeof InstancePicker>;
 
 /** Switches instance, or deployment, from any tab without leaving it. */
 export function InstanceDialog({
@@ -52,7 +52,7 @@ export function InstanceDialog({
   onOpenChange,
   viewOpen,
   ...list
-}: Omit<InstanceListProps, 'autoFocus' | 'className'> & {
+}: Omit<InstancePickerProps, 'autoFocus' | 'className'> & {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** Whether switching closes an open Explorer view. */
@@ -69,7 +69,7 @@ export function InstanceDialog({
               : 'Every tab shows the instance you choose.'}
           </DialogDescription>
         </div>
-        <InstanceList {...list} autoFocus />
+        <InstancePicker {...list} autoFocus />
       </DialogContent>
     </Dialog>
   );

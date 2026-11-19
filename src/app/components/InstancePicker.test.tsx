@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { instanceReferenceFor } from '../../collection-reference';
 import type { InstanceListEntry, InstanceReference } from '../../domain';
 import type { InstanceListQueryResult } from '../hooks/useInstanceList';
-import { InstanceList } from './InstanceList';
+import { InstancePicker } from './InstancePicker';
 
 const entries: readonly InstanceListEntry[] = [
   { reference: instanceReferenceFor('8-unnamed', 'production') },
@@ -35,7 +35,7 @@ function renderList({
   readonly onDeploymentChange?: () => void;
 } = {}) {
   render(
-    <InstanceList
+    <InstancePicker
       query={query(overrides)}
       deployment="production"
       current={current}
@@ -51,7 +51,7 @@ function renderList({
 
 const optionTexts = () => screen.getAllByRole('option').map((option) => option.textContent);
 
-describe('InstanceList', () => {
+describe('InstancePicker', () => {
   it('sorts named instances before unnamed ones and finds one by name or ZUID', () => {
     const onChoose = vi.fn();
     const search = renderList({ onChoose });

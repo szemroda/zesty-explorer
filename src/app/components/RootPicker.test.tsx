@@ -54,6 +54,14 @@ const schemas: Readonly<Record<string, CollectionSchema>> = {
         datatype: 'one_to_one',
         relatedModelZuid: '6-authors',
       },
+      {
+        id: '12-tags',
+        name: 'tags',
+        label: 'Tags',
+        kind: 'relationship',
+        datatype: 'one-to-many',
+        relatedModelZuid: '6-hero',
+      },
     ],
   },
 };
@@ -110,10 +118,14 @@ describe('RootPicker', () => {
       inView: new Set(['6-stories', '6-authors']),
     });
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'AuthorsIn this view',
-      'StoriesOpen now',
-      'Hero banner',
+      'Authorsauthors · 6-authorsIn this view',
+      'Storiesstories · 6-storiesOpen now',
+      'Hero bannerhero banner · 6-hero',
     ]);
+    expect(
+      screen.getAllByRole('group').map((group) => within(group).getAllByRole('option').length),
+    ).toEqual([2, 1]);
+    expect(screen.getByRole('group', { name: 'Blocks' })).toHaveTextContent('Hero banner');
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Stories');
   });
 
@@ -145,6 +157,7 @@ describe('RootPicker', () => {
       'TitleText',
       'FeaturedYes/No',
       'AuthorLink to Authors',
+      'TagsLinks to Hero banner',
     ]);
   });
 
