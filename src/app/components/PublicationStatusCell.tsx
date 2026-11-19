@@ -159,11 +159,14 @@ function useSavedVersions(
   const latestVersion = enabled ? undefined : contentItemVersionNumber(item);
   useEffect(() => {
     if (latestVersion === undefined) return;
-    // Saved versions only grow, so a cached newer one (read after a Refresh) is kept.
-    queryClient.setQueryData<readonly Pick<ContentItemVersion, 'number'>[]>(queryKey, (cached) =>
-      cached?.some(({ number }) => number >= latestVersion)
-        ? undefined
-        : [{ number: latestVersion }],
+    // A request a published view sent first is cancelled, so its late result cannot replace this.
+    void queryClient.cancelQueries({ queryKey, exact: true }).then(() =>
+      // Saved versions only grow, so a cached newer one (read after a Refresh) is kept.
+      queryClient.setQueryData<readonly Pick<ContentItemVersion, 'number'>[]>(queryKey, (cached) =>
+        cached?.some(({ number }) => number >= latestVersion)
+          ? undefined
+          : [{ number: latestVersion }],
+      ),
     );
   }, [latestVersion, queryClient, queryKey]);
   useEffect(() => {
@@ -189,7 +192,10 @@ function useSavedVersions(
     staleTime: Infinity,
     gcTime: cacheTime,
   });
-  return { query, versions: enabled ? query.data : latestHasNoHistory };
+  // A latest view needs none of this query, so it neither shows nor retries its failures.
+  return enabled
+    ? { failure: shownFailure(query) ? query : undefined, versions: query.data }
+    : { failure: undefined, versions: latestHasNoHistory };
 }
 
 /** Whether a query failed in a way to show; a load dropped unsent while no row showed it did not. */
@@ -204,7 +210,8 @@ function ConnectedPublicationStatusCell({
 }: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
   const publications = useQuery(modelPublicationsQuery(source, reference));
-  const { query: savedVersions, versions } = useSavedVersions(source, item, reference, cell);
+  const savedVersions = useSavedVersions(source, item, reference, cell);
+  const versions = savedVersions.versions;
   const status = useMemo(
     () =>
       publications.data && versions
@@ -212,12 +219,16 @@ function ConnectedPublicationStatusCell({
             contentItemVersionNumber(item),
             versions,
             publications.data.get(reference.itemZuid) ?? [],
-            new Date(),
+            // The publications say what was live when they loaded, so schedules are read then too.
+            new Date(publications.dataUpdatedAt),
           ) ?? null)
         : undefined,
-    [item, publications.data, reference.itemZuid, versions],
+    [item, publications.data, publications.dataUpdatedAt, reference.itemZuid, versions],
   );
-  const failed = [publications, savedVersions].filter(shownFailure);
+  const failed = [
+    shownFailure(publications) ? publications : undefined,
+    savedVersions.failure,
+  ].filter((query) => query !== undefined);
 
   return (
     // Pills wrap rather than draw over the next column if the column is made narrow.

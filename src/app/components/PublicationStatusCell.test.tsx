@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -307,6 +307,75 @@ describe('publication status cell', () => {
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toBeVisible();
     rerender(view('published', published));
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeVisible();
+  });
+
+  it('keeps the latest view version over a published request that returns after the switch', async () => {
+    let finish: (versions: readonly { number: number; item: ContentItem }[]) => void = () => {};
+    const loadItemVersions = vi.fn<StatusApi['loadItemVersions']>(() =>
+      Effect.promise(() => new Promise((resolve) => (finish = resolve))),
+    );
+    const client = new QueryClient();
+    const view = (contentState: ContentState, row: ContentItem) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={statusApi({
+            loadItemVersions,
+            loadModelPublishings: () => Effect.succeed([live(5)]),
+          })}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState={contentState}
+        >
+          <PublicationStatusCell item={row} reference={reference} />
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    const published = { ...item, metadata: { version: 5 } };
+    const { rerender } = render(view('published', published));
+    await vi.waitFor(() => expect(loadItemVersions).toHaveBeenCalledOnce());
+
+    // v9 is saved meanwhile; the latest view lists it, then the earlier request returns v8.
+    rerender(view('latest', { ...item, metadata: { version: 9 } }));
+    expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeVisible();
+    await act(() => {
+      finish([{ number: 8, item }]);
+      return Promise.resolve();
+    });
+    rerender(view('published', published));
+
+    expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeVisible();
+    expect(loadItemVersions).toHaveBeenCalledOnce();
+  });
+
+  it('reads a schedule against the time its publications loaded', async () => {
+    const client = new QueryClient();
+    const startsSoon = new Date(Date.now() + 50).toISOString();
+    const api = statusApi({
+      loadModelPublishings: () =>
+        Effect.succeed([live(5), { itemZuid: item.id, version: 8, publishAt: startsSoon }]),
+    });
+    const cell = () => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState="latest"
+        >
+          <PublicationStatusCell item={item} reference={reference} />
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    render(cell());
+    expect(
+      await screen.findByRole('img', { name: /^Latest saved version v8 scheduled/ }),
+    ).toBeVisible();
+    cleanup();
+
+    // After the start time, a row shown again from the same publications still agrees with them.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    render(cell());
+    expect(screen.getByRole('img', { name: /^Latest saved version v8 scheduled/ })).toBeVisible();
   });
 
   it('sends no queued saved-versions request after the view switches to latest', async () => {
