@@ -192,11 +192,11 @@ describe('table export', () => {
     expect(table.headers).toEqual(['Title', 'Title (2)', 'Title (3)']);
   });
 
-  it('leaves raw JSON and publication status out of the exportable columns', () => {
+  it('leaves publication status out of the exportable columns', () => {
     const ids = exportableColumns(contentItemColumns(replySchema, replies)).map(
       (column) => column.id,
     );
 
-    expect(ids).toEqual(['$id', 'reply', '$created', '$modified', '$version']);
+    expect(ids).toEqual(['$id', 'reply', '$created', '$modified', '$version', '$raw']);
   });
 });

@@ -29,7 +29,7 @@ export interface ExportView {
 /** One exported row: an item, and the parent item it was reached from when the file names it. */
 export interface ExportRow {
   readonly item: ContentItem;
-  readonly parent?: ContentItem;
+  readonly parent?: ContentItem | undefined;
 }
 
 /** How a child collection is summed up in its parent's row: item names in one cell, or a count. */
@@ -49,16 +49,23 @@ export interface ExportRequest {
   readonly related?: readonly RelatedColumn[];
 }
 
-/**
- * Columns a file can hold. Publication status is not part of the loaded items, and raw JSON does
- * not fit a cell.
- */
+/** Columns a file can hold: all but publication status, which is not part of the loaded items. */
 export function exportableColumns(
   columns: readonly ContentItemColumn[],
 ): readonly ContentValueColumn[] {
-  return columns.filter(
-    (column): column is ContentValueColumn => column.kind === 'value' && column.id !== '$raw',
-  );
+  return columns.filter((column): column is ContentValueColumn => column.kind === 'value');
+}
+
+/** Columns as the table orders them: pinned columns first, in pin order, then the rest. */
+export function inTableOrder<Column extends { readonly id: string }>(
+  columns: readonly Column[],
+  pinnedColumnIds: readonly string[],
+): readonly Column[] {
+  const rank = ({ id }: Column) => {
+    const index = pinnedColumnIds.indexOf(id);
+    return index === -1 ? pinnedColumnIds.length : index;
+  };
+  return columns.toSorted((left, right) => rank(left) - rank(right));
 }
 
 /** Builds the file's table. Cells read like the table shows them, with rich text as plain lines. */

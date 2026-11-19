@@ -442,10 +442,12 @@ export function NestedTable(props: NestedTableProps) {
             root={root}
             node={node}
             parentNode={parentNode}
+            parentItem={parentSnapshot?.itemsById.get(parentItemId)}
             items={items}
             rootItems={rootItems}
             columns={columns}
             columnVisibility={columnVisibility}
+            pinnedColumns={sharedState.pinnedColumns}
           />
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { createElement, Fragment, useState, type ReactNode } from 'react';
-import { parseRichText } from '../rich-text';
+import { droppedElements, parseRichText } from '../rich-text';
 import { PopoverContent } from './ui/popover';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
@@ -61,18 +61,6 @@ const renderings: ReadonlyMap<string, ElementRendering> = new Map(
     a: { tag: 'span', className: 'text-accent underline underline-offset-2' },
   }),
 );
-
-// Elements whose content is never readable text.
-const droppedElements = new Set([
-  'script',
-  'style',
-  'noscript',
-  'iframe',
-  'object',
-  'embed',
-  'svg',
-  'math',
-]);
 
 // TinyMCE underlines and strikes through with an inline style instead of a tag.
 function styledSpanRendering(element: Element): ElementRendering | undefined {

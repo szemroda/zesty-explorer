@@ -76,8 +76,16 @@ const packageNs = 'http://schemas.openxmlformats.org/package/2006';
 const relationshipsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const sheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
+// Rows below the header that one Excel sheet can hold.
+const sheetRowLimit = 1_048_575;
+
 /** A one-sheet workbook with a bold, frozen header row. */
 export function xlsxBytes(table: ExportTable, sheetName: string): Uint8Array {
+  if (table.rows.length > sheetRowLimit) {
+    throw new Error(
+      `Excel holds at most ${sheetRowLimit.toLocaleString('en-US')} rows, and this file has ${table.rows.length.toLocaleString('en-US')}`,
+    );
+  }
   // Excel refuses sheet names over 31 characters or with any of []:*?/\
   const name =
     sheetName

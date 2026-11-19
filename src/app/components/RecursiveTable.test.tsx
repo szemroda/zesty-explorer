@@ -681,7 +681,7 @@ describe('recursive collection tables', () => {
     fireEvent.click(screen.getByRole('button', { name: `Expand relationships for ${parent.id}` }));
     const nested = await screen.findByRole('region', { name: 'Children related items' });
     fireEvent.click(within(nested).getByRole('button', { name: 'Export Children' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'All 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'All' }));
     const file = await savedFile(() =>
       fireEvent.click(screen.getByRole('button', { name: 'Download CSV' })),
     );

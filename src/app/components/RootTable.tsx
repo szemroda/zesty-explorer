@@ -353,6 +353,7 @@ export function RootTable({
                 allItemIds={sortedIds}
                 columns={itemColumnDefinitions}
                 columnVisibility={columnVisibility}
+                pinnedColumns={pinnedColumns}
               />
             )}
           </div>

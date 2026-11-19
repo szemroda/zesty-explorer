@@ -5,13 +5,14 @@ import type { CollectionNode, ContentItem, ItemZuid } from '../../domain';
 import { nodePath } from '../../explorer-core';
 import type { ContentItemColumn } from '../content-item-presentation';
 import { exportBaseName, exportFile, saveFile, type ExportFormat } from '../export-file';
-import { loadedItemsById } from '../load-view';
+import { loadedItemsById, loadedSnapshot } from '../load-view';
 import { plural } from '../lib/utils';
 import {
   exportableColumns,
   exportHeaders,
   exportTable,
   incompleteNodes,
+  inTableOrder,
   rowsUnderEveryParent,
   type ExportRequest,
   type ExportView,
@@ -28,6 +29,8 @@ interface ColumnsShown {
   readonly columns: readonly ContentItemColumn[];
   /** The table's column visibility; a column missing from it is shown. */
   readonly columnVisibility: Readonly<Record<string, boolean>>;
+  /** Columns the table pins ahead of the rest, in order. */
+  readonly pinnedColumns: readonly string[];
 }
 
 interface RootTableExportProps extends ColumnsShown {
@@ -54,13 +57,18 @@ interface NestedTableExportProps extends ColumnsShown {
   readonly root: CollectionNode;
   readonly node: CollectionNode;
   readonly parentNode: CollectionNode;
+  /** The item this table lists related items for; undefined if it is no longer loaded. */
+  readonly parentItem: ContentItem | undefined;
   /** The items this table shows below its parent item. */
   readonly items: readonly ContentItem[];
   /** Root items that match the view's search and filters, in table order. */
   readonly rootItems: readonly ContentItem[];
 }
 
-/** Exports a nested table, for its parent item or across every parent in the view. */
+/**
+ * Exports a nested table, for its parent item or across every parent in the view. Each row starts
+ * with its parent's ZUID and name, so files join on ZUIDs.
+ */
 export function NestedTableExport(props: NestedTableExportProps) {
   return (
     <ExportPopover label={`Export ${props.node.name}`}>
@@ -96,16 +104,18 @@ function RootExportPanel({
   allItemIds,
   columns,
   columnVisibility,
+  pinnedColumns,
 }: RootTableExportProps) {
   const [rows, setRows] = useState<'filtered' | 'all'>('filtered');
   const [columnChoice, setColumnChoice] = useState<'visible' | 'all'>('visible');
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [summaries, setSummaries] = useState<Readonly<Partial<Record<string, RelatedSummary>>>>({});
-  const allColumns = exportableColumns(columns);
+  const allColumns = inTableOrder(exportableColumns(columns), pinnedColumns);
   const visibleColumns = allColumns.filter((column) => columnVisibility[column.id] !== false);
   const related = node.children.flatMap((child) => {
     const summary = summaries[child.id];
-    return summary ? [{ node: child, summary }] : [];
+    const loaded = loadedSnapshot(child, view.loadedView, view.scope) !== undefined;
+    return summary && loaded ? [{ node: child, summary }] : [];
   });
   const filtered = rows === 'filtered' || filteredItems.length === allItemIds.length;
   const loaded = loadedItemsById(view.loadedView);
@@ -150,17 +160,21 @@ function RootExportPanel({
               Still one row per item. Related items share a cell.
             </p>
             {node.children.map((child) => {
-              const summary = summaries[child.id];
+              // A collection that is loading or failed to load would sum up as nothing at all.
+              const loaded = loadedSnapshot(child, view.loadedView, view.scope) !== undefined;
+              const summary = loaded ? summaries[child.id] : undefined;
               return (
                 <div key={child.id} className="flex min-h-8 items-center gap-2">
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs has-disabled:cursor-default has-disabled:text-muted-foreground">
                     <Checkbox
+                      disabled={!loaded}
                       checked={summary !== undefined}
                       onCheckedChange={(checked) =>
                         setSummaries({ ...summaries, [child.id]: checked ? 'names' : undefined })
                       }
                     />
                     <span className="truncate">{child.name}</span>
+                    {loaded ? null : <span className="shrink-0">Not loaded</span>}
                   </label>
                   {summary ? (
                     <SummarySelect
@@ -187,23 +201,26 @@ function NestedExportPanel({
   root,
   node,
   parentNode,
+  parentItem,
   items,
   rootItems,
   columns,
   columnVisibility,
+  pinnedColumns,
 }: NestedTableExportProps) {
   const [format, setFormat] = useState<ExportFormat>('csv');
   // An item with nothing related has nothing of its own to export.
-  const [rows, setRows] = useState<'item' | 'all'>(items.length > 0 ? 'item' : 'all');
+  const [scope, setScope] = useState<'item' | 'all'>(items.length > 0 ? 'item' : 'all');
   const path = nodePath(root, node.id);
-  const everyParent = rowsUnderEveryParent(view, path, rootItems);
-  const visibleColumns = exportableColumns(columns).filter(
+  // Walking every parent can be large, so it waits until someone picks it.
+  const rows =
+    scope === 'item'
+      ? items.map((item) => ({ item, parent: parentItem }))
+      : rowsUnderEveryParent(view, path, rootItems);
+  const columnsShown = inTableOrder(exportableColumns(columns), pinnedColumns).filter(
     (column) => columnVisibility[column.id] !== false,
   );
-  const request: ExportRequest =
-    rows === 'item'
-      ? { rows: items.map((item) => ({ item })), columns: visibleColumns }
-      : { rows: everyParent, columns: visibleColumns, parentNode };
+  const request: ExportRequest = { rows, columns: columnsShown, parentNode };
 
   return (
     <>
@@ -211,21 +228,21 @@ function NestedExportPanel({
         <p className="m-0 text-sm font-semibold">Export {node.name}</p>
         <Choice
           label="Rows"
-          value={rows}
+          value={scope}
           options={[
             { value: 'item', label: `This item ${items.length}` },
-            { value: 'all', label: `All ${everyParent.length}` },
+            { value: 'all', label: 'All' },
           ]}
-          onChange={setRows}
+          onChange={setScope}
         />
         <FormatChoice value={format} onChange={setFormat} />
-        {rows === 'all' ? (
+        {scope === 'all' ? (
           <Note>
-            Rows come from the {plural(rootItems.length, 'filtered item', 'filtered items')} of{' '}
-            {root.name}, each with its {parentNode.name} ZUID and name.
+            {node.name} related to any of the{' '}
+            {plural(rootItems.length, 'filtered item', 'filtered items')} of {root.name}.
           </Note>
         ) : null}
-        <IncompleteNote view={view} nodes={rows === 'item' ? [node] : path} />
+        <IncompleteNote view={view} nodes={scope === 'item' ? [node] : path} />
         <StatusNote columnVisibility={columnVisibility} />
       </div>
       <ExportFooter subject={node.name} view={view} format={format} request={request} />
