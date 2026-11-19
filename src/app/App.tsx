@@ -58,6 +58,10 @@ import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable, RootTableSkeleton } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
+import {
+  clearModelPublicationsOutsideScope,
+  refreshActiveModelPublications,
+} from './hooks/model-publications-query';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
@@ -465,11 +469,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
   useEffect(() => {
-    clearPublicationStatusCacheOutsideScope(queryClient, {
+    const scope = {
       credentialRevision,
       deployment: reference?.deployment,
       instanceZuid: reference?.instanceZuid,
-    });
+    };
+    clearPublicationStatusCacheOutsideScope(queryClient, scope);
+    clearModelPublicationsOutsideScope(queryClient, scope);
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
   const refreshAll = useCallback(
@@ -481,14 +487,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setSchemasRefreshedAt(Date.now());
       void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
-        const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
-          await Promise.all([
-            catalogQuery.refresh(),
-            refreshCollections(),
-            refreshActiveItemVersionPreviews(queryClient),
-            refreshActivePublicationStatuses(queryClient),
-          ]);
-        succeeded = catalogSucceeded && collectionsSucceeded && previewSucceeded && statusSucceeded;
+        const results = await Promise.all([
+          catalogQuery.refresh(),
+          refreshCollections(),
+          refreshActiveItemVersionPreviews(queryClient),
+          refreshActivePublicationStatuses(queryClient),
+          refreshActiveModelPublications(queryClient),
+        ]);
+        succeeded = results.every(Boolean);
       } catch {
         succeeded = false;
       } finally {
