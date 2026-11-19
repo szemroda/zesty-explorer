@@ -207,7 +207,11 @@ export function relatedSuggestions(
     });
 }
 
-function nodePath(root: CollectionNode, nodeId: CollectionNodeId): readonly CollectionNode[] {
+/** The nodes from `root` down to `nodeId`, both included; empty when the node is not in the tree. */
+export function nodePath(
+  root: CollectionNode,
+  nodeId: CollectionNodeId,
+): readonly CollectionNode[] {
   if (root.id === nodeId) return [root];
   for (const child of root.children) {
     const below = nodePath(child, nodeId);
