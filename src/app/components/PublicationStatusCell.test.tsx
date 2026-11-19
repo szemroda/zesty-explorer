@@ -13,7 +13,7 @@ import { memoryCooldownStorage, memoryRequestSlots } from '../../test/request-bu
 import { createRequestBudget } from '../../zesty-api/request-budget';
 import { refreshActiveModelPublications } from '../hooks/model-publications-query';
 import {
-  refreshActivePublicationStatuses,
+  refreshActiveSavedVersions,
   type PublicationStatusSource,
 } from '../hooks/publication-status-query';
 import { PublicationStatusCell, PublicationStatusProvider } from './PublicationStatusCell';
@@ -51,8 +51,6 @@ const upcoming = (version: number): ModelPublishing => ({
 function statusApi(overrides: Partial<StatusApi>): StatusApi {
   return {
     loadItemVersions: () => Effect.succeed([]),
-    loadItemPublishings: () => Effect.die('Badges read the model publications.'),
-    loadInstanceUsers: () => Effect.succeed([]),
     loadModelPublishings: () => Effect.succeed([]),
     ...overrides,
   };
@@ -191,7 +189,7 @@ describe('publication status cell', () => {
 
     expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toBeInTheDocument();
     version = 9;
-    expect(await refreshActivePublicationStatuses(client)).toBe(true);
+    expect(await refreshActiveSavedVersions(client)).toBe(true);
     expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeInTheDocument();
   });
 
@@ -279,6 +277,36 @@ describe('publication status cell', () => {
       'Currently published version v5',
       'Latest saved version v8',
     ]);
+    expect(loadItemVersions).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newer saved version read in a published view when a latest view shows an older one', async () => {
+    const api = statusApi({
+      loadItemVersions: () => Effect.succeed([{ number: 9, item }]),
+      loadModelPublishings: () => Effect.succeed([live(5)]),
+    });
+    const client = new QueryClient();
+    const view = (contentState: ContentState, row: ContentItem) => (
+      <QueryClientProvider client={client}>
+        <PublicationStatusProvider
+          api={api}
+          sessionToken="token"
+          credentialRevision="revision"
+          contentState={contentState}
+        >
+          <PublicationStatusCell item={row} reference={reference} />
+        </PublicationStatusProvider>
+      </QueryClientProvider>
+    );
+    const published = { ...item, metadata: { version: 5 } };
+    const { rerender } = render(view('published', published));
+    expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeVisible();
+
+    // The latest view still lists v8 from before the save of v9.
+    rerender(view('latest', item));
+    expect(await screen.findByRole('img', { name: 'Latest saved version v8' })).toBeVisible();
+    rerender(view('published', published));
+    expect(await screen.findByRole('img', { name: 'Latest saved version v9' })).toBeVisible();
   });
 
   it('sends no queued saved-versions request after the view switches to latest', async () => {
@@ -368,9 +396,9 @@ describe('publication status cell', () => {
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     // Every slot is busy, so both refreshes are still queued when the second one is used.
     const release = await takeSlot(new AbortController().signal);
-    const first = refreshActivePublicationStatuses(client);
+    const first = refreshActiveSavedVersions(client);
     await act(() => Promise.resolve());
-    const second = refreshActivePublicationStatuses(client);
+    const second = refreshActiveSavedVersions(client);
     await act(() => Promise.resolve());
     release();
 

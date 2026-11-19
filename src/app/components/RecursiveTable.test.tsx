@@ -162,8 +162,6 @@ describe('recursive collection tables', () => {
     });
     const api: PublicationStatusSource['api'] = {
       loadItemVersions: loadVersions,
-      loadItemPublishings: () => Effect.succeed([]),
-      loadInstanceUsers: () => Effect.succeed([]),
       loadModelPublishings: () => Effect.succeed([]),
     };
     render(

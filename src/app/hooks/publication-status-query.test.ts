@@ -3,10 +3,10 @@ import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentItem, ContentItemReference, ItemZuid } from '../../domain';
 import {
-  countStatusOnScreen,
+  countSavedVersionsOnScreen,
   loadSavedVersions,
   savedVersionsQueryPrefix,
-  refreshActivePublicationStatuses,
+  refreshActiveSavedVersions,
   type PublicationStatusSource,
 } from './publication-status-query';
 import { createRequestBudget } from '../../zesty-api/request-budget';
@@ -52,8 +52,6 @@ describe('loadSavedVersions', () => {
             return [{ number: 1, item }];
           }),
         ),
-      loadItemPublishings: () => Effect.succeed([]),
-      loadInstanceUsers: () => Effect.succeed([]),
       loadModelPublishings: () => Effect.succeed([]),
     };
     const source = {
@@ -126,9 +124,11 @@ describe('loadSavedVersions', () => {
         ),
       ).toEqual(['on-screen', 'below']),
     );
-    const leaveScreen = countStatusOnScreen(hashKey([...savedVersionsQueryPrefix, 'on-screen']));
+    const leaveScreen = countSavedVersionsOnScreen(
+      hashKey([...savedVersionsQueryPrefix, 'on-screen']),
+    );
 
-    expect(await refreshActivePublicationStatuses(client)).toBe(true);
+    expect(await refreshActiveSavedVersions(client)).toBe(true);
     expect(loads.toSorted()).toEqual(['below', 'below', 'on-screen', 'on-screen']);
     leaveScreen();
   });

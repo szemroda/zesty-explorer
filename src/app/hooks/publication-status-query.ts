@@ -14,7 +14,7 @@ import type { ModelPublicationsSource } from './model-publications-query';
 export const savedVersionsQueryPrefix = ['saved-versions'] as const;
 
 export interface PublicationStatusSource extends ModelPublicationsSource {
-  readonly api: ModelPublicationsSource['api'] & ItemVersionApi;
+  readonly api: ModelPublicationsSource['api'] & Pick<ItemVersionApi, 'loadItemVersions'>;
   /**
    * The view's content state. Latest saved items carry their own latest version, so their status
    * comes from the model's publications alone; published items also need their saved versions.
@@ -41,7 +41,8 @@ export async function loadSavedVersions(
   return versions.map(({ number }) => ({ number }));
 }
 
-export function clearPublicationStatusCacheOutsideScope(
+/** Drops saved versions read with another session or for another instance. */
+export function clearSavedVersionsOutsideScope(
   queryClient: QueryClient,
   scope: {
     readonly credentialRevision: string;
@@ -62,7 +63,7 @@ export function clearPublicationStatusCacheOutsideScope(
 const cellsOnScreen = new Map<string, number>();
 
 /** Counts one cell that shows saved versions on or near the screen, until the returned function runs. */
-export function countStatusOnScreen(queryHash: string): () => void {
+export function countSavedVersionsOnScreen(queryHash: string): () => void {
   cellsOnScreen.set(queryHash, (cellsOnScreen.get(queryHash) ?? 0) + 1);
   return () => {
     const count = (cellsOnScreen.get(queryHash) ?? 1) - 1;
@@ -71,7 +72,7 @@ export function countStatusOnScreen(queryHash: string): () => void {
   };
 }
 
-export function isStatusOnScreen(queryHash: string): boolean {
+export function isSavedVersionsOnScreen(queryHash: string): boolean {
   return cellsOnScreen.has(queryHash);
 }
 
@@ -80,8 +81,8 @@ export function isStatusOnScreen(queryHash: string): boolean {
  * screen reload in the background, so Refresh does not wait for whole tables. The model
  * publications that every status also reads refresh with `refreshActiveModelPublications`.
  */
-export async function refreshActivePublicationStatuses(queryClient: QueryClient): Promise<boolean> {
-  const onScreen = (query: Query) => isStatusOnScreen(query.queryHash);
+export async function refreshActiveSavedVersions(queryClient: QueryClient): Promise<boolean> {
+  const onScreen = (query: Query) => isSavedVersionsOnScreen(query.queryHash);
   void queryClient.refetchQueries({
     queryKey: savedVersionsQueryPrefix,
     type: 'active',

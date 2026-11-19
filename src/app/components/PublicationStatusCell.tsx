@@ -20,8 +20,8 @@ import type { BackgroundStanding } from '../../zesty-api';
 import { explorerFailure } from '../hooks/explorer-query';
 import { modelPublicationsQuery } from '../hooks/model-publications-query';
 import {
-  countStatusOnScreen,
-  isStatusOnScreen,
+  countSavedVersionsOnScreen,
+  isSavedVersionsOnScreen,
   loadSavedVersions,
   savedVersionsQueryPrefix,
   type PublicationStatusSource,
@@ -78,7 +78,7 @@ function statusStanding(
     return { kind: 'dropped' };
   }
   const rank = newestGroups.get(queryHash) ?? group;
-  return isStatusOnScreen(queryHash) ? { kind: 'needed', rank } : { kind: 'prefetch', rank };
+  return isSavedVersionsOnScreen(queryHash) ? { kind: 'needed', rank } : { kind: 'prefetch', rank };
 }
 
 export function PublicationStatusProvider({
@@ -142,31 +142,38 @@ function useSavedVersions(
   const near = useNearViewport(cell);
   const queryClient = useQueryClient();
   const [group] = useState(currentRenderGroup);
+  // Tables pass a new reference object on every render, so the key is built from its fields.
+  const { deployment, instanceZuid, modelZuid, itemZuid } = reference;
   const queryKey = useMemo(
     () => [
       ...savedVersionsQueryPrefix,
       source.credentialRevision,
-      reference.deployment,
-      reference.instanceZuid,
-      reference.modelZuid,
-      reference.itemZuid,
+      deployment,
+      instanceZuid,
+      modelZuid,
+      itemZuid,
     ],
-    [source.credentialRevision, reference],
+    [source.credentialRevision, deployment, instanceZuid, modelZuid, itemZuid],
   );
   const queryHash = hashKey(queryKey);
   const latestVersion = enabled ? undefined : contentItemVersionNumber(item);
   useEffect(() => {
-    if (latestVersion !== undefined)
-      queryClient.setQueryData(queryKey, [{ number: latestVersion }]);
+    if (latestVersion === undefined) return;
+    // Saved versions only grow, so a cached newer one (read after a Refresh) is kept.
+    queryClient.setQueryData<readonly Pick<ContentItemVersion, 'number'>[]>(queryKey, (cached) =>
+      cached?.some(({ number }) => number >= latestVersion)
+        ? undefined
+        : [{ number: latestVersion }],
+    );
   }, [latestVersion, queryClient, queryKey]);
   useEffect(() => {
     if (!enabled) return;
     newestGroups.set(queryHash, Math.max(group, newestGroups.get(queryHash) ?? 0));
   }, [enabled, group, queryHash]);
   useEffect(() => {
-    if (enabled && near) return countStatusOnScreen(queryHash);
+    if (enabled && near) return countSavedVersionsOnScreen(queryHash);
   }, [enabled, near, queryHash]);
-  return useQuery({
+  const query = useQuery({
     queryKey,
     // The query function ignores TanStack's abort signal, so unmounting a row never aborts a sent
     // request; the budget drops a request that has not been sent yet.
@@ -182,11 +189,12 @@ function useSavedVersions(
     staleTime: Infinity,
     gcTime: cacheTime,
   });
+  return { query, versions: enabled ? query.data : latestHasNoHistory };
 }
 
-/** A failure to show, or undefined; a load dropped unsent while no row showed it is no failure. */
-function shownFailure(query: UseQueryResult<unknown>): UseQueryResult<unknown> | undefined {
-  return query.isError && explorerFailure(query.error)?.kind !== 'cancelled' ? query : undefined;
+/** Whether a query failed in a way to show; a load dropped unsent while no row showed it did not. */
+function shownFailure(query: UseQueryResult<unknown>): boolean {
+  return query.isError && explorerFailure(query.error)?.kind !== 'cancelled';
 }
 
 function ConnectedPublicationStatusCell({
@@ -196,8 +204,7 @@ function ConnectedPublicationStatusCell({
 }: PublicationStatusCellProps & { readonly source: PublicationStatusSource }) {
   const cell = useRef<HTMLSpanElement>(null);
   const publications = useQuery(modelPublicationsQuery(source, reference));
-  const savedVersions = useSavedVersions(source, item, reference, cell);
-  const versions = source.contentState === 'published' ? savedVersions.data : latestHasNoHistory;
+  const { query: savedVersions, versions } = useSavedVersions(source, item, reference, cell);
   const status = useMemo(
     () =>
       publications.data && versions
@@ -210,15 +217,19 @@ function ConnectedPublicationStatusCell({
         : undefined,
     [item, publications.data, reference.itemZuid, versions],
   );
-  const failed = shownFailure(publications) ?? shownFailure(savedVersions);
+  const failed = [publications, savedVersions].filter(shownFailure);
 
   return (
     // Pills wrap rather than draw over the next column if the column is made narrow.
     <span ref={cell} className="flex min-w-0 flex-wrap items-center gap-1.5">
-      {failed ? (
+      {failed.length ? (
         <>
           <span className="text-muted-foreground">Unavailable</span>
-          <Button variant="ghost" size="sm" onClick={() => void failed.refetch()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void Promise.all(failed.map((query) => query.refetch()))}
+          >
             Retry
           </Button>
         </>
@@ -240,8 +251,6 @@ function StatusContent({
   readonly status: PublicationStatus | undefined;
   readonly publishedFirst: boolean;
 }) {
-  // A row keeps what it had while a load is dropped unsent, and a row without a status loads it
-  // again when shown.
   if (status === undefined) {
     return (
       // Two pills, the usual shape, so a waiting row keeps the cell's width.
