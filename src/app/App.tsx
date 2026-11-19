@@ -1549,14 +1549,7 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
 
 /** Says why filters on publication status can't show their results yet, or at all. */
 function PublicationNotice({ publications }: { readonly publications: ViewPublications }) {
-  const text =
-    publications.kind === 'loading'
-      ? 'Publication status is loading. Results filtered by it will appear when it is ready.'
-      : publications.kind === 'failed'
-        ? `Publication status could not load: ${publications.message} Filters on it match no items until Refresh loads it.`
-        : publications.kind === 'published-content'
-          ? 'Publication status is known only for latest content. Filters on it match no items here. Switch to Latest to use them.'
-          : undefined;
+  const text = publicationNoticeText(publications);
   if (!text) return null;
   return (
     <p
@@ -1566,4 +1559,17 @@ function PublicationNotice({ publications }: { readonly publications: ViewPublic
       {text}
     </p>
   );
+}
+
+function publicationNoticeText(publications: ViewPublications): string | undefined {
+  if (publications.kind === 'loading') {
+    return 'Publication status is loading. Results filtered by it will appear when it is ready.';
+  }
+  if (publications.kind === 'failed') {
+    return `Publication status could not load: ${publications.message} Filters on it match no items until Refresh loads it.`;
+  }
+  if (publications.kind === 'published-content') {
+    return 'Publication status is known only for latest content. Filters on it match no items here. Switch to Latest to use them.';
+  }
+  return undefined;
 }

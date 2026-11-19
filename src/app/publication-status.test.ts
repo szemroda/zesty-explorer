@@ -40,8 +40,10 @@ describe('current publishings', () => {
           publishAt: '2026-01-01T00:00:00Z',
           unpublishAt: '2026-02-01T00:00:00Z',
         },
-        { itemZuid: '7-republished', version: 3, publishAt: '2026-02-01T00:00:00Z' },
         { itemZuid: '7-republished', version: 4, publishAt: '2026-10-01T00:00:00Z' },
+        { itemZuid: '7-republished', version: 3, publishAt: '2026-02-01T00:00:00Z' },
+        // Left open by mistake: an older start must not win over version 3.
+        { itemZuid: '7-republished', version: 2, publishAt: '2026-01-15T00:00:00Z' },
         {
           itemZuid: '7-taken-offline',
           version: 2,
@@ -62,8 +64,9 @@ describe('current publishings', () => {
       [
         '7-republished',
         [
-          { version: 3, publishAt: '2026-02-01T00:00:00Z', active: true },
           { version: 4, publishAt: '2026-10-01T00:00:00Z', active: false },
+          { version: 3, publishAt: '2026-02-01T00:00:00Z', active: true },
+          { version: 2, publishAt: '2026-01-15T00:00:00Z', active: true },
         ],
       ],
       [

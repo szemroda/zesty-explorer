@@ -759,11 +759,15 @@ describe('ZestyApi', () => {
       const url = new URL(request.url);
       const page = Number(url.searchParams.get('page'));
       const limit = Number(url.searchParams.get('limit'));
-      // A full first page, then a short one.
+      // A full first page, one of whose records was never live, then a short page.
       const data =
         page === 1
-          ? Array.from({ length: limit }, (_, index) => record(`full-${index}`, 1))
-          : [record('last-one', 2), { ...record('never-live', 2), publishAt: null }];
+          ? Array.from({ length: limit }, (_, index) =>
+              index === limit - 1
+                ? { ...record('never-live', 1), publishAt: null }
+                : record(`full-${index}`, 1),
+            )
+          : [record('last-one', 2)];
       return Effect.succeed({ status: 200, headers: {}, body: { data } });
     });
 
@@ -771,7 +775,7 @@ describe('ZestyApi', () => {
       createZestyApi(fake.transport).loadModelPublishings(reference, 'private-token'),
     );
 
-    expect(records).toHaveLength(10_001);
+    expect(records).toHaveLength(10_000);
     expect(records[0]).toEqual({
       itemZuid: '7-full-0',
       version: 1,

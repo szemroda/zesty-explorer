@@ -503,9 +503,13 @@ function decodePublishings(
   );
 }
 
+// One page of a model's bulk list: the records the status can read, and how many Zesty sent.
 function decodeModelPublishings(
   input: unknown,
-): Either.Either<readonly ModelPublishing[], ExplorerError> {
+): Either.Either<
+  { readonly records: readonly ModelPublishing[]; readonly received: number },
+  ExplorerError
+> {
   const decoded = Schema.decodeUnknownEither(RawModelPublishingsResponseSchema, {
     errors: 'all',
   })(input);
@@ -517,14 +521,14 @@ function decodeModelPublishings(
       ),
     );
   }
+  const { data } = decoded.right;
   // A record without a start time was never live, so the status has nothing to read from it.
-  return Either.right(
-    decoded.right.data.flatMap(({ itemZUID, version, publishAt, unpublishAt }) =>
-      publishAt
-        ? [{ itemZuid: itemZUID, version, publishAt, ...(unpublishAt ? { unpublishAt } : {}) }]
-        : [],
-    ),
+  const records = data.flatMap(({ itemZUID, version, publishAt, unpublishAt }) =>
+    publishAt
+      ? [{ itemZuid: itemZUID, version, publishAt, ...(unpublishAt ? { unpublishAt } : {}) }]
+      : [],
   );
+  return Either.right({ records, received: data.length });
 }
 
 function decodeInstanceUsers(
@@ -1029,8 +1033,8 @@ export function createZestyApi(transport: ZestyTransport, options: ZestyApiOptio
               withRequestDiagnostic(decoded.left, operation, requestUrl, response.status),
             );
           }
-          records.push(...decoded.right);
-          if (decoded.right.length < modelPublishingsPageSize) return records;
+          records.push(...decoded.right.records);
+          if (decoded.right.received < modelPublishingsPageSize) return records;
         }
       }),
 

@@ -7,7 +7,7 @@ import type {
   ItemZuid,
   ViewFilter,
 } from '../../domain';
-import { publicationFieldPath } from '../../explorer-core';
+import { isPublicationFilter } from '../../explorer-core';
 import { flattenCollectionNodes } from '../load-view';
 import { explorerFailure } from './explorer-query';
 import { modelPublicationsQuery, type ModelPublicationsSource } from './model-publications-query';
@@ -30,9 +30,6 @@ type Publications = ReadonlyMap<ItemZuid, readonly ItemPublishing[]>;
 const notNeeded: ViewPublications = { kind: 'not-needed' };
 const publishedContent: ViewPublications = { kind: 'published-content' };
 const loading: ViewPublications = { kind: 'loading' };
-
-const isPublicationFilter = (filter: ViewFilter) =>
-  filter.fieldPath.join('.') === publicationFieldPath.join('.');
 
 /** Whether a view filter or any table filter of the view tests publication state. */
 export function filtersByPublication(

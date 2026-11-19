@@ -57,5 +57,11 @@ export function currentPublishings(
     if (list) list.push(publishing);
     else byItem.set(itemZuid, [publishing]);
   }
+  // Latest start first, so a reader that takes the first live record gets the newest one even if
+  // Zesty left an older record open.
+  for (const list of byItem.values()) {
+    if (list.length > 1)
+      list.sort((left, right) => Date.parse(right.publishAt!) - Date.parse(left.publishAt!));
+  }
   return byItem;
 }

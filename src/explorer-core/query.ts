@@ -29,6 +29,11 @@ export interface FilterCondition {
  */
 export const publicationFieldPath: FieldPath = ['$publication'];
 
+/** Whether the filter tests publication state rather than item content. */
+export function isPublicationFilter(filter: Pick<ViewFilter, 'fieldPath'>): boolean {
+  return filter.fieldPath.length === 1 && filter.fieldPath[0] === publicationFieldPath[0];
+}
+
 export interface ExplorerGraphInput {
   readonly rootNodeId: CollectionNodeId;
   readonly snapshots: ReadonlyMap<CollectionNodeId, CollectionSnapshot>;
@@ -287,9 +292,7 @@ function matchesHereOrBelow(
 
 // Whether one item passes the filter's own test, before following relationships.
 function itemTest(graph: ExplorerGraph, filter: ViewFilter): (item: ContentItem) => boolean {
-  if (filter.fieldPath.join('.') !== publicationFieldPath.join('.')) {
-    return (item) => matchesFilter(item, filter);
-  }
+  if (!isPublicationFilter(filter)) return (item) => matchesFilter(item, filter);
   const states: readonly unknown[] = Array.isArray(filter.value) ? filter.value : [];
   return (item) => {
     const state = graph.publicationState(item);
