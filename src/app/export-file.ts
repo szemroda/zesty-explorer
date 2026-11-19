@@ -32,7 +32,8 @@ export function exportBaseName(subject: string, scope: ContentScope, date: Date)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
-  const day = date.toISOString().slice(0, 10);
+  // The user's own calendar day; the Swedish locale writes it as YYYY-MM-DD.
+  const day = date.toLocaleDateString('sv-SE');
   return [slug(subject) || 'export', scope.state, slug(scope.language), day].join('_');
 }
 
@@ -96,12 +97,16 @@ export function xlsxBytes(table: ExportTable, sheetName: string): Uint8Array {
   );
 }
 
+const cellLimit = 32_767;
+
 function sheetXml(table: ExportTable): string {
   const cell = (value: ExportCell, column: number, row: number, style = '') => {
     if (value === null) return '';
     const ref = `${columnLetters(column)}${row}`;
     if (typeof value === 'number') return `<c r="${ref}"${style}><v>${value}</v></c>`;
-    return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`;
+    // Excel reports a workbook with a longer cell as corrupt.
+    const text = value.length > cellLimit ? `${value.slice(0, cellLimit - 1)}…` : value;
+    return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlText(text)}</t></is></c>`;
   };
   const row = (cells: readonly ExportCell[], number: number, style?: string) =>
     `<row r="${number}">${cells.map((value, column) => cell(value, column, number, style)).join('')}</row>`;

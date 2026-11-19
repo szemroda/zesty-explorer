@@ -18,6 +18,7 @@ export function richTextLines(html: string): string {
   if (!body) return '';
   for (const lineBreak of body.querySelectorAll('br')) lineBreak.replaceWith('\n');
   for (const element of body.querySelectorAll(lineElements)) element.append('\n');
+  for (const cell of body.querySelectorAll('td, th')) cell.append(' ');
   return body.textContent
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trim())

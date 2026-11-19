@@ -736,7 +736,7 @@ test('exports the root table with its related collection as an Excel workbook', 
 
   expect(download.suggestedFilename()).toMatch(/^6-rootmodel_latest_en-us_[\d-]+\.xlsx$/);
   const workbook = unzipSync(await readFile(await download.path()));
-  const sheet = strFromU8(workbook['xl/worksheets/sheet1.xml']!);
+  const sheet = strFromU8(workbook['xl/worksheets/sheet1.xml']);
   expect(sheet.match(/<row /g)).toHaveLength(106);
   expect(sheet).toContain('<t xml:space="preserve">Children</t>');
   expect(sheet).toContain('<t xml:space="preserve">Child 0; Child 1; Child 2;');

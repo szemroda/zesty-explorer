@@ -48,12 +48,19 @@ describe('export files', () => {
     );
   });
 
+  it('cuts text to the longest cell Excel opens without repairing the workbook', () => {
+    const long: ExportTable = { headers: ['Body'], rows: [['x'.repeat(40_000)]] };
+    const sheet = strFromU8(unzipSync(xlsxBytes(long, 'Posts'))['xl/worksheets/sheet1.xml']!);
+
+    expect(sheet).toContain(`<t xml:space="preserve">${'x'.repeat(32_766)}…</t>`);
+  });
+
   it('names a file after its subject, content state, language and day', () => {
     expect(
       exportBaseName(
         'Blog Articles',
         { state: 'published', language: 'en-US' },
-        new Date('2026-11-19T10:00:00Z'),
+        new Date(2026, 10, 19, 23, 30),
       ),
     ).toBe('blog-articles_published_en-us_2026-11-19');
   });

@@ -7,6 +7,7 @@ import {
   type ContentItemColumn,
   type ContentValueColumn,
 } from './content-item-presentation';
+import { snapshotQueryKey } from '../zesty-api';
 import { loadedItemsById, loadedSnapshot, namedSortValue, type LoadedView } from './load-view';
 import { richTextLines } from './rich-text';
 
@@ -65,19 +66,44 @@ export function exportTable(view: ExportView, request: ExportRequest): ExportTab
   const { rows, columns, parentNode, related = [] } = request;
   const loadedItems = () => loadedItemsById(view.loadedView);
   return {
-    headers: [
-      ...(parentNode ? [`${parentNode.name} ZUID`, parentNode.name] : []),
-      ...columns.map((column) => column.label),
-      ...related.map(({ node, summary }) =>
-        summary === 'count' ? `${node.name} count` : node.name,
-      ),
-    ],
+    headers: exportHeaders(request),
     rows: rows.map(({ item, parent }) => [
       ...(parentNode ? [parent?.id ?? null, parent ? itemDisplayLabel(parent) : null] : []),
       ...columns.map((column) => exportCell(column, item, loadedItems)),
       ...related.map((column) => relatedSummary(view, column, item.id)),
     ]),
   };
+}
+
+/**
+ * The file's column headers, in `exportTable`'s order. A repeated header gets a number, e.g.
+ * `Author (2)`, because labels need not be unique and JSON keys records by header.
+ */
+export function exportHeaders({ columns, parentNode, related = [] }: ExportRequest): string[] {
+  const labels = [
+    ...(parentNode ? [`${parentNode.name} ZUID`, parentNode.name] : []),
+    ...columns.map((column) => column.label),
+    ...related.map(({ node, summary }) => (summary === 'count' ? `${node.name} count` : node.name)),
+  ];
+  const used = new Set<string>();
+  return labels.map((label) => {
+    let header = label;
+    for (let copy = 2; used.has(header); copy += 1) header = `${label} (${copy})`;
+    used.add(header);
+    return header;
+  });
+}
+
+/** The nodes among `nodes` whose items did not all load, so a file of them can miss items. */
+export function incompleteNodes(
+  view: ExportView,
+  nodes: readonly CollectionNode[],
+): readonly CollectionNode[] {
+  return nodes.filter(
+    (node) =>
+      view.loadedView.snapshots.snapshots.get(snapshotQueryKey(node.reference, view.scope))
+        ?.status !== 'complete',
+  );
 }
 
 function exportCell(

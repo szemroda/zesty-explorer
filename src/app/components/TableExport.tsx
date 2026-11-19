@@ -9,7 +9,9 @@ import { loadedItemsById } from '../load-view';
 import { plural } from '../lib/utils';
 import {
   exportableColumns,
+  exportHeaders,
   exportTable,
+  incompleteNodes,
   rowsUnderEveryParent,
   type ExportRequest,
   type ExportView,
@@ -106,14 +108,13 @@ function RootExportPanel({
     return summary ? [{ node: child, summary }] : [];
   });
   const filtered = rows === 'filtered' || filteredItems.length === allItemIds.length;
-  const rowCount = filtered ? filteredItems.length : allItemIds.length;
-  const chosenColumns = columnChoice === 'visible' ? visibleColumns : allColumns;
-
-  function request(): ExportRequest {
-    const loaded = loadedItemsById(view.loadedView);
-    const items = filtered ? filteredItems : allItemIds.flatMap((id) => loaded.get(id) ?? []);
-    return { rows: items.map((item) => ({ item })), columns: chosenColumns, related };
-  }
+  const loaded = loadedItemsById(view.loadedView);
+  const items = filtered ? filteredItems : allItemIds.flatMap((id) => loaded.get(id) ?? []);
+  const request: ExportRequest = {
+    rows: items.map((item) => ({ item })),
+    columns: columnChoice === 'visible' ? visibleColumns : allColumns,
+    related,
+  };
 
   return (
     <>
@@ -173,16 +174,10 @@ function RootExportPanel({
             })}
           </fieldset>
         ) : null}
+        <IncompleteNote view={view} nodes={[node, ...related.map((column) => column.node)]} />
         <StatusNote columnVisibility={columnVisibility} />
       </div>
-      <ExportFooter
-        subject={title}
-        view={view}
-        format={format}
-        rowCount={rowCount}
-        columnCount={chosenColumns.length + related.length}
-        request={request}
-      />
+      <ExportFooter subject={title} view={view} format={format} request={request} />
     </>
   );
 }
@@ -200,11 +195,12 @@ function NestedExportPanel({
   const [format, setFormat] = useState<ExportFormat>('csv');
   // An item with nothing related has nothing of its own to export.
   const [rows, setRows] = useState<'item' | 'all'>(items.length > 0 ? 'item' : 'all');
-  const everyParent = rowsUnderEveryParent(view, nodePath(root, node.id), rootItems);
+  const path = nodePath(root, node.id);
+  const everyParent = rowsUnderEveryParent(view, path, rootItems);
   const visibleColumns = exportableColumns(columns).filter(
     (column) => columnVisibility[column.id] !== false,
   );
-  const request = (): ExportRequest =>
+  const request: ExportRequest =
     rows === 'item'
       ? { rows: items.map((item) => ({ item })), columns: visibleColumns }
       : { rows: everyParent, columns: visibleColumns, parentNode };
@@ -229,16 +225,10 @@ function NestedExportPanel({
             {root.name}, each with its {parentNode.name} ZUID and name.
           </Note>
         ) : null}
+        <IncompleteNote view={view} nodes={rows === 'item' ? [node] : path} />
         <StatusNote columnVisibility={columnVisibility} />
       </div>
-      <ExportFooter
-        subject={node.name}
-        view={view}
-        format={format}
-        rowCount={rows === 'item' ? items.length : everyParent.length}
-        columnCount={visibleColumns.length + (rows === 'all' ? 2 : 0)}
-        request={request}
-      />
+      <ExportFooter subject={node.name} view={view} format={format} request={request} />
     </>
   );
 }
@@ -333,6 +323,23 @@ function StatusNote({ columnVisibility }: Pick<ColumnsShown, 'columnVisibility'>
   return <Note>Publication status is not exported.</Note>;
 }
 
+function IncompleteNote({
+  view,
+  nodes,
+}: {
+  readonly view: ExportView;
+  readonly nodes: readonly CollectionNode[];
+}) {
+  const incomplete = incompleteNodes(view, nodes);
+  if (incomplete.length === 0) return null;
+  const names = incomplete.map((node) => node.name).join(', ');
+  return (
+    <Note>
+      {names} did not fully load, so the file may miss related items or rows. Refresh to try again.
+    </Note>
+  );
+}
+
 function Note({ children }: { readonly children: ReactNode }) {
   return (
     <p className="m-0 rounded-md border border-border bg-surface-control px-2.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
@@ -345,25 +352,29 @@ function ExportFooter({
   subject,
   view,
   format,
-  rowCount,
-  columnCount,
   request,
 }: {
   readonly subject: string;
   readonly view: ExportView;
   readonly format: ExportFormat;
-  readonly rowCount: number;
-  readonly columnCount: number;
-  /** Called on download, so a large file is only built when someone asks for it. */
-  readonly request: () => ExportRequest;
+  readonly request: ExportRequest;
 }) {
   const baseName = exportBaseName(subject, view.scope, new Date());
+  const rowCount = request.rows.length;
+  const columnCount = exportHeaders(request).length;
   const summary = `${plural(rowCount, 'row', 'rows')}, ${plural(columnCount, 'column', 'columns')}`;
 
+  // The file is built here, on download, because a large one takes a while.
   function download() {
-    const file = exportFile(exportTable(view, request()), format, subject, baseName);
-    saveFile(file);
-    toast.success(`Downloaded ${file.name}`, { description: summary });
+    try {
+      const file = exportFile(exportTable(view, request), format, subject, baseName);
+      saveFile(file);
+      toast.success(`Downloaded ${file.name}`, { description: summary });
+    } catch (error) {
+      toast.error('The file could not be created', {
+        description: `${error instanceof Error ? error.message : String(error)}. Try fewer rows or columns, or CSV.`,
+      });
+    }
   }
 
   return (

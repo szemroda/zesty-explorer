@@ -705,6 +705,7 @@ function titleIs(title: string): ViewFilter {
 async function savedFile(download: () => void): Promise<{ name: string; text: string }> {
   let blob: Blob | undefined;
   let name = '';
+  // jsdom has no object URLs, so the test lends them and takes them back.
   URL.createObjectURL = (object: Blob | MediaSource) => {
     if (object instanceof Blob) blob = object;
     return 'blob:export';
@@ -719,6 +720,8 @@ async function savedFile(download: () => void): Promise<{ name: string; text: st
     download();
   } finally {
     click.mockRestore();
+    Reflect.deleteProperty(URL, 'createObjectURL');
+    Reflect.deleteProperty(URL, 'revokeObjectURL');
   }
   if (!blob) throw new Error('Nothing was downloaded');
   return { name, text: await blob.text() };
