@@ -11,6 +11,7 @@ const operationLabels: Readonly<Record<ExplorerRequestOperation, string>> = {
   'load-collection-items': 'Loading collection items',
   'load-item-versions': 'Loading item versions',
   'load-item-publishings': 'Loading item publishings',
+  'load-model-publishings': 'Loading model publishings',
   'load-instance-users': 'Loading instance users',
   'load-code-files': 'Loading code files',
   'load-code-file-versions': 'Loading code file versions',

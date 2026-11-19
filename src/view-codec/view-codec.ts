@@ -100,6 +100,7 @@ const filterOperators = new Set([
   'true',
   'false',
   'one-of',
+  'one-of-or-below',
 ]);
 
 function isViewFilter(value: unknown): value is ViewFilter {

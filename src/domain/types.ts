@@ -154,6 +154,18 @@ export interface ItemPublishing {
   readonly active: boolean;
 }
 
+/** Whether an item's latest saved version is the one live now. */
+export type PublicationState = 'not-published' | 'unpublished-changes' | 'published';
+
+/** One record from a model's bulk publishing list. Each publish of an item adds one. */
+export interface ModelPublishing {
+  readonly itemZuid: ItemZuid;
+  readonly version: number;
+  readonly publishAt: string;
+  /** When the record stopped being live; absent while it is live or still to come. */
+  readonly unpublishAt?: string;
+}
+
 export interface InstanceUser {
   readonly id: UserZuid;
   readonly firstName?: string;
@@ -229,7 +241,9 @@ export type FilterOperator =
   | 'is-not-empty'
   | 'true'
   | 'false'
-  | 'one-of';
+  | 'one-of'
+  // `one-of` on the item itself or on any related item below it.
+  | 'one-of-or-below';
 
 export interface ViewFilter {
   readonly id: string;
@@ -306,6 +320,7 @@ export type ExplorerRequestOperation =
   | 'load-collection-items'
   | 'load-item-versions'
   | 'load-item-publishings'
+  | 'load-model-publishings'
   | 'load-instance-users'
   | 'load-code-files'
   | 'load-code-file-versions'

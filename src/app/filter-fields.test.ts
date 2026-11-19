@@ -9,6 +9,7 @@ import type {
 import { matchesFilter } from '../explorer-core';
 import { collectionNode } from '../test/fixtures';
 import {
+  conditionsFor,
   describeFilter,
   draftFromFilter,
   emptyDraft,
@@ -17,6 +18,7 @@ import {
   findFilterField,
   optionCounts,
   parseScalar,
+  withPublicationField,
 } from './filter-fields';
 
 const blocks: CollectionNode = { ...collectionNode('node-blocks', '6-blocks'), name: 'Blocks' };
@@ -258,6 +260,54 @@ describe('filter fields', () => {
       value: 'a',
     } as const;
     expect(describeFilter(filter, fields).stale).toBe(true);
+  });
+});
+
+describe('publication status field', () => {
+  const latest = withPublicationField(fields, root, 'latest');
+  const status = latest.groups[0]!.items[0]!;
+
+  it('comes first in latest content and matches through related items only above them', () => {
+    expect(latest.groups.map((group) => group.label)).toEqual([
+      'Publication',
+      'Articles',
+      'Sections › Blocks',
+    ]);
+    expect(conditionsFor(status.field).map((condition) => condition.label)).toEqual([
+      'is',
+      'is, or a related item is',
+    ]);
+    const leaf = withPublicationField(filterFields(blocks, schemas), blocks, 'latest');
+    expect(conditionsFor(leaf.groups[0]!.items[0]!.field).map(({ label }) => label)).toEqual([
+      'is',
+    ]);
+  });
+
+  it('writes, reads back, and describes a filter through related items', () => {
+    const result = filterFromDraft(
+      { ...emptyDraft(status), condition: 'one-of-or-below', options: ['not-published'] },
+      status,
+      'p',
+    );
+    expect(result).toEqual({
+      ok: true,
+      filter: {
+        id: 'p',
+        nodePath: [],
+        fieldPath: ['$publication'],
+        operator: 'one-of-or-below',
+        value: ['not-published'],
+      },
+    });
+    if (!result.ok) return;
+    expect(draftFromFilter(result.filter).options).toEqual(['not-published']);
+    // Published content offers no state, but still names a filter a link carries.
+    const published = withPublicationField(fields, root, 'published');
+    expect(published.groups.map((group) => group.label)).toEqual(['Articles', 'Sections › Blocks']);
+    expect(describeFilter(result.filter, published)).toMatchObject({
+      text: 'Publication status is, or a related item is Not published',
+      stale: false,
+    });
   });
 });
 

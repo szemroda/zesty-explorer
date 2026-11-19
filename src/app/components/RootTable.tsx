@@ -13,10 +13,17 @@ import type {
   CollectionSnapshot,
   ContentItem,
   ContentScope,
+  ItemZuid,
   NodePresentation,
   ViewFilter,
 } from '../../domain';
-import { filterNodeItemIds, sortItemIds } from '../../explorer-core';
+import {
+  filterNodeItemIds,
+  publicationStateOf,
+  sortItemIds,
+  type ExplorerGraph,
+} from '../../explorer-core';
+import { contentItemVersionNumber } from '../item-version-preview';
 import type { CollectionLoadProgress } from '../../zesty-api';
 import {
   contentActionColumnWidth,
@@ -107,6 +114,8 @@ interface RootTableProps {
    * wrong. The toolbar and chips stay usable while the results wait.
    */
   readonly resultsPending?: boolean;
+  /** The version of an item live now; undefined until publication state is loaded or needed. */
+  readonly publishedVersion?: ((itemId: ItemZuid) => number | undefined) | undefined;
   readonly viewFilters?: readonly ViewFilter[];
   readonly onViewFiltersChange: (filters: readonly ViewFilter[]) => void;
   readonly onOpenDetails: (item: ContentItem, trigger: HTMLElement) => void;
@@ -127,6 +136,7 @@ export function RootTable({
   loadedView,
   contentScope,
   resultsPending = false,
+  publishedVersion,
   viewFilters = [],
   onViewFiltersChange,
   onOpenDetails,
@@ -184,10 +194,15 @@ export function RootTable({
     return () => window.clearTimeout(timer);
   }, [onPresentationChange, sorting, treeRoot.id, treeRoot.presentation]);
 
-  const graph = useMemo(
-    () => buildLoadedViewGraph(treeRoot, loadedView, contentScope),
-    [contentScope, loadedView, treeRoot],
-  );
+  const graph = useMemo((): ExplorerGraph => {
+    const loaded = buildLoadedViewGraph(treeRoot, loadedView, contentScope);
+    if (!publishedVersion) return loaded;
+    return {
+      ...loaded,
+      publicationState: (item) =>
+        publicationStateOf(contentItemVersionNumber(item), publishedVersion(item.id)),
+    };
+  }, [contentScope, loadedView, publishedVersion, treeRoot]);
   const allItemIds = useMemo(() => snapshot.items.map((item) => item.id), [snapshot.items]);
   // Filtering and sorting are memoized apart, so changing one doesn't repeat the other's work.
   const matchingIds = useMemo(

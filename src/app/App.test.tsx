@@ -88,6 +88,7 @@ function api(
     loadItemVersions: () => Effect.succeed([]),
     loadItemPublishings: () => Effect.succeed([]),
     loadInstanceUsers: () => Effect.succeed([]),
+    loadModelPublishings: () => Effect.succeed([]),
     loadCodeFiles: (_instance, state) => Effect.succeed({ state, files: [], incomplete: false }),
     loadCodeFileVersions: () => Effect.succeed({ versions: [], total: 0 }),
     loadWebEngineBaseUrls: () => Effect.succeed([]),
@@ -800,6 +801,154 @@ describe('root collection browser', () => {
     );
     expect(window.location.hash).toMatch(/^#view=/);
     expect(window.location.href).not.toContain('stored-session-token');
+  });
+
+  it('filters a shared view by publication status read in one request per model', async () => {
+    const loadModelPublishings = vi.fn<ZestyApi['loadModelPublishings']>(() =>
+      Effect.succeed([
+        // The first story has a newer save than the one live; the second story is live as saved.
+        { itemZuid: '7-000000-aaaaaa', version: 1, publishAt: '2026-01-05T12:00:00Z' },
+        { itemZuid: '7-000000-bbbbbb', version: 1, publishAt: '2026-01-05T12:00:00Z' },
+      ]),
+    );
+    openSharedView(
+      { ...rootWithChild, children: [] },
+      {
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator: 'one-of',
+            value: ['not-published', 'unpublished-changes'],
+          },
+        ],
+      },
+    );
+
+    render(
+      <App
+        api={{ ...api(), loadModelPublishings }}
+        tokenStore={memoryTokenStore([['production', 'stored-session-token']])}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Edit filter Publication status is Not published, Unpublished changes',
+      }),
+    ).toBeInTheDocument();
+    // Rows stay hidden while the status loads, and role queries skip hidden rows.
+    expect(await screen.findByRole('row', { name: /First story/ })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /Second story/ })).not.toBeInTheDocument();
+    expect(loadModelPublishings).toHaveBeenCalledTimes(1);
+    expect(loadModelPublishings.mock.calls[0]?.[0].modelZuid).toBe('6-model123');
+  });
+
+  it.each([
+    ['one-of', ['6-model123']],
+    ['one-of-or-below', ['6-child123', '6-model123']],
+  ] as const)(
+    'reads publications only for the collections a %s filter tests',
+    async (operator, models) => {
+      const loadModelPublishings = vi.fn<ZestyApi['loadModelPublishings']>(() =>
+        Effect.succeed([]),
+      );
+      openSharedView(rootWithChild, {
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator,
+            value: ['published'],
+          },
+        ],
+      });
+
+      render(
+        <App
+          api={{ ...api(), loadModelPublishings }}
+          tokenStore={memoryTokenStore([['production', 'stored-session-token']])}
+        />,
+      );
+
+      await waitFor(() =>
+        expect(
+          loadModelPublishings.mock.calls.map(([reference]) => reference.modelZuid).toSorted(),
+        ).toEqual(models),
+      );
+    },
+  );
+
+  it('asks for a new token when reading publications rejects it', async () => {
+    const store = memoryTokenStore([['production', 'stored-session-token']]);
+    const clear = vi.spyOn(store, 'clear');
+    openSharedView(
+      { ...rootWithChild, children: [] },
+      {
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator: 'one-of',
+            value: ['published'],
+          },
+        ],
+      },
+    );
+
+    render(
+      <App
+        api={{
+          ...api(),
+          loadModelPublishings: () =>
+            Effect.fail({
+              kind: 'authentication',
+              status: 401,
+              message: 'The Zesty session token is invalid or expired.',
+            }),
+        }}
+        tokenStore={store}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Replace your session token' }),
+    ).toBeInTheDocument();
+    expect(clear).toHaveBeenCalledWith('production');
+  });
+
+  it('explains that published content has no publication status to filter by', async () => {
+    const loadModelPublishings = vi.fn<ZestyApi['loadModelPublishings']>(() => Effect.succeed([]));
+    openSharedView(
+      { ...rootWithChild, children: [] },
+      {
+        contentState: 'published',
+        viewFilters: [
+          {
+            id: 'status',
+            nodePath: [],
+            fieldPath: ['$publication'],
+            operator: 'one-of',
+            value: ['published'],
+          },
+        ],
+      },
+    );
+
+    render(
+      <App
+        api={{ ...api(), loadModelPublishings }}
+        tokenStore={memoryTokenStore([['production', 'stored-session-token']])}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Publication status is known only for latest content/),
+    ).toBeInTheDocument();
+    expect(loadModelPublishings).not.toHaveBeenCalled();
   });
 
   it('offers raw-data recovery and a reset for malformed links', () => {

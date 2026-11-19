@@ -5,6 +5,7 @@ import { isDateOnly } from '../../explorer-core';
 import {
   describeFilter,
   filterOptions,
+  isPublicationField,
   isSearchField,
   optionCounts,
   withFilter,
@@ -14,6 +15,7 @@ import {
   type FilterFields,
 } from '../filter-fields';
 import { useFilterDraft, type DraftValueProps } from '../hooks/useFilterDraft';
+import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Checkbox, CheckboxGroup } from './ui/checkbox';
 import { Combobox } from './ui/combobox';
@@ -208,8 +210,18 @@ function FilterEditor({
     setField(next);
   }
 
+  // "is, or a related item is" needs a wider condition menu than the other conditions.
+  const offersOrBelow = conditions.some((candidate) => candidate.id === 'one-of-or-below');
+
   return (
-    <div className="grid w-[min(480px,calc(100vw-2rem))] gap-3 p-3" role="group" aria-label={label}>
+    <div
+      className={cn(
+        'grid gap-3 p-3',
+        offersOrBelow ? 'w-[min(580px,calc(100vw-2rem))]' : 'w-[min(480px,calc(100vw-2rem))]',
+      )}
+      role="group"
+      aria-label={label}
+    >
       {hint ? <p className="m-0 text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
       {/* A chip already names the field, so only the toolbar editor picks one. */}
       {fixedField ? (
@@ -231,6 +243,11 @@ function FilterEditor({
           <span className="text-foreground/80">{field.scope}</span>.
         </p>
       ) : null}
+      {condition?.id === 'one-of-or-below' ? (
+        <p className="-mt-1 m-0 text-[11px] leading-snug text-muted-foreground">
+          Also keeps {subject} with a matching related item at any level below.
+        </p>
+      ) : null}
       {field ? (
         <div className="flex items-start gap-2">
           <Select
@@ -240,7 +257,10 @@ function FilterEditor({
               if (next !== null) chooseCondition(next);
             }}
           >
-            <SelectTrigger className="w-32 shrink-0" aria-label={`${label} condition`}>
+            <SelectTrigger
+              className={cn('shrink-0', offersOrBelow ? 'w-48' : 'w-32')}
+              aria-label={`${label} condition`}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -407,7 +427,8 @@ function ValueControl({
   const invalid = problemInput === 'value' || undefined;
   if (condition.input === 'none') return null;
   if (condition.input === 'options') {
-    const items = itemsFor(field);
+    // Counts read item content, which doesn't hold the publication state.
+    const items = isPublicationField(field.field) ? undefined : itemsFor(field);
     const counts = items ? optionCounts(field.field, items) : undefined;
     return (
       <div className="grid gap-1">

@@ -1,9 +1,15 @@
 import { Schema } from 'effect';
-import type { CodeFileZuid, ModelZuid, UserZuid } from './types';
+import type { CodeFileZuid, ItemZuid, ModelZuid, UserZuid } from './types';
 
 export const UserZuidSchema = Schema.String.pipe(
   Schema.filter((value): value is UserZuid => value.startsWith('5-') || value.startsWith('55-'), {
     message: () => 'Expected a user ZUID beginning with 5- or 55-.',
+  }),
+);
+
+export const ItemZuidSchema = Schema.String.pipe(
+  Schema.filter((value): value is ItemZuid => /^7-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
+    message: () => 'Content item ZUID is invalid',
   }),
 );
 

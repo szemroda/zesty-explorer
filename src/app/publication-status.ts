@@ -1,4 +1,4 @@
-import type { ContentItemVersion, ItemPublishing } from '../domain';
+import type { ContentItemVersion, ItemPublishing, ItemZuid, ModelPublishing } from '../domain';
 
 export interface PublicationStatus {
   readonly latestSaved: number;
@@ -33,4 +33,35 @@ export function publicationStatus(
       ? { nextScheduled: { version: nextScheduled.version, publishAt: nextScheduled.publishAt } }
       : {}),
   };
+}
+
+/**
+ * Each item's live and upcoming publishings, from a model's bulk records, in the shape
+ * `publicationStatus` reads. A record whose window ended is history the status never reads.
+ */
+export function currentPublishings(
+  records: readonly ModelPublishing[],
+  now: Date,
+): ReadonlyMap<ItemZuid, readonly ItemPublishing[]> {
+  const time = now.getTime();
+  const byItem = new Map<ItemZuid, ItemPublishing[]>();
+  for (const { itemZuid, version, publishAt, unpublishAt } of records) {
+    if (unpublishAt !== undefined && Date.parse(unpublishAt) <= time) continue;
+    const publishing: ItemPublishing = {
+      version,
+      publishAt,
+      ...(unpublishAt ? { unpublishAt } : {}),
+      active: Date.parse(publishAt) <= time,
+    };
+    const list = byItem.get(itemZuid);
+    if (list) list.push(publishing);
+    else byItem.set(itemZuid, [publishing]);
+  }
+  // Latest start first, so a reader that takes the first live record gets the newest one even if
+  // Zesty left an older record open.
+  for (const list of byItem.values()) {
+    if (list.length > 1)
+      list.sort((left, right) => Date.parse(right.publishAt!) - Date.parse(left.publishAt!));
+  }
+  return byItem;
 }

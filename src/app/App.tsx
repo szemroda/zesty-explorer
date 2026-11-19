@@ -58,6 +58,11 @@ import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable, RootTableSkeleton } from './components/RootTable';
 import { PublicationStatusProvider } from './components/PublicationStatusCell';
+import {
+  clearModelPublicationsOutsideScope,
+  refreshActiveModelPublications,
+} from './hooks/model-publications-query';
+import { useViewPublications, type ViewPublications } from './hooks/useViewPublications';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { TreeEditor } from './components/TreeEditor';
 import { CodeWorkspace } from './components/CodeWorkspace';
@@ -418,7 +423,10 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
 
   const requiresCompleteView = Boolean(
     treeRoot?.children.length &&
-    (treeRoot.presentation.freeText || viewFilters.some((filter) => filter.nodePath.length > 0)),
+    (treeRoot.presentation.freeText ||
+      viewFilters.some(
+        (filter) => filter.nodePath.length > 0 || filter.operator === 'one-of-or-below',
+      )),
   );
   const loadedViewQuery = useLoadedView({
     api,
@@ -443,6 +451,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     refresh: refreshCollections,
     retryRoot,
   } = loadedViewQuery;
+  const viewPublications = useViewPublications({
+    source: { api, sessionToken: activeToken, credentialRevision },
+    root: treeRoot,
+    viewFilters,
+    contentState,
+    enabled: screen === 'view',
+  });
   const catalogQuery = useCollectionCatalog({
     api,
     reference: catalogInstance,
@@ -465,11 +480,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
   useEffect(() => {
-    clearPublicationStatusCacheOutsideScope(queryClient, {
+    const scope = {
       credentialRevision,
       deployment: reference?.deployment,
       instanceZuid: reference?.instanceZuid,
-    });
+    };
+    clearPublicationStatusCacheOutsideScope(queryClient, scope);
+    clearModelPublicationsOutsideScope(queryClient, scope);
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
   const refreshAll = useCallback(
@@ -481,14 +498,14 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       setSchemasRefreshedAt(Date.now());
       void queryClient.invalidateQueries({ queryKey: [relationshipSchemaQueryRoot] });
       try {
-        const [catalogSucceeded, collectionsSucceeded, previewSucceeded, statusSucceeded] =
-          await Promise.all([
-            catalogQuery.refresh(),
-            refreshCollections(),
-            refreshActiveItemVersionPreviews(queryClient),
-            refreshActivePublicationStatuses(queryClient),
-          ]);
-        succeeded = catalogSucceeded && collectionsSucceeded && previewSucceeded && statusSucceeded;
+        const results = await Promise.all([
+          catalogQuery.refresh(),
+          refreshCollections(),
+          refreshActiveItemVersionPreviews(queryClient),
+          refreshActivePublicationStatuses(queryClient),
+          refreshActiveModelPublications(queryClient),
+        ]);
+        succeeded = results.every(Boolean);
       } catch {
         succeeded = false;
       } finally {
@@ -523,6 +540,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       instanceListAuthenticationFailed ||
       catalogAuthenticationFailed ||
       authenticationFailed ||
+      (viewPublications.kind === 'failed' && viewPublications.tokenRejected) ||
       previewAuthenticationFailureRevision === credentialRevision ||
       workspaceAuthenticationFailureRevision === credentialRevision;
     if (!tokenRejected || !activeToken) return;
@@ -535,6 +553,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   }, [
     activeToken,
     authenticationFailed,
+    viewPublications,
     catalogAuthenticationFailed,
     instanceListAuthenticationFailed,
     workspaceAuthenticationFailureRevision,
@@ -1357,6 +1376,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   ready.
                 </p>
               ) : null}
+              <PublicationNotice publications={viewPublications} />
               {viewIsIncomplete ? (
                 <p
                   className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
@@ -1382,7 +1402,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   treeRoot={treeRoot}
                   loadedView={loadedView}
                   contentScope={contentScope}
-                  resultsPending={descendantResultsPending}
+                  resultsPending={descendantResultsPending || viewPublications.kind === 'loading'}
+                  publishedVersion={
+                    viewPublications.kind === 'ready'
+                      ? viewPublications.publishedVersion
+                      : undefined
+                  }
                   viewFilters={viewFilters}
                   onViewFiltersChange={setViewFilters}
                   onOpenDetails={openDetails}
@@ -1519,4 +1544,31 @@ export function App({ api = defaultApi, tokenStore }: AppProps) {
       <Toaster />
     </QueryClientProvider>
   );
+}
+
+/** Says why filters on publication status can't show their results yet, or at all. */
+function PublicationNotice({ publications }: { readonly publications: ViewPublications }) {
+  const text = publicationNoticeText(publications);
+  if (!text) return null;
+  return (
+    <p
+      className="border-amber-500/40 bg-amber-500/10 mb-4 rounded-md border px-3 py-2 text-sm"
+      role="status"
+    >
+      {text}
+    </p>
+  );
+}
+
+function publicationNoticeText(publications: ViewPublications): string | undefined {
+  if (publications.kind === 'loading') {
+    return 'Publication status is loading. Results filtered by it will appear when it is ready.';
+  }
+  if (publications.kind === 'failed') {
+    return `Publication status could not load: ${publications.message} Filters on it match no items until Refresh loads it.`;
+  }
+  if (publications.kind === 'published-content') {
+    return 'Publication status is known only for latest content. Filters on it match no items here. Switch to Latest to use them.';
+  }
+  return undefined;
 }

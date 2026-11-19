@@ -12,6 +12,8 @@ import {
   filterNodeItemIds,
   matchesFilter,
   pageItemIds,
+  publicationFieldPath,
+  publicationStateOf,
   resolveFieldPath,
   sortItemIds,
 } from './index';
@@ -289,6 +291,93 @@ describe('graph queries', () => {
     );
     expect(filtered).toEqual(['7-one000', '7-three0']);
     expect(graph.snapshot('node-root').items).toHaveLength(3);
+  });
+});
+
+describe('publication state filters', () => {
+  // Articles › Sections › Blocks, with the version each item has live now, if any.
+  const versioned = (id: `7-${string}`, version: number) => ({
+    ...item(id, {}),
+    metadata: { version },
+  });
+  const published = new Map<ItemZuid, number>([
+    ['7-article-live', 2],
+    ['7-article-parent', 4],
+    ['7-section-live', 1],
+    ['7-block-changed', 1],
+  ]);
+  const base = createExplorerGraph({
+    rootNodeId: 'node-articles',
+    snapshots: new Map([
+      [
+        'node-articles',
+        snapshot([
+          versioned('7-article-live', 2),
+          versioned('7-article-draft', 1),
+          versioned('7-article-parent', 4),
+        ]),
+      ],
+      ['node-sections', snapshot([versioned('7-section-live', 1)])],
+      ['node-blocks', snapshot([versioned('7-block-changed', 3)])],
+    ]),
+    childrenByNode: new Map([
+      ['node-articles', ['node-sections']],
+      ['node-sections', ['node-blocks']],
+    ]),
+    relationshipsByChildNode: new Map<`node-${string}`, ReadonlyMap<ItemZuid, readonly ItemZuid[]>>(
+      [
+        ['node-sections', new Map([['7-article-parent', ['7-section-live']]])],
+        ['node-blocks', new Map([['7-section-live', ['7-block-changed']]])],
+      ],
+    ),
+  });
+  const graph = {
+    ...base,
+    publicationState: (entry: ContentItem) =>
+      publicationStateOf(entry.metadata.version as number, published.get(entry.id)),
+  };
+  const articles = ['7-article-live', '7-article-draft', '7-article-parent'] as const;
+  const statusFilter = (operator: FilterOperator, value: readonly string[]) => ({
+    id: 'status',
+    nodePath: [],
+    fieldPath: publicationFieldPath,
+    operator,
+    value,
+  });
+
+  it('names an item unpublished, changed, or published from its two versions', () => {
+    expect(
+      [
+        [3, undefined],
+        [3, 2],
+        [3, 3],
+        [undefined, 3],
+      ].map(([latest, live]) => publicationStateOf(latest, live)),
+    ).toEqual(['not-published', 'unpublished-changes', 'published', undefined]);
+  });
+
+  it('tests only the item itself with "is"', () => {
+    expect(
+      filterNodeItemIds(graph, 'node-articles', articles, [
+        statusFilter('one-of', ['not-published', 'unpublished-changes']),
+      ]),
+    ).toEqual(['7-article-draft']);
+  });
+
+  it('also keeps an item whose related item at any level below matches', () => {
+    expect(
+      filterNodeItemIds(graph, 'node-articles', articles, [
+        statusFilter('one-of-or-below', ['unpublished-changes']),
+      ]),
+    ).toEqual(['7-article-parent']);
+  });
+
+  it('matches nothing until the publication state has loaded', () => {
+    expect(
+      filterNodeItemIds(base, 'node-articles', articles, [
+        statusFilter('one-of-or-below', ['not-published', 'unpublished-changes', 'published']),
+      ]),
+    ).toEqual([]);
   });
 });
 

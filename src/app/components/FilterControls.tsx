@@ -4,6 +4,7 @@ import type {
   CollectionNodeId,
   CollectionSchema,
   ContentScope,
+  ContentState,
   ItemZuid,
   ViewFilter,
 } from '../../domain';
@@ -12,6 +13,7 @@ import {
   filterFields,
   isSearchFilter,
   searchFilter,
+  withPublicationField,
   withSearchField,
   type FilterFields,
 } from '../filter-fields';
@@ -20,15 +22,24 @@ import { AddFilterButton, FilterChip, FilterChipRow, type FilterListContext } fr
 
 type Schemas = ReadonlyMap<CollectionNodeId, CollectionSchema>;
 
-const fieldsBySchemas = new WeakMap<Schemas, WeakMap<CollectionNode, FilterFields>>();
+type FieldsByState = ReadonlyMap<ContentState, FilterFields>;
+
+const fieldsBySchemas = new WeakMap<Schemas, WeakMap<CollectionNode, FieldsByState>>();
 
 // Every expanded row renders a table per child node, so each node's fields are built once.
-function cachedFilterFields(node: CollectionNode, schemas: Schemas): FilterFields {
-  const byNode = fieldsBySchemas.get(schemas) ?? new WeakMap<CollectionNode, FilterFields>();
-  const cached = byNode.get(node);
+function cachedFilterFields(
+  node: CollectionNode,
+  schemas: Schemas,
+  contentState: ContentState,
+): FilterFields {
+  const byNode = fieldsBySchemas.get(schemas) ?? new WeakMap<CollectionNode, FieldsByState>();
+  const cached = byNode.get(node)?.get(contentState);
   if (cached) return cached;
-  const fields = withSearchField(filterFields(node, schemas), node);
-  byNode.set(node, fields);
+  const fields = withSearchField(
+    withPublicationField(filterFields(node, schemas), node, contentState),
+    node,
+  );
+  byNode.set(node, new Map([...(byNode.get(node) ?? []), [contentState, fields]]));
   fieldsBySchemas.set(schemas, byNode);
   return fields;
 }
@@ -74,7 +85,7 @@ export function tableFilterControls(options: TableFilterOptions): TableFilterCon
     label,
     subject,
     hint,
-    fields: cachedFilterFields(node, loadedView.schemas),
+    fields: cachedFilterFields(node, loadedView.schemas, contentScope.state),
     itemsFor: (field) => {
       const snapshot = loadedSnapshot(field.node, loadedView, contentScope);
       if (!snapshot) return undefined;

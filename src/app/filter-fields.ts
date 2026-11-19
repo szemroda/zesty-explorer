@@ -5,11 +5,13 @@ import type {
   CollectionSchema,
   ContentItem,
   FieldOption,
+  ContentState,
   FilterOperator,
+  PublicationState,
   Scalar,
   ViewFilter,
 } from '../domain';
-import { isScalar, optionKey, resolveFieldPath } from '../explorer-core';
+import { isScalar, optionKey, publicationFieldPath, resolveFieldPath } from '../explorer-core';
 
 /** One field a filter can test: a content field of the table's own node or of a descendant node. */
 export interface FilterField {
@@ -109,6 +111,53 @@ export function withSearchField(fields: FilterFields, node: CollectionNode): Fil
   };
 }
 
+const publicationLabels: Readonly<Record<PublicationState, string>> = {
+  'not-published': 'Not published',
+  'unpublished-changes': 'Unpublished changes',
+  published: 'Published',
+};
+
+// The publication state of the table's own items. A node with related collections below it gets
+// its own copy, which also offers to match through those collections' items.
+const publicationField: CollectionField = {
+  id: '12-publication',
+  name: publicationFieldPath.join('.'),
+  label: 'Publication status',
+  kind: 'text',
+  options: Object.entries(publicationLabels).map(([value, label]) => ({ value, label })),
+};
+const publicationTreeField: CollectionField = { ...publicationField, id: '12-publication-tree' };
+
+/** Whether `field` is "Publication status", which the graph answers instead of item content. */
+export function isPublicationField(field: CollectionField): boolean {
+  return field.name === publicationField.name;
+}
+
+/**
+ * `fields` with "Publication status" first, in its own `Publication` group. Only latest content
+ * has a state to show, so in published content the field only describes filters already set.
+ */
+export function withPublicationField(
+  fields: FilterFields,
+  node: CollectionNode,
+  contentState: ContentState,
+): FilterFields {
+  const field: FilterField = {
+    key: fieldKey([], publicationField.name),
+    nodePath: [],
+    node,
+    scope: undefined,
+    field: node.children.length > 0 ? publicationTreeField : publicationField,
+  };
+  return {
+    groups:
+      contentState === 'latest'
+        ? [{ label: 'Publication', items: [field] }, ...fields.groups]
+        : fields.groups,
+    byKey: new Map([[field.key, field], ...fields.byKey]),
+  };
+}
+
 /** `filters` with `next` in place of the filter that has its id, or added at the end. */
 export function withFilter(
   filters: readonly ViewFilter[],
@@ -187,10 +236,16 @@ const searchConditions: readonly Condition[] = [contains];
 const isOneOf: Condition = { id: 'one-of', label: 'is', input: 'options' };
 const booleanConditions: readonly Condition[] = [isOneOf, isEmpty];
 const optionConditions: readonly Condition[] = [isOneOf, ...empty];
+const publicationTreeConditions: readonly Condition[] = [
+  isOneOf,
+  { id: 'one-of-or-below', label: 'is, or a related item is', input: 'options' },
+];
 
 /** Plain-language conditions that suit the field's kind, the most useful first. */
 export function conditionsFor(field: CollectionField): readonly Condition[] {
   if (isSearchField(field)) return searchConditions;
+  if (field.id === publicationTreeField.id) return publicationTreeConditions;
+  if (isPublicationField(field)) return [isOneOf];
   if (field.options?.length) return optionConditions;
   if (field.kind === 'boolean') return booleanConditions;
   if (field.kind === 'number') return numberConditions;
@@ -278,7 +333,7 @@ export function draftFromFilter(filter: ViewFilter): FilterDraft {
     options:
       filter.operator === 'true' || filter.operator === 'false'
         ? [filter.operator]
-        : filter.operator === 'one-of'
+        : filter.operator === 'one-of' || filter.operator === 'one-of-or-below'
           ? values.filter(isScalar).map(optionKey)
           : [],
   };
@@ -319,7 +374,7 @@ export function filterFromDraft(draft: FilterDraft, field: FilterField, id: stri
   if (condition === 'is-empty' || condition === 'is-not-empty') {
     return { ok: true, filter: { ...base, operator: condition } };
   }
-  if (condition === 'one-of') {
+  if (condition === 'one-of' || condition === 'one-of-or-below') {
     const value = filterOptions(field.field)
       .filter((option) => draft.options.includes(option.key))
       .map((option) => option.value);
@@ -331,7 +386,7 @@ export function filterFromDraft(draft: FilterDraft, field: FilterField, id: stri
     if (value.length === 1 && typeof only === 'boolean') {
       return { ok: true, filter: { ...base, operator: only ? 'true' : 'false' } };
     }
-    return { ok: true, filter: { ...base, operator: 'one-of', value } };
+    return { ok: true, filter: { ...base, operator: condition, value } };
   }
   if (condition === 'between') {
     if (!draft.value.trim()) return { ok: false, problem: 'Enter a lower value.', input: 'value' };

@@ -1,19 +1,7 @@
 import { Either, Schema } from 'effect';
-import type {
-  CollectionPage,
-  ContentItem,
-  ContentItemVersion,
-  ExplorerError,
-  ItemZuid,
-} from './types';
-import { UserZuidSchema } from './zuid-schema';
+import type { CollectionPage, ContentItem, ContentItemVersion, ExplorerError } from './types';
+import { ItemZuidSchema, UserZuidSchema } from './zuid-schema';
 import { unsupportedShapeError } from './error-diagnostic';
-
-const ItemZuidSchema = Schema.String.pipe(
-  Schema.filter((value) => /^7-[a-z0-9][a-z0-9-]{4,}$/i.test(value), {
-    message: () => 'Content item ZUID is invalid',
-  }),
-);
 
 const ItemMetadataSchema = Schema.Struct({
   ZUID: ItemZuidSchema,
@@ -61,7 +49,7 @@ function normalizeItem(raw: typeof RawItemSchema.Type): ContentItem {
   }
 
   return {
-    id: decodedMetadata.ZUID as ItemZuid,
+    id: decodedMetadata.ZUID,
     fields: raw.data,
     metadata,
     raw,
