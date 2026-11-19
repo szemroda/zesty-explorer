@@ -62,7 +62,7 @@ The development server starts on port 5173 or the next available port without op
 
 To open a specific collection or item, or an instance that the list does not show, paste its URL into either search field. A Zesty Manager Content or Blocks collection URL and a full Instances API collection URL both work. An item-editor URL opens the collection and that item's details.
 
-The open instance shows in the top bar on every tab. Select it to switch instance or deployment; an open view closes, and **Undo** in the notification reopens it. To change the root collection, select **Open a collection** above the collection tree, or **Change root collection** in the root's `…` menu.
+The open instance shows in the top bar on every tab. Select it to switch instance; an open view closes, and **Undo** in the notification reopens it. **Use another session token or deployment** there opens the token form; nothing changes until you select **Continue**, and **Back** returns to where you were. To change the root collection, select **Open a collection** above the collection tree, or **Change root collection** in the root's `…` menu.
 
 **Continue** sends the token to the deployment's Accounts API to list your instances. The token is stored only in that tab's `sessionStorage`, separated by deployment. A `401` removes the expired token but preserves the view and your selection. After you enter a replacement, the app returns to where you were.
 

@@ -135,6 +135,12 @@ interface PendingRootReplacement extends RootChoice {
   readonly removedNodeNames: readonly string[];
 }
 
+/** A token the user chose to replace, perhaps in another deployment, and where Back goes. */
+interface TokenChange {
+  readonly returnTo: ExplorerStep;
+  readonly deployment: Deployment;
+}
+
 interface PendingUndo {
   readonly toastId: string | number;
   // The tree the action left behind; any other structure makes the undo stale.
@@ -246,6 +252,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initialInstance?.deployment ?? 'production',
   );
   const [rejectedDeployment, setRejectedDeployment] = useState<Deployment>();
+  const [tokenChange, setTokenChange] = useState<TokenChange>();
   const sessionTokens = useSessionTokens(tokenStore);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
   // The Code and Import check tabs load only once opened, then keep their state while hidden.
@@ -657,9 +664,26 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedRootZuid(next.suggestedModelZuid);
   }
 
-  function changeDeployment(next: Deployment) {
+  // Asks for another token, or another deployment's, without leaving where the user is: nothing
+  // changes until Continue, and Back returns to the step the form opened from.
+  function changeSessionToken() {
+    setInstanceDialogOpen(false);
+    setRootPickerOpen(false);
+    setTokenChange({ returnTo: step, deployment });
+    setStep('credentials');
+  }
+
+  function saveChangedToken(change: TokenChange, token: string) {
+    sessionTokens.save(change.deployment, token);
+    setRejectedDeployment(undefined);
+    setTokenChange(undefined);
+    if (change.deployment === deployment) {
+      setStep(change.returnTo);
+      return;
+    }
+    // The open view and instance belong to the deployment being left.
     closeView('Switched deployment', 'Undo to reopen the previous view.');
-    setChosenDeployment(next);
+    setChosenDeployment(change.deployment);
   }
 
   /**
@@ -801,6 +825,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setStep('picker');
+    setTokenChange(undefined);
     setInstanceDialogOpen(false);
     setRootPickerOpen(false);
     setCatalogInstance(undefined);
@@ -907,7 +932,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       switchInstance(next);
     },
     onPasteUrl: (url: string) => openPastedUrl(url, 'instance-list'),
-    onDeploymentChange: changeDeployment,
   };
   const rootPickerProps = {
     titleId: rootPickerTitle,
@@ -1200,6 +1224,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                 <Button onClick={clearView}>Reset view</Button>
               </CardFooter>
             </Card>
+          ) : screen === 'credentials' && tokenChange ? (
+            <SessionTokenForm
+              key="token-change"
+              deployment={tokenChange.deployment}
+              savedToken={sessionTokens.read(tokenChange.deployment)}
+              rejected={rejectedDeployment === tokenChange.deployment}
+              instance={undefined}
+              onDeploymentChange={(next) => setTokenChange({ ...tokenChange, deployment: next })}
+              onBack={() => {
+                setTokenChange(undefined);
+                setStep(tokenChange.returnTo);
+              }}
+              onSubmit={(token) => saveChangedToken(tokenChange, token)}
+            />
           ) : screen === 'credentials' ? (
             <SessionTokenForm
               deployment={deployment}
@@ -1215,16 +1253,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                     }
               }
               onBack={
-                // Back from changing the token for the instance list, or from a token request
-                // for a pasted URL's deployment.
-                step === 'credentials' && activeToken
-                  ? () => setStep('picker')
-                  : step === 'picker' && catalogInstance
-                    ? () => {
-                        setCatalogInstance(undefined);
-                        setSelectedRootZuid(undefined);
-                      }
-                    : undefined
+                // Back from a token request for a pasted URL's deployment.
+                step === 'picker' && catalogInstance
+                  ? () => {
+                      setCatalogInstance(undefined);
+                      setSelectedRootZuid(undefined);
+                    }
+                  : undefined
               }
               onSubmit={saveSessionToken}
             />
@@ -1244,9 +1279,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                   <button
                     type="button"
                     className="text-foreground underline underline-offset-2 hover:no-underline"
-                    onClick={() => setStep('credentials')}
+                    onClick={changeSessionToken}
                   >
-                    Use another session token
+                    Use another session token or deployment
                   </button>
                 </p>
               </div>
@@ -1412,6 +1447,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         open={instanceDialogOpen && showTabs}
         onOpenChange={setInstanceDialogOpen}
         viewOpen={Boolean(treeRoot)}
+        onChangeSessionToken={changeSessionToken}
         {...instancePickerProps}
       />
       <Dialog

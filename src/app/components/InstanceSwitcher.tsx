@@ -51,12 +51,15 @@ export function InstanceDialog({
   open,
   onOpenChange,
   viewOpen,
+  onChangeSessionToken,
   ...list
 }: Omit<InstancePickerProps, 'autoFocus' | 'className'> & {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** Whether switching closes an open Explorer view. */
   readonly viewOpen: boolean;
+  /** Another deployment's instances need its own token, so both change together. */
+  readonly onChangeSessionToken: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,7 +69,14 @@ export function InstanceDialog({
           <DialogDescription className="text-muted-foreground mt-0.5 text-sm">
             {viewOpen
               ? 'Switching closes the open view. The notice that follows can bring it back.'
-              : 'Every tab shows the instance you choose.'}
+              : 'Every tab shows the instance you choose.'}{' '}
+            <button
+              type="button"
+              className="text-foreground underline underline-offset-2 hover:no-underline"
+              onClick={onChangeSessionToken}
+            >
+              Use another session token or deployment
+            </button>
           </DialogDescription>
         </div>
         <InstancePicker {...list} autoFocus />

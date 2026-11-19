@@ -26,13 +26,11 @@ function renderList({
   current,
   onChoose = vi.fn(),
   onPasteUrl = vi.fn(() => undefined),
-  onDeploymentChange = vi.fn(),
   ...overrides
 }: Partial<InstanceListQueryResult> & {
   readonly current?: InstanceReference;
   readonly onChoose?: (instance: InstanceReference) => void;
   readonly onPasteUrl?: (url: string) => string | undefined;
-  readonly onDeploymentChange?: () => void;
 } = {}) {
   render(
     <InstancePicker
@@ -41,7 +39,6 @@ function renderList({
       current={current}
       onChoose={onChoose}
       onPasteUrl={onPasteUrl}
-      onDeploymentChange={onDeploymentChange}
     />,
   );
   return screen.getByRole('combobox', {
@@ -152,7 +149,7 @@ describe('InstancePicker', () => {
   it('names the other deployments when this one lists no instances', () => {
     renderList({ list: { deployment: 'production', instances: [] } });
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Zesty lists no Production instances for this session token. If you work in Stage or Development, choose it above. Or paste a Zesty URL.',
+      'Zesty lists no Production instances for this session token. If you work in Stage or Development, use another session token or deployment. Or paste a Zesty URL.',
     );
   });
 
@@ -179,16 +176,5 @@ describe('InstancePicker', () => {
     expect(onPasteUrl).not.toHaveBeenCalled();
     fireEvent.keyDown(search, { key: 'Enter' });
     expect(onPasteUrl).toHaveBeenCalledWith('https://8-acme123.manager.zesty.io/');
-  });
-
-  it('switches deployment from the list', () => {
-    const onDeploymentChange = vi.fn();
-    renderList({ onDeploymentChange });
-    expect(screen.getByRole('button', { name: 'Production' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
-    expect(onDeploymentChange).toHaveBeenCalledWith('stage');
   });
 });

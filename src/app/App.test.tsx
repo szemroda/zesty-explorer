@@ -304,7 +304,7 @@ describe('root collection browser', () => {
     expect(save).toHaveBeenCalledWith('stage', 'saved-stage-token');
     expect(
       await screen.findByText(
-        'Zesty lists no Stage instances for this session token. If you work in Production or Development, choose it above. Or paste a Zesty URL.',
+        'Zesty lists no Stage instances for this session token. If you work in Production or Development, use another session token or deployment. Or paste a Zesty URL.',
       ),
     ).toBeInTheDocument();
   });
@@ -441,10 +441,6 @@ describe('root collection browser', () => {
     expect(screen.queryByRole('group', { name: 'Zesty deployment' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Production' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
   });
 
   it('uses a saved token when a pasted URL changes deployment', async () => {
@@ -554,19 +550,41 @@ describe('root collection browser', () => {
       expect(screen.getByRole('button', { name: 'Switch instance, Acme is open' })).toBeVisible();
     });
 
-    it('closes the root picker when the deployment changes from inside it', async () => {
-      await openStories();
-      fireEvent.click(screen.getByRole('button', { name: 'Open a collection' }));
-      const picker = await screen.findByRole('dialog', { name: 'Open a collection' });
-      fireEvent.click(within(picker).getByRole('button', { name: 'Switch instance' }));
+    async function askForAnotherToken() {
+      fireEvent.click(screen.getByRole('button', { name: 'Switch instance, Acme is open' }));
       const instances = await screen.findByRole('dialog', { name: 'Switch instance' });
-      fireEvent.click(within(instances).getByRole('button', { name: 'Stage' }));
+      fireEvent.click(
+        within(instances).getByRole('button', { name: 'Use another session token or deployment' }),
+      );
+      expect(await screen.findByLabelText('Zesty session token')).toHaveValue(
+        'fixture-session-token',
+      );
+    }
 
-      expect(
-        await screen.findByRole('heading', { name: 'Open a Zesty collection' }),
-      ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Stage' })).toHaveAttribute('aria-pressed', 'true');
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    it('returns to the open view when Back leaves the token form unchanged', async () => {
+      await openStories();
+      await askForAnotherToken();
+      fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Switch instance, Acme is open' })).toBeVisible();
+    });
+
+    it('switches deployment only once its token is entered, closing the view and its pickers', async () => {
+      const loadInstances = vi.fn<ZestyApi['loadInstances']>(listed);
+      render(<App api={{ ...api(), loadInstances }} tokenStore={memoryTokenStore()} />);
+      await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
+      await screen.findByRole('heading', { name: 'Stories' });
+      await askForAnotherToken();
+      fireEvent.click(screen.getByRole('button', { name: 'Stage' }));
+      expect(screen.getByLabelText('Zesty session token')).toHaveValue('');
+      startSession('stage-token');
+
+      expect(await screen.findByRole('heading', { name: 'Choose an instance' })).toBeVisible();
+      await waitFor(() => expect(loadInstances).toHaveBeenCalledWith('stage', 'stage-token'));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Stories' })).not.toBeInTheDocument();
     });
 
     it('takes a collection URL pasted on the Code tab to the root picker in Explorer', async () => {
@@ -588,7 +606,9 @@ describe('root collection browser', () => {
   it('changes the session token from the instance list and comes back with Back', async () => {
     render(<App api={api()} tokenStore={memoryTokenStore()} />);
     startSession();
-    fireEvent.click(await screen.findByRole('button', { name: 'Use another session token' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Use another session token or deployment' }),
+    );
     expect(screen.getByLabelText('Zesty session token')).toHaveValue('fixture-session-token');
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();

@@ -13,7 +13,6 @@ import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { looksLikeUrl } from '../pasted-url';
 import { PastedUrlHelp, PastedUrlOption, PickerSearch } from './PickerSearch';
 import { Button } from './ui/button';
-import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 interface InstancePickerProps {
   readonly query: InstanceListQueryResult;
@@ -23,7 +22,6 @@ interface InstancePickerProps {
   readonly onChoose: (instance: InstanceReference) => void;
   /** Opens a pasted Zesty URL and returns what is wrong with it, if anything. */
   readonly onPasteUrl: (url: string) => string | undefined;
-  readonly onDeploymentChange: (deployment: Deployment) => void;
   readonly autoFocus?: boolean;
   readonly className?: string;
 }
@@ -48,7 +46,6 @@ export function InstancePicker({
   current,
   onChoose,
   onPasteUrl,
-  onDeploymentChange,
   autoFocus = false,
   className,
 }: InstancePickerProps) {
@@ -128,24 +125,6 @@ export function InstancePicker({
           problemId={pastingUrl && urlProblem ? `${listId}-problem` : undefined}
           autoFocus={autoFocus}
         />
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-muted-foreground text-xs" id={`${listId}-deployment`}>
-            Deployment
-          </span>
-          <ToggleGroup
-            aria-labelledby={`${listId}-deployment`}
-            value={[deployment]}
-            onValueChange={([next]) => {
-              if (next && next !== deployment) onDeploymentChange(next);
-            }}
-          >
-            {deployments.map((candidate) => (
-              <ToggleGroupItem key={candidate} value={candidate}>
-                {deploymentLabels[candidate]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </div>
       </div>
       <div ref={list} className="border-border min-h-0 flex-1 overflow-y-auto border-t p-2">
         <div id={listId} role="listbox" aria-label="Instances">
@@ -219,7 +198,8 @@ export function InstancePicker({
         {!pastingUrl && query.list && choices.length === 0 ? (
           <p className="text-muted-foreground px-3 py-4 text-sm" role="status">
             Zesty lists no {deploymentLabels[deployment]} instances for this session token. If you
-            work in {otherDeployments}, choose it above. Or paste a Zesty URL.
+            work in {otherDeployments}, use another session token or deployment. Or paste a Zesty
+            URL.
           </p>
         ) : null}
       </div>
