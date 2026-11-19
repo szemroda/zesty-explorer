@@ -15,7 +15,7 @@ async function openInstance(page: Page, url = codeInstanceUrl) {
   await page.getByLabel('Zesty session token').fill(syntheticToken);
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(url);
-  await page.getByLabel('Or paste a Zesty URL').blur();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
 }
 
 function toggle(page: Page, group: string, name: string): Locator {
@@ -44,9 +44,7 @@ async function firstHighlightVisible(page: Page): Promise<boolean> {
 
 test('opens Code without a root collection and explains a file', async ({ page }) => {
   await openInstance(page);
-  await expect(
-    page.getByRole('heading', { name: 'Choose an instance and root collection' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Open a collection' })).toBeVisible();
 
   await page.getByRole('tab', { name: 'Code' }).click();
   await expect(fileButton(page, '/z/layouts/home.json')).toBeVisible();
@@ -73,7 +71,7 @@ test('opens Code without a root collection and explains a file', async ({ page }
 
 test('keeps both tabs and restores both from the link after reload', async ({ page }) => {
   await openInstance(page, `${codeInstanceUrl}content/6-articles01`);
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByRole('button', { name: /^Open (?!a collection$|URL$)/ }).click();
   await expect(page.getByText('articles item 1')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Code' }).click();
@@ -182,7 +180,7 @@ test('opens an included snippet and returns to the call site', async ({ page }) 
 
 test('asks before a referenced collection replaces the Explorer view', async ({ page }) => {
   await openInstance(page, `${codeInstanceUrl}content/6-events0001`);
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByRole('button', { name: /^Open (?!a collection$|URL$)/ }).click();
   await expect(page.getByText('events item 1')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Code' }).click();

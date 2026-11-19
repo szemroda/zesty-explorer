@@ -305,6 +305,14 @@ async function installFakeApi(page: Page): Promise<FakeApiState> {
   return state;
 }
 
+// Picks the fixture instance from the list, then 6-rootmodel in the root picker.
+async function chooseRoot(page: Page) {
+  await page.getByLabel('Search instances by name or ZUID, or paste a Zesty URL').fill('Fixture');
+  await page.getByRole('option', { name: /Fixture site.*8-fixture/ }).click();
+  await page.getByLabel('Search collections by name or ZUID, or paste a Zesty URL').fill('root');
+  await expect(page.getByRole('option', { name: '6-rootmodel', selected: true })).toBeVisible();
+}
+
 async function openRoot(page: Page, loadTimeoutMs = 5_000) {
   await page.goto('/');
   await expect(
@@ -313,11 +321,8 @@ async function openRoot(page: Page, loadTimeoutMs = 5_000) {
   await expect(page.getByText(/Type APP_SID in the filter box/)).toBeVisible();
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('combobox', { name: 'Instance' }).fill('Fixture');
-  await page.getByRole('option', { name: /Fixture site.*8-fixture/ }).click();
-  await page.getByRole('combobox', { name: 'Root collection' }).fill('6-rootmodel');
-  await page.getByRole('option', { name: /6-rootmodel.*root/ }).click();
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await chooseRoot(page);
+  await page.getByRole('button', { name: 'Open 6-rootmodel' }).click();
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible({
     timeout: loadTimeoutMs,
   });
@@ -453,33 +458,30 @@ test('picks the instance and root with the keyboard alone', async ({ page }) => 
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.keyboard.press('Enter');
 
-  // Enter takes the first match, and focus stays in the field for the next Tab.
-  const instance = page.getByRole('combobox', { name: 'Instance' });
-  await expect(instance).toBeFocused();
-  await expect(instance).toHaveAttribute('placeholder', 'Search instances by name or ZUID');
+  // Each search takes focus as it opens, and Enter takes the highlighted match.
+  const instances = page.getByRole('combobox', {
+    name: 'Search instances by name or ZUID, or paste a Zesty URL',
+  });
+  await expect(instances).toBeFocused();
   await page.keyboard.type('Fixture');
+  await expect(page.getByRole('option', { name: /Fixture site/, selected: true })).toBeVisible();
   await page.keyboard.press('Enter');
-  await expect(instance).toHaveValue('Fixture site');
-  await expect(instance).toBeFocused();
 
-  const root = page.getByRole('combobox', { name: 'Root collection' });
-  await expect(root).toBeEnabled();
-  await root.focus();
+  const collections = page.getByRole('combobox', {
+    name: 'Search collections by name or ZUID, or paste a Zesty URL',
+  });
+  await expect(collections).toBeFocused();
   await page.keyboard.type('root');
-  await page.keyboard.press('Enter');
-  await expect(root).toHaveValue('6-rootmodel');
-  await expect(root).toBeFocused();
+  await expect(page.getByRole('option', { name: '6-rootmodel', selected: true })).toBeVisible();
 
-  // An invalid URL shows its problem when Tab leaves the field, and Tab still moves on.
-  const url = page.getByLabel('Or paste a Zesty URL');
-  await url.fill('oops');
-  await page.keyboard.press('Tab');
-  await expect(url).toHaveAttribute('aria-invalid', 'true');
-  await expect(url).not.toBeFocused();
+  // A URL that cannot open says why and keeps focus in the field.
+  await collections.fill('https://example.com/content/6-rootmodel');
+  await page.keyboard.press('Enter');
+  await expect(collections).toHaveAttribute('aria-invalid', 'true');
+  await expect(collections).toBeFocused();
 
   // Opening hands focus to the collection that opened.
-  await url.fill('');
-  await page.getByRole('button', { name: 'Open root collection' }).focus();
+  await collections.fill('root');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeFocused();
 });
@@ -523,25 +525,17 @@ test('opens item details in the version search, and Escape clears a search befor
   await expect(page.getByRole('dialog')).toBeHidden();
 });
 
-test('opens a typed collection URL with one click and returns focus on Back', async ({ page }) => {
+test('opens a typed collection URL on Enter, not while it is typed', async ({ page }) => {
   await installFakeApi(page);
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByLabel('Zesty session token')).toBeFocused();
-  await page.getByRole('button', { name: 'Continue' }).click();
-
-  // Typed, not pasted: the URL applies as the click leaves the field, and the form keeps its
-  // shape, so that click still lands on its button.
   await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
-  await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByLabel('Zesty session token')).toBeFocused();
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByLabel('Or paste a Zesty URL').fill('');
-  await page.getByLabel('Or paste a Zesty URL').pressSequentially(rootUrl);
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await expect(page.getByRole('heading', { name: 'Choose an instance' })).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('option', { name: '6-rootmodel', selected: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open 6-rootmodel' }).click();
   await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 });
 
@@ -551,10 +545,11 @@ test('opens an item deep link through the pasted URL fallback', async ({ page })
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(`${rootUrl}/7-root-000000/edit`);
-  await page.getByLabel('Or paste a Zesty URL').blur();
-  await expect(page.getByRole('combobox', { name: 'Instance' })).toHaveValue('Fixture site');
-  await expect(page.getByRole('combobox', { name: 'Root collection' })).toHaveValue('6-rootmodel');
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await expect(
+    page.getByRole('button', { name: 'Switch instance, Fixture site is open' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Open 6-rootmodel' }).click();
   await expect(page.getByRole('dialog', { name: 'First story' })).toBeVisible();
   expect(state.requests.some((request) => request.includes('evil.example'))).toBe(false);
 });
@@ -597,8 +592,8 @@ test('reports the browser origin without claiming that CORS caused a network fai
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(rootUrl);
-  await page.getByLabel('Or paste a Zesty URL').blur();
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await page.getByRole('button', { name: 'Open 6-rootmodel' }).click();
 
   const alert = page.getByRole('alert');
   await expect(alert).toContainText('The Zesty request could not reach the server.');
@@ -611,12 +606,9 @@ test('adds the related collections of a new root', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Zesty session token').fill('synthetic-session-token');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('combobox', { name: 'Instance' }).fill('Fixture');
-  await page.getByRole('option', { name: /Fixture site.*8-fixture/ }).click();
-  await page.getByRole('combobox', { name: 'Root collection' }).fill('6-rootmodel');
-  await page.getByRole('option', { name: /6-rootmodel.*root/ }).click();
+  await chooseRoot(page);
   await page.getByRole('checkbox', { name: /Add related collections/ }).click();
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByRole('button', { name: 'Open 6-rootmodel' }).click();
 
   await expect(page.getByText('Added 2 related collections')).toBeVisible();
   // Two root fields link the child: two roles, named apart. The child's link back to the root
@@ -912,7 +904,8 @@ test('recovers corrupt links, confirms root replacement and undoes a reset', asy
   await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
   await page.getByRole('menuitem', { name: 'Change root collection' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(childUrl);
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await page.getByRole('button', { name: 'Open 6-childmodel' }).click();
   const replaceRoot = page.getByRole('alertdialog', { name: 'Replace root collection?' });
   await expect(replaceRoot.getByRole('listitem')).toHaveText(['6-rootmodel']);
   await replaceRoot.getByRole('button', { name: 'Replace root' }).click();
@@ -1264,7 +1257,8 @@ test('wraps a long unbroken node name inside dialogs', async ({ page }) => {
   await page.getByRole('button', { name: 'Actions for 6-rootmodel' }).click();
   await page.getByRole('menuitem', { name: 'Change root collection' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(childUrl);
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await page.getByRole('button', { name: 'Open 6-childmodel' }).click();
   const replace = page.getByRole('alertdialog', { name: 'Replace root collection?' });
   await expect(replace.getByRole('listitem')).toHaveText(['6-rootmodel', name]);
   expect(await horizontalOverflow(replace)).toBe(0);

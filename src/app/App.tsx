@@ -8,9 +8,10 @@ import {
   LoaderCircle,
   MoreHorizontal,
   RotateCcw,
+  Search,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { instanceReferenceFor, parseInstanceReference } from '../collection-reference';
 import type {
@@ -33,7 +34,6 @@ import type {
   RelationshipDefinition,
   ViewFilter,
 } from '../domain';
-import { deploymentLabels } from '../domain';
 import {
   addCollectionNode,
   removeCollectionNode,
@@ -52,8 +52,9 @@ import { createZestyApi, fetchZestyTransport, snapshotQueryKey, type ZestyApi } 
 import { SessionTokenForm } from './components/SessionTokenForm';
 import { useSessionTokens } from './hooks/useSessionTokens';
 import { useInstanceList } from './hooks/useInstanceList';
-import { InstancePicker } from './components/InstancePicker';
-import { CollectionPicker } from './components/CollectionPicker';
+import { InstanceList } from './components/InstanceList';
+import { InstanceDialog, InstanceSwitcherButton } from './components/InstanceSwitcher';
+import { RootPicker } from './components/RootPicker';
 import { ErrorTechnicalDetails } from './components/ErrorTechnicalDetails';
 import { ItemDetails } from './components/ItemDetails';
 import { RootTable, RootTableSkeleton } from './components/RootTable';
@@ -81,7 +82,6 @@ import { LanguagePicker } from './components/LanguagePicker';
 import { useCollectionCatalog } from './hooks/useCollectionCatalog';
 import { useRelatedBuild } from './hooks/useRelatedBuild';
 import { relationshipSchemaQueryRoot, type SchemaLoader } from './hooks/useSchemaIndex';
-import { useFieldProblem } from './hooks/useFieldProblem';
 import {
   clearItemVersionPreviewCacheOutsideScope,
   refreshActiveItemVersionPreviews,
@@ -91,7 +91,6 @@ import {
   refreshActiveSavedVersions,
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
-import { Checkbox } from './components/ui/checkbox';
 import { RefreshButton } from './components/RefreshButton';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './components/ui/card';
@@ -102,8 +101,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './components/ui/dropdown-menu';
-import { Field, FieldDescription, FieldLabel } from './components/ui/field';
-import { Input } from './components/ui/input';
+import { Dialog, DialogContent } from './components/ui/dialog';
 import { Toaster } from './components/ui/sonner';
 import { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group';
 import { SharedRichTextPreview } from './components/RichText';
@@ -248,7 +246,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     initialInstance?.deployment ?? 'production',
   );
   const [rejectedDeployment, setRejectedDeployment] = useState<Deployment>();
-  const [pastedUrl, setPastedUrl] = useState('');
   const sessionTokens = useSessionTokens(tokenStore);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.state?.tab ?? 'explorer');
   // The Code and Import check tabs load only once opened, then keep their state while hidden.
@@ -304,22 +301,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
   // Off by default. While on, opening a root fills its tree with related collections.
   const [addRelatedOnOpen, setAddRelatedOnOpen] = useState(false);
   const [clearTokenOpen, setClearTokenOpen] = useState(false);
-  const instancePickerInput = useRef<HTMLInputElement>(null);
-  const rootCollectionInput = useRef<HTMLInputElement>(null);
-  const pastedUrlInput = useRef<HTMLInputElement>(null);
-  const startFormProblem = useFieldProblem({
-    instance: instancePickerInput,
-    'root-collection': rootCollectionInput,
-    'pasted-url': pastedUrlInput,
-  });
+  // The header's instance switcher and the root picker over an open view.
+  const [instanceDialogOpen, setInstanceDialogOpen] = useState(false);
+  const [rootPickerOpen, setRootPickerOpen] = useState(false);
+  const rootPickerTitle = useId();
   const pendingUndo = useRef<PendingUndo | undefined>(undefined);
   const pageHeader = useRef<HTMLElement>(null);
-  const focusPicker = useCallback((form: HTMLFormElement | null) => {
-    if (!form) return;
-    const root = rootCollectionInput.current;
-    if (root && !root.disabled) root.focus();
-    else instancePickerInput.current?.focus();
-  }, []);
   // Opening a root from the picker hands focus to the collection heading once the table shows,
   // so keyboard and screen reader users land in the view they asked for. Focus the user has
   // already moved elsewhere while the table loaded stays where it is.
@@ -468,7 +455,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     api,
     deployment,
     sessionToken: activeToken,
-    enabled: screen === 'picker' && !reference,
+    enabled: screen !== 'credentials',
   });
 
   useEffect(() => {
@@ -618,60 +605,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setStep((current) => (current === 'credentials' ? 'picker' : current));
   }
 
-  function chooseInstance(next: InstanceReference | undefined) {
-    withdrawUndo();
-    setCatalogInstance(next);
-    setSelectedRootZuid(next?.suggestedModelZuid);
-    startFormProblem.clear();
-  }
-
-  function pickInstance(next: InstanceReference | undefined) {
-    if (next && catalogInstance && instanceKey(next) === instanceKey(catalogInstance)) return;
-    setPastedUrl('');
-    chooseInstance(next);
-  }
-
-  function pastedReferenceProblem(parsed: InstanceReference): string | undefined {
-    if (reference && instanceKey(parsed) !== instanceKey(reference)) {
-      return 'Paste a collection from the same Zesty instance and deployment.';
-    }
-    return undefined;
-  }
-
-  // Typing only edits the draft. Paste, blur, and submit commit a complete reference. A problem
-  // shows on the field without taking focus; submit moves focus there itself.
-  function applyPastedUrl(value: string): InstanceReference | undefined {
-    if (!value.trim()) return undefined;
-    const parsed = parseInstanceReference(value);
-    if (!parsed.ok) {
-      startFormProblem.report('pasted-url', parsed.error.message, { focus: false });
-      return undefined;
-    }
-    const problem = pastedReferenceProblem(parsed.value);
-    if (problem) {
-      startFormProblem.report('pasted-url', problem, { focus: false });
-      return undefined;
-    }
-    if (
-      catalogInstance &&
-      instanceKey(parsed.value) === instanceKey(catalogInstance) &&
-      parsed.value.suggestedModelZuid === catalogInstance.suggestedModelZuid &&
-      parsed.value.suggestedItemZuid === catalogInstance.suggestedItemZuid &&
-      parsed.value.suggestedArea === catalogInstance.suggestedArea
-    )
-      return catalogInstance;
-    chooseInstance(parsed.value);
-    return parsed.value;
-  }
-
-  function leavePicker() {
-    setPastedUrl('');
-    startFormProblem.clear();
-    setCatalogInstance(reference ? instanceReference(reference) : undefined);
-    setSelectedRootZuid(reference?.modelZuid);
-    setStep(reference ? 'view' : 'credentials');
-  }
-
   // A root opened before its instance's catalog loaded keeps its model ZUID as its name, and views
   // that predate catalog labels do too. Show the catalog label for those instead.
   const rootName = !treeRoot
@@ -700,54 +633,87 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     return collections;
   }, [catalogInstance, catalogQuery.catalog?.collections]);
 
-  // Opening the root that is already open keeps its tree, so there is nothing to add to.
-  const keepsOpenTree = Boolean(
-    treeRoot?.children.length &&
-    catalogInstance &&
-    selectedRootZuid === treeRoot.reference.modelZuid &&
-    instanceKey(treeRoot.reference) === instanceKey(catalogInstance),
+  const viewModelZuids = useMemo(
+    () =>
+      new Set(
+        treeRoot ? flattenCollectionNodes(treeRoot).map((node) => node.reference.modelZuid) : [],
+      ),
+    [treeRoot],
   );
+  const instanceName = instance
+    ? instanceList.list?.instances.find(
+        (entry) => instanceKey(entry.reference) === instanceKey(instance),
+      )?.name
+    : undefined;
 
-  function confirmRoot(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedUrl = pastedUrl.trim();
-    const pasted = trimmedUrl ? applyPastedUrl(trimmedUrl) : undefined;
-    if (trimmedUrl && !pasted) {
-      pastedUrlInput.current?.focus();
-      return;
+  // Opens another instance in the open tab. An open view closes, and the notice can bring it back.
+  function switchInstance(next: InstanceReference) {
+    withdrawUndo();
+    setInstanceDialogOpen(false);
+    setRootPickerOpen(false);
+    const tab = activeTab;
+    closeView('Switched instance', 'Undo to reopen the previous view.');
+    setActiveTab(tab);
+    setCatalogInstance(next);
+    setSelectedRootZuid(next.suggestedModelZuid);
+  }
+
+  function changeDeployment(next: Deployment) {
+    setInstanceDialogOpen(false);
+    closeView('Switched deployment', 'Undo to reopen the previous view.');
+    setChosenDeployment(next);
+  }
+
+  /**
+   * Opens a pasted instance reference. Another instance replaces the open one; a collection or
+   * item of the open instance becomes the root picker's choice. Returns what is wrong, if anything.
+   */
+  function openPastedUrl(url: string, from: 'instance-list' | 'root-picker'): string | undefined {
+    const parsed = parseInstanceReference(url);
+    if (!parsed.ok) return parsed.error.message;
+    const next = parsed.value;
+    if (!instance || instanceKey(next) !== instanceKey(instance)) {
+      switchInstance(next);
+      return undefined;
     }
-    const targetInstance = pasted ?? catalogInstance;
-    if (!targetInstance) {
-      startFormProblem.report('instance', 'Choose an instance or paste a Zesty URL.');
-      return;
+    if (!next.suggestedModelZuid) {
+      if (from === 'root-picker')
+        return 'This URL names the open instance. Paste a collection or item URL.';
+      setInstanceDialogOpen(false);
+      return undefined;
     }
-    if (targetInstance.deployment !== deployment) return;
-    // The submit may apply a URL before React has rendered its suggested collection.
-    const modelZuid =
-      pasted && pasted !== catalogInstance ? pasted.suggestedModelZuid : selectedRootZuid;
-    const selected =
-      rootPickerCollections.find(
-        (collection) =>
-          instanceKey(collection.reference) === instanceKey(targetInstance) &&
-          collection.reference.modelZuid === modelZuid,
-      ) ??
-      (modelZuid ? suggestedRoot({ ...targetInstance, suggestedModelZuid: modelZuid }) : undefined);
-    if (!selected) {
-      // While collections load, the picker shows a spinner; asking for a choice would be wrong.
-      if (catalogQuery.isLoading) return;
-      startFormProblem.report(
-        'root-collection',
-        'Choose a root collection or paste a collection URL.',
-      );
-      return;
-    }
+    withdrawUndo();
+    setCatalogInstance(next);
+    setSelectedRootZuid(next.suggestedModelZuid);
+    setInstanceDialogOpen(false);
+    if (treeRoot) setRootPickerOpen(true);
+    return undefined;
+  }
+
+  function showRootPicker() {
+    if (!reference) return;
+    setCatalogInstance(instanceReference(reference));
+    setSelectedRootZuid(reference.modelZuid);
+    setRootPickerOpen(true);
+  }
+
+  // A pasted item URL also opens that item's details.
+  function openRootCollection(modelZuid: ModelZuid) {
+    if (!catalogInstance) return;
+    const selected = rootPickerCollections.find(
+      (collection) =>
+        instanceKey(collection.reference) === instanceKey(catalogInstance) &&
+        collection.reference.modelZuid === modelZuid,
+    );
+    if (!selected) return;
     const selectedReference: CollectionReference = {
       ...selected.reference,
-      ...(targetInstance.suggestedModelZuid === selected.reference.modelZuid &&
-      targetInstance.suggestedItemZuid
-        ? { itemZuid: targetInstance.suggestedItemZuid }
+      ...(catalogInstance.suggestedModelZuid === modelZuid && catalogInstance.suggestedItemZuid
+        ? { itemZuid: catalogInstance.suggestedItemZuid }
         : {}),
     };
+    setSelectedRootZuid(modelZuid);
+    // The picker stays open behind the confirmation, so Cancel returns to it.
     if (treeRoot && !sameCollection(treeRoot.reference, selectedReference)) {
       setPendingRootReplacement({
         label: selected.label,
@@ -756,6 +722,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       });
       return;
     }
+    setRootPickerOpen(false);
     openRoot({ label: selected.label, reference: selectedReference }, addRelatedOnOpen);
   }
 
@@ -778,7 +745,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(selectedReference.itemZuid);
     // An item deep link opens its details, which take focus instead.
     pendingViewFocus.current = !selectedReference.itemZuid;
-    startFormProblem.clear();
     setStep('view');
   }
 
@@ -786,8 +752,12 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     sessionTokens.clear(deployment);
   }
 
-  // Resets the view straight away; the toast offers to restore the previous view.
   function resetView() {
+    closeView('View reset', 'Your session token was kept.');
+  }
+
+  // Closes the view straight away; the toast offers to restore it.
+  function closeView(title: string, description: string) {
     if (!treeRoot) {
       clearView();
       return;
@@ -800,15 +770,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       viewFilters,
     };
     clearView();
-    offerUndo('View reset', 'Your session token was kept.', undefined, () => restoreView(previous));
+    offerUndo(title, description, undefined, () => restoreView(previous));
   }
 
   // Restores a view like opening its shared link: the token comes from the store.
   function restoreView(view: PersistedView) {
     const rootReference = view.root.reference;
-    startFormProblem.clear();
     setStep('view');
-    setPastedUrl('');
     setTreeRoot(view.root);
     setReference(rootReference);
     setContentState(view.contentState);
@@ -826,7 +794,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setActiveTab('explorer');
     setTreeRoot(undefined);
     setReference(undefined);
-    setPastedUrl('');
     setChosenDeployment(deployment);
     setContentState('latest');
     setLanguageChoice(undefined);
@@ -834,7 +801,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     setSelectedItemId(undefined);
     setViewDecodeError(undefined);
     setStep('picker');
-    startFormProblem.clear();
     setCatalogInstance(undefined);
     setSelectedRootZuid(undefined);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
@@ -894,15 +860,6 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
     void copyText(viewDecodeError.raw, 'Raw view data copied');
   }
 
-  function openRootPicker() {
-    if (!reference) return;
-    setPastedUrl('');
-    startFormProblem.clear();
-    setCatalogInstance(instanceReference(reference));
-    setSelectedRootZuid(reference.modelZuid);
-    setStep('picker');
-  }
-
   // The same view options serve every tab.
   const viewOptions = (
     <DropdownMenu>
@@ -912,7 +869,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         <MoreHorizontal size={17} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={resetView}>
+        <DropdownMenuItem onClick={() => resetView()}>
           <RotateCcw size={14} /> Reset view
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -935,6 +892,41 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       {viewOptions}
     </>
   );
+
+  const instanceListProps = {
+    query: instanceList,
+    deployment,
+    current: instance,
+    onChoose: (next: InstanceReference) => {
+      if (instance && instanceKey(next) === instanceKey(instance)) {
+        setInstanceDialogOpen(false);
+        return;
+      }
+      switchInstance(next);
+    },
+    onPasteUrl: (url: string) => openPastedUrl(url, 'instance-list'),
+    onDeploymentChange: changeDeployment,
+  };
+  const rootPickerProps = {
+    titleId: rootPickerTitle,
+    instanceName: instanceName ?? catalogInstance?.instanceZuid ?? '',
+    collections: rootPickerCollections,
+    loading: catalogQuery.isLoading,
+    error: catalogQuery.error,
+    warning: catalogQuery.catalog?.warning,
+    onRetry: () => void catalogQuery.refresh(),
+    selected: selectedRootZuid,
+    onSelect: setSelectedRootZuid,
+    openRoot: treeRoot?.reference.modelZuid,
+    inView: viewModelZuids,
+    rootHasChildren: Boolean(treeRoot?.children.length),
+    addRelated: addRelatedOnOpen,
+    onAddRelatedChange: setAddRelatedOnOpen,
+    onOpen: openRootCollection,
+    onPasteUrl: (url: string) => openPastedUrl(url, 'root-picker'),
+    onSwitchInstance: () => setInstanceDialogOpen(true),
+    loadSchema: loadRelationshipSchema,
+  };
 
   // Tabs belong to a selected instance and appear after credentials are available.
   const showTabs = Boolean(instance) && !viewDecodeError && screen !== 'credentials';
@@ -1025,9 +1017,17 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               Read-only content browser
             </span>
           </div>
+          {showTabs && instance ? (
+            <InstanceSwitcherButton
+              name={instanceName}
+              instanceZuid={instance.instanceZuid}
+              deployment={instance.deployment}
+              onClick={() => setInstanceDialogOpen(true)}
+            />
+          ) : null}
           {showTabs ? (
             <Tabs
-              className="ml-4"
+              className="ml-2"
               value={activeTab}
               onValueChange={(value: unknown) => {
                 if (value === 'explorer' || value === 'code' || value === 'import') {
@@ -1119,6 +1119,13 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
             className="border-border bg-card max-h-64 min-h-0 overflow-auto border-b p-3 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:max-h-[calc(100vh-72px)] lg:self-start lg:border-r lg:border-b-0"
             aria-label="Collection tree"
           >
+            <Button
+              variant="outline"
+              className="mb-3 w-full justify-start"
+              onClick={showRootPicker}
+            >
+              <Search size={14} aria-hidden="true" /> Open a collection
+            </Button>
             {/* Shown while the root loads too, so a tree built meanwhile appears at once. */}
             <TreeEditor
               root={rootName === treeRoot.name ? treeRoot : { ...treeRoot, name: rootName }}
@@ -1134,7 +1141,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
               onRename={(nodeId, name) =>
                 setTreeRoot((root) => root && renameCollectionNode(root, nodeId, name))
               }
-              onChangeRoot={openRootPicker}
+              onChangeRoot={showRootPicker}
               onRemove={removeNode}
               onRelationshipChange={(nodeId, relationship) =>
                 setTreeRoot((root) =>
@@ -1205,131 +1212,31 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
                       setStep('credentials');
                     }
               }
-              onBack={step === 'picker' && catalogInstance ? leavePicker : undefined}
+              onBack={
+                step === 'picker' && catalogInstance
+                  ? () => {
+                      setCatalogInstance(undefined);
+                      setSelectedRootZuid(undefined);
+                    }
+                  : undefined
+              }
               onSubmit={saveSessionToken}
             />
+          ) : screen === 'picker' && catalogInstance ? (
+            <Card className="mx-auto my-[3vh] h-[min(680px,calc(100vh-220px))] w-full max-w-[960px] gap-0 overflow-hidden py-0">
+              {/* Short enough that a notice in the corner leaves the Open button visible. */}
+              <RootPicker key={instanceKey(catalogInstance)} {...rootPickerProps} />
+            </Card>
           ) : screen === 'picker' ? (
-            <Card className="mx-auto my-[8vh] w-full max-w-xl py-0">
-              <form
-                className="grid gap-4 p-6"
-                ref={focusPicker}
-                aria-labelledby="root-picker-title"
-                noValidate
-                onSubmit={confirmRoot}
-              >
-                <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-                  {reference ? 'Choose a root' : 'Step 2 of 2'} · {deploymentLabels[deployment]}
+            <Card className="mx-auto my-[6vh] w-full max-w-xl gap-0 overflow-hidden py-0">
+              <div className="px-4 pt-5 pb-3">
+                <h2 className="text-xl font-semibold">Choose an instance</h2>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  The instances your session token can read. You can switch at any time from the top
+                  bar.
                 </p>
-                <h2 className="text-xl font-semibold" id="root-picker-title">
-                  Choose an instance and root collection
-                </h2>
-                <InstancePicker
-                  query={instanceList}
-                  value={catalogInstance}
-                  onChange={pickInstance}
-                  disabled={Boolean(reference)}
-                  error={startFormProblem.messageFor('instance')}
-                  inputRef={instancePickerInput}
-                />
-                {/* The form keeps its shape before an instance is chosen, so applying a URL on blur
-                    never moves the buttons under a click that is still in progress. */}
-                {catalogInstance && catalogQuery.error ? (
-                  <div
-                    className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
-                    role="alert"
-                  >
-                    <p>{catalogQuery.error.message}</p>
-                    <ErrorTechnicalDetails error={catalogQuery.error} />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void catalogQuery.refresh()}
-                    >
-                      Retry catalog
-                    </Button>
-                  </div>
-                ) : null}
-                {catalogInstance &&
-                catalogQuery.catalog &&
-                catalogQuery.catalog.collections.length === 0 ? (
-                  <p
-                    className="bg-muted text-muted-foreground rounded-md p-3 text-sm"
-                    role="status"
-                  >
-                    This session returned an empty collection catalog.
-                  </p>
-                ) : null}
-                <CollectionPicker
-                  label="Root collection"
-                  description="Its items become the top-level table of the view."
-                  placeholder={catalogInstance ? undefined : 'Choose an instance first'}
-                  collections={rootPickerCollections}
-                  value={selectedRootZuid}
-                  onChange={(collection) => {
-                    setSelectedRootZuid(collection?.reference.modelZuid);
-                    startFormProblem.clear('root-collection');
-                  }}
-                  disabled={
-                    !catalogInstance ||
-                    (catalogQuery.isLoading && rootPickerCollections.length === 0)
-                  }
-                  loading={Boolean(catalogInstance) && catalogQuery.isLoading}
-                  error={startFormProblem.messageFor('root-collection')}
-                  inputRef={rootCollectionInput}
-                />
-                <label className="flex cursor-pointer items-start gap-3 text-sm has-data-disabled:cursor-default has-data-disabled:opacity-60">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={addRelatedOnOpen && !keepsOpenTree}
-                    disabled={keepsOpenTree}
-                    onCheckedChange={setAddRelatedOnOpen}
-                  />
-                  <span className="grid gap-0.5">
-                    <span className="font-medium">Add related collections</span>
-                    <span className="text-muted-foreground text-xs">
-                      Builds the collection tree from Zesty relationships. You can remove or add
-                      collections afterwards.
-                    </span>
-                  </span>
-                </label>
-                {catalogInstance && catalogQuery.catalog?.warning ? (
-                  <div
-                    className="border-amber-500/40 bg-amber-500/10 rounded-md border p-3 text-sm"
-                    role="status"
-                  >
-                    <p>{catalogQuery.catalog.warning.message}</p>
-                    <ErrorTechnicalDetails error={catalogQuery.catalog.warning} />
-                  </div>
-                ) : null}
-                <Field className="border-t pt-4" error={startFormProblem.messageFor('pasted-url')}>
-                  <FieldLabel>Or paste a Zesty URL</FieldLabel>
-                  <Input
-                    ref={pastedUrlInput}
-                    type="url"
-                    value={pastedUrl}
-                    placeholder="https://8-xxxxxx.manager.zesty.io/content/6-xxxxxx"
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setPastedUrl(value);
-                      startFormProblem.clear('pasted-url');
-                      if ((event.nativeEvent as InputEvent).inputType === 'insertFromPaste')
-                        applyPastedUrl(value);
-                    }}
-                    onBlur={(event) => applyPastedUrl(event.target.value)}
-                  />
-                  <FieldDescription>
-                    {reference
-                      ? 'A Zesty Manager or Instances API URL of a collection or item in this instance.'
-                      : 'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show.'}
-                  </FieldDescription>
-                </Field>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" type="button" onClick={leavePicker}>
-                    Back
-                  </Button>
-                  <Button type="submit">Open root collection</Button>
-                </div>
-              </form>
+              </div>
+              <InstanceList className="max-h-[min(560px,65vh)]" autoFocus {...instanceListProps} />
             </Card>
           ) : null}
 
@@ -1483,6 +1390,20 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           window.setTimeout(() => detailsTrigger.current?.focus(), 100);
         }}
       />
+      <InstanceDialog
+        open={instanceDialogOpen}
+        onOpenChange={setInstanceDialogOpen}
+        viewOpen={Boolean(treeRoot)}
+        {...instanceListProps}
+      />
+      <Dialog open={rootPickerOpen} onOpenChange={setRootPickerOpen}>
+        <DialogContent
+          aria-labelledby={rootPickerTitle}
+          className="flex h-[min(680px,88vh)] w-[min(960px,calc(100vw-32px))] flex-col gap-0 overflow-hidden p-0"
+        >
+          <RootPicker {...rootPickerProps} onCancel={() => setRootPickerOpen(false)} />
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={pendingRootReplacement !== undefined}
         onOpenChange={(open) => {
@@ -1492,7 +1413,9 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
         description="These collection nodes will be removed:"
         confirmLabel="Replace root"
         onConfirm={() => {
-          if (pendingRootReplacement) replaceRoot(pendingRootReplacement, addRelatedOnOpen);
+          if (!pendingRootReplacement) return;
+          setRootPickerOpen(false);
+          replaceRoot(pendingRootReplacement, addRelatedOnOpen);
         }}
       >
         <ul className="border-border grid gap-1 rounded-md border px-3 py-2 text-sm [overflow-wrap:anywhere]">

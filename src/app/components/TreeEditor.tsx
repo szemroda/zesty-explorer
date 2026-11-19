@@ -46,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Field, FieldLabel } from './ui/field';
+import { cn } from '../lib/utils';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -773,7 +774,12 @@ function TreeNodeRow({
                 data-node-actions
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
+                // The root's actions hold Change root collection, so they show like its + does.
+                className={cn(
+                  'size-7 shrink-0',
+                  node.id !== root.id &&
+                    'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100',
+                )}
                 aria-label={`Actions for ${node.name}`}
               />
             }

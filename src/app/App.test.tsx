@@ -170,10 +170,13 @@ function startSession(token = 'fixture-session-token') {
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 }
 
+// The instance list and the root picker both take a pasted Zesty URL in their search.
+function urlSearch() {
+  return screen.getByRole('combobox', { name: /paste a Zesty URL$/ });
+}
+
 function pasteUrl(value: string) {
-  const input = screen.getByLabelText('Or paste a Zesty URL');
-  fireEvent.change(input, { target: { value } });
-  fireEvent.blur(input);
+  fireEvent.input(urlSearch(), { target: { value }, inputType: 'insertFromPaste' });
 }
 
 function loadCollections(collectionUrl: string, token = 'fixture-session-token') {
@@ -202,7 +205,7 @@ async function submitStartForm(
   if (addRelated) {
     fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
   }
-  fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Open (?!a collection$)/ }));
 }
 
 afterEach(() => {
@@ -237,13 +240,8 @@ describe('root collection browser', () => {
       />,
     );
     startSession();
-    fireEvent.input(screen.getByLabelText('Or paste a Zesty URL'), {
-      target: { value: 'https://8-abc123.manager.zesty.io/content/6-model123' },
-      inputType: 'insertFromPaste',
-    });
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
-    );
+    pasteUrl('https://8-abc123.manager.zesty.io/content/6-model123');
+    expect(await screen.findByRole('option', { name: 'Stories', selected: true })).toBeVisible();
     expect(loadCollectionCatalog.mock.calls[0]?.[0]).toEqual({
       instanceZuid: '8-abc123',
       deployment: 'production',
@@ -252,7 +250,10 @@ describe('root collection browser', () => {
       suggestedModelZuid: '6-model123',
       suggestedArea: 'content',
     });
-    expect(screen.getByRole('status', { name: 'Loading instance list' })).toBeInTheDocument();
+    // The list is still loading, so the header names the instance by its ZUID.
+    expect(
+      screen.getByRole('button', { name: 'Switch instance, 8-abc123 is open' }),
+    ).toBeInTheDocument();
   });
 
   it('opens a collection from an uppercase listed ZUID without a Manager URL or auto-selecting the only instance', async () => {
@@ -273,22 +274,9 @@ describe('root collection browser', () => {
     render(<App api={{ ...api(), loadInstances }} tokenStore={memoryTokenStore()} />);
     expect(loadInstances).not.toHaveBeenCalled();
     startSession();
-    const instance = await screen.findByRole('combobox', { name: 'Instance' });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('status', { name: 'Loading instance list' }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(screen.getByRole('combobox', { name: 'Root collection' })).toBeDisabled();
-    fireEvent.change(instance, { target: { value: 'acme' } });
-    fireEvent.keyDown(instance, { key: 'ArrowDown' });
+    fireEvent.change(urlSearch(), { target: { value: 'acme' } });
     fireEvent.click(await screen.findByRole('option', { name: /Acme.*8-abc123/ }));
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Root collection' })).not.toBeDisabled(),
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Show collections' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Stories.*6-model123/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Stories' }));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     expect(loadInstances).toHaveBeenCalledWith('production', 'fixture-session-token');
   });
@@ -316,7 +304,7 @@ describe('root collection browser', () => {
     expect(save).toHaveBeenCalledWith('stage', 'saved-stage-token');
     expect(
       await screen.findByText(
-        'Zesty lists no Stage instances for this session token. If you work in Production or Development, choose Back and pick that deployment. Or paste a Zesty URL below.',
+        'Zesty lists no Stage instances for this session token. If you work in Production or Development, choose it above. Or paste a Zesty URL.',
       ),
     ).toBeInTheDocument();
   });
@@ -359,9 +347,7 @@ describe('root collection browser', () => {
     await waitFor(() =>
       expect(loadInstances).toHaveBeenCalledWith('production', 'replacement-token'),
     );
-    expect(
-      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();
   });
 
   it('keeps a typed replacement token when switching deployment after a 401 and waits for Continue', async () => {
@@ -386,7 +372,7 @@ describe('root collection browser', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
     expect(loadInstances.mock.calls).toEqual([['production', 'expired-token']]);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByRole('heading', { name: 'Choose an instance and root collection' });
+    await screen.findByRole('heading', { name: 'Choose an instance' });
     expect(loadInstances.mock.calls).toEqual([
       ['production', 'expired-token'],
       ['stage', 'typed-stage-token'],
@@ -405,17 +391,13 @@ describe('root collection browser', () => {
     );
     startSession();
     expect(
-      await screen.findByText('Paste a Zesty URL below to open an instance directly.'),
+      await screen.findByText('Paste a Zesty URL above to open an instance directly.'),
     ).toBeInTheDocument();
     pasteUrl('https://8-abc123.manager.zesty.io/content/6-model123/7-000000-aaaaaa/edit');
-    expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
-    fireEvent.click(screen.getByRole('button', { name: 'Show instances' }));
-    expect(await screen.findByRole('option')).toHaveTextContent('8-abc1238-abc123');
-    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Instance' }), { key: 'Escape' });
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    expect(
+      screen.getByRole('button', { name: 'Switch instance, 8-abc123 is open' }),
+    ).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Stories' }));
     expect(await screen.findByRole('dialog', { name: 'First story' })).toBeInTheDocument();
   });
 
@@ -436,20 +418,20 @@ describe('root collection browser', () => {
     startSession('stage-token');
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     expect(store.read('stage')).toBe('stage-token');
-    expect(loadInstances).not.toHaveBeenCalled();
   });
 
-  it('applies typed URLs only on blur or submit, and Back from a cross-deployment token request returns to credentials', async () => {
+  it('applies a typed URL only on Enter, and Back from a cross-deployment token request returns to the instance list', async () => {
     const loadCollectionCatalog = vi.fn<ZestyApi['loadCollectionCatalog']>(() =>
       Effect.succeed(catalog),
     );
     render(<App api={{ ...api(), loadCollectionCatalog }} tokenStore={memoryTokenStore()} />);
     startSession();
-    const input = screen.getByLabelText('Or paste a Zesty URL');
+    const input = urlSearch();
     fireEvent.change(input, { target: { value: 'https://8-intermediate.manager.zesty.io/' } });
     fireEvent.change(input, { target: { value: 'https://8-final123.manager.zesty.io/' } });
-    expect(loadCollectionCatalog).not.toHaveBeenCalled();
     fireEvent.blur(input);
+    expect(loadCollectionCatalog).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(loadCollectionCatalog).toHaveBeenCalledTimes(1));
     expect(loadCollectionCatalog.mock.calls[0]?.[0].instanceZuid).toBe('8-final123');
     pasteUrl('https://8-abc123.manager.stage.zesty.io/content/6-model123');
@@ -458,8 +440,7 @@ describe('root collection browser', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Zesty deployment' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(screen.getByRole('heading', { name: 'Open a Zesty collection' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Zesty session token')).toHaveValue('fixture-session-token');
+    expect(screen.getByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Production' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -490,9 +471,7 @@ describe('root collection browser', () => {
         'saved-stage-token',
       ),
     );
-    expect(
-      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Open a collection' })).toBeInTheDocument();
   });
 
   it('loads the catalog and waits for root confirmation before loading content', async () => {
@@ -503,11 +482,9 @@ describe('root collection browser', () => {
 
     loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
 
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
-    );
+    expect(await screen.findByRole('option', { name: 'Stories', selected: true })).toBeVisible();
     expect(loadCollectionSnapshot).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Stories' }));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
   });
 
@@ -520,7 +497,7 @@ describe('root collection browser', () => {
     );
   });
 
-  it('opens the root picker directly from the root collection menu', async () => {
+  it('opens the root picker over the view from the root collection menu', async () => {
     openSharedView({ ...rootWithChild, children: [] });
     const loadInstances = vi.fn<ZestyApi['loadInstances']>(() =>
       Effect.fail({ kind: 'authentication', status: 401, message: 'Expired' }),
@@ -536,14 +513,13 @@ describe('root collection browser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
 
-    expect(
-      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Instance' })).toBeDisabled();
-    expect(loadInstances).not.toHaveBeenCalled();
-    expect(screen.queryByText(/an instance the list does not show/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry instance list' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Zesty instance URL')).not.toBeInTheDocument();
+    const picker = await screen.findByRole('dialog', { name: 'Open a collection' });
+    expect(within(picker).getByRole('option', { selected: true })).toHaveTextContent(
+      'StoriesOpen now',
+    );
+    // The instance list's 401 does not take an open view's token away.
+    await waitFor(() => expect(loadInstances).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Zesty session token')).not.toBeInTheDocument();
   });
 
   it('keeps an open view when its earlier instance list request finishes with a 401', async () => {
@@ -580,7 +556,8 @@ describe('root collection browser', () => {
     render(<App api={testApi} tokenStore={memoryTokenStore()} />);
 
     loadCollections('https://8-abc123.api.zesty.io/v1/content/models/6-model123');
-    fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Catalog is unavailable.');
+    fireEvent.click(screen.getByRole('button', { name: 'Open 6-model123' }));
 
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /in Zesty Manager/ })).not.toBeInTheDocument();
@@ -1145,7 +1122,7 @@ describe('root collection browser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Actions for Stories' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Change root collection' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Stories' }));
 
     expect(await screen.findByText('Added 1 related collection')).toBeInTheDocument();
   });
@@ -1280,7 +1257,7 @@ describe('root collection browser', () => {
     );
     loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
     fireEvent.click(await screen.findByRole('checkbox', { name: /Add related collections/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open 6-model123' }));
 
     expect(await screen.findByText(/Finding related collections/)).toBeInTheDocument();
     await act(() => Effect.runPromise(Deferred.succeed(catalogReady, relatedCatalog)));
@@ -1500,7 +1477,10 @@ describe('root collection browser', () => {
     });
     await new Promise((resolve) => window.setTimeout(resolve, 20));
 
-    expect(loadCollectionSchema).toHaveBeenCalledTimes(1);
+    // The root picker's preview and the view read the root's schema; the foreign one is never read.
+    expect(
+      new Set(loadCollectionSchema.mock.calls.map(([reference]) => reference.modelZuid)),
+    ).toEqual(new Set(['6-model123']));
   });
 
   it('cancels related schema inspection when the add dialog closes', async () => {
@@ -1717,9 +1697,7 @@ describe('confirmations and undo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reset view' }));
 
-    expect(
-      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();
     expect(window.location.hash).toBe('');
     fireEvent.click(await findToastAction('View reset', 'Undo'));
     expect(await screen.findByRole('heading', { name: 'Stories' })).toBeInTheDocument();
@@ -1790,10 +1768,9 @@ describe('confirmations and undo', () => {
     openViewWithChild(api(loadCollectionSnapshot));
     fireEvent.click(await screen.findByRole('button', { name: 'Actions for Stories' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
-    fireEvent.change(screen.getByLabelText('Or paste a Zesty URL'), {
-      target: { value: 'https://8-abc123.manager.zesty.io/content/6-other123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    const picker = await screen.findByRole('dialog', { name: 'Open a collection' });
+    pasteUrl('https://8-abc123.manager.zesty.io/content/6-other123');
+    fireEvent.click(within(picker).getByRole('button', { name: 'Open 6-other123' }));
 
     const confirmation = await screen.findByRole('alertdialog', {
       name: 'Replace root collection?',
@@ -1805,11 +1782,9 @@ describe('confirmations and undo', () => {
     ).toEqual(['Stories', 'Related stories']);
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-    expect(
-      screen.getByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Open a collection' })).toBe(picker);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Open 6-other123' }));
     fireEvent.click(
       within(
         await screen.findByRole('alertdialog', { name: 'Replace root collection?' }),
@@ -1836,22 +1811,16 @@ describe('form errors', () => {
     );
     expect(token).toHaveFocus();
     startSession();
-    const input = screen.getByLabelText('Or paste a Zesty URL');
-    act(() => input.focus());
+    const input = urlSearch();
+    expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: 'https://example.com/content/6-model123' } });
-    // Leaving the field shows the problem without pulling focus back.
-    const back = screen.getByRole('button', { name: 'Back' });
-    act(() => back.focus());
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(input).toHaveAttribute('aria-invalid', 'true');
-    expect(input).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. This host is not an allowed Zesty deployment host.',
-    );
-    expect(back).toHaveFocus();
-    fireEvent.change(input, { target: { value: 'not-a-url' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
-    expect(input).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of an instance, collection, or item. Use it for a deep link or an instance the list does not show. Enter a complete Zesty Manager or Instances API URL.',
-    );
+    expect(input).toHaveAccessibleDescription('This host is not an allowed Zesty deployment host.');
+    expect(input).toHaveFocus();
+    // Editing the URL clears the problem until it is opened again.
+    fireEvent.change(input, { target: { value: 'https://example.com/content/6-model12' } });
+    expect(input).not.toHaveAttribute('aria-invalid');
   });
 
   it('reports an unusable pasted root reference on its field instead of opening the selection', async () => {
@@ -1861,42 +1830,20 @@ describe('form errors', () => {
     render(<App api={api(loadCollectionSnapshot)} tokenStore={memoryTokenStore()} />);
     await submitStartForm('https://8-abc123.manager.zesty.io/content/6-model123');
     await screen.findByRole('heading', { name: 'Stories' });
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open a collection' }));
+    const picker = await screen.findByRole('dialog', { name: 'Open a collection' });
     loadCollectionSnapshot.mockClear();
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Root collection' })).toHaveValue('Stories'),
-    );
 
-    const pasted = screen.getByLabelText('Or paste a Zesty URL');
-    fireEvent.change(pasted, { target: { value: 'not a collection reference' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
-    expect(pasted).toHaveAttribute('aria-invalid', 'true');
-    expect(pasted).toHaveFocus();
-
-    fireEvent.change(pasted, {
-      target: { value: 'https://8-zzz999.manager.zesty.io/content/6-model123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
-    expect(pasted).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of a collection or item in this instance. Paste a collection from the same Zesty instance and deployment.',
+    pasteUrl('https://example.com/content/6-model123');
+    expect(urlSearch()).toHaveAccessibleDescription(
+      'This host is not an allowed Zesty deployment host.',
     );
+    pasteUrl('https://8-abc123.manager.zesty.io/');
+    expect(urlSearch()).toHaveAccessibleDescription(
+      'This URL names the open instance. Paste a collection or item URL.',
+    );
+    expect(screen.getByRole('dialog', { name: 'Open a collection' })).toBe(picker);
     expect(loadCollectionSnapshot).not.toHaveBeenCalled();
-  });
-
-  it('asks for a root collection on the picker when none is chosen', async () => {
-    render(<App api={api()} tokenStore={memoryTokenStore()} />);
-    loadCollections('https://8-abc123.manager.zesty.io/content/6-model123');
-    const picker = () => screen.getByRole('combobox', { name: 'Root collection' });
-    await waitFor(() => expect(picker()).toHaveValue('Stories'));
-
-    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open root collection' }));
-
-    expect(picker()).toHaveAccessibleDescription(
-      'Its items become the top-level table of the view. Choose a root collection or paste a collection URL.',
-    );
-    expect(picker()).toHaveFocus();
   });
 
   it('asks for a missing relationship field path on that field', async () => {
@@ -2049,7 +1996,7 @@ describe('Code tab', () => {
     ).toBeInTheDocument();
   });
 
-  it('resets the Code tab when another instance is selected', async () => {
+  it('resets the Code tab and stays on it when the header switches instance', async () => {
     render(<App api={codeApi} tokenStore={memoryTokenStore()} />);
     loadCollections('https://8-abc123.manager.zesty.io/');
     fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
@@ -2066,11 +2013,11 @@ describe('Code tab', () => {
       },
     });
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Explorer' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    loadCollections('https://8-xyz789.manager.zesty.io/');
-    fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Switch instance/ }));
+    await screen.findByRole('dialog', { name: 'Switch instance' });
+    pasteUrl('https://8-xyz789.manager.zesty.io/');
 
+    expect(screen.getByRole('tab', { name: 'Code' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByRole('button', { name: /\/8-xyz789\.json/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Choose a file' })).toBeInTheDocument();
   });
@@ -2085,13 +2032,10 @@ describe('Code tab', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Explorer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Stories' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Change root collection' }));
-    expect(screen.getByRole('combobox', { name: 'Instance' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Instance' })).toHaveValue('8-abc123');
-    pasteUrl('https://8-other123.manager.stage.zesty.io/content/6-model123');
-    expect(screen.getByLabelText('Or paste a Zesty URL')).toHaveAccessibleDescription(
-      'A Zesty Manager or Instances API URL of a collection or item in this instance. Paste a collection from the same Zesty instance and deployment.',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    const picker = await screen.findByRole('dialog', { name: 'Open a collection' });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Stories' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
     expect(screen.getByRole('heading', { name: '/8-abc123.json' })).toBeInTheDocument();
   });
@@ -2121,9 +2065,7 @@ describe('Code tab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Reset view' }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Choose an instance and root collection' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Choose an instance' })).toBeInTheDocument();
     expect(window.location.hash).toBe('');
     loadCollections('https://8-abc123.manager.zesty.io/');
     fireEvent.click(await screen.findByRole('tab', { name: 'Code' }));
