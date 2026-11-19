@@ -15,6 +15,7 @@ import { collectionNode, latestScope } from '../../test/fixtures';
 import { snapshotQueryKey } from '../../zesty-api';
 import type { ItemVersionApi } from '../../zesty-api';
 import type { LoadedView } from '../load-view';
+import type { PublicationStatusSource } from '../hooks/publication-status-query';
 import { PublicationStatusProvider } from './PublicationStatusCell';
 import { RootTable } from './RootTable';
 
@@ -159,10 +160,9 @@ describe('recursive collection tables', () => {
       const item = source.itemsById.get(reference.itemZuid)!;
       return Effect.succeed([{ number: Number(item.metadata.version), item }]);
     });
-    const api: ItemVersionApi = {
+    const api: PublicationStatusSource['api'] = {
       loadItemVersions: loadVersions,
-      loadItemPublishings: () => Effect.succeed([]),
-      loadInstanceUsers: () => Effect.succeed([]),
+      loadModelPublishings: () => Effect.succeed([]),
     };
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -182,7 +182,7 @@ describe('recursive collection tables', () => {
       within(rootTableRegion).getByRole('columnheader', { name: 'Status' }),
     ).toBeInTheDocument();
     expect(
-      await within(rootTableRegion).findByRole('img', { name: /Latest saved version/ }),
+      (await within(rootTableRegion).findAllByRole('img', { name: /Latest saved version/ }))[0],
     ).toBeInTheDocument();
     expect(
       loadVersions.mock.calls.every(([reference]) => reference.modelZuid === rootSchema.modelZuid),
@@ -192,7 +192,7 @@ describe('recursive collection tables', () => {
     const nested = await screen.findByRole('region', { name: 'Children related items' });
     expect(within(nested).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
     expect(
-      await within(nested).findByRole('img', { name: /Latest saved version/ }),
+      (await within(nested).findAllByRole('img', { name: /Latest saved version/ }))[0],
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(

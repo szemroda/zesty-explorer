@@ -183,6 +183,24 @@ async function fulfillApi(route: Route, state: FakeApiState) {
     });
     return;
   }
+  // A model's bulk publishing list, one live v2 record for every item in every language.
+  if (url.pathname.endsWith('/items/publishings')) {
+    const items = model === '6-childmodel' ? childItems : rootItems;
+    const ids = items.flatMap(({ meta }) => [meta.ZUID, meta.ZUID.replace('7-', '7-de-')]);
+    const data =
+      Number(url.searchParams.get('page') ?? 1) === 1
+        ? ids.map((itemZUID) => ({
+            ZUID: `18-${itemZUID}`,
+            itemZUID,
+            version: 2,
+            versionZUID: '9-version-two',
+            publishAt: '2026-09-22T12:35:00Z',
+            unpublishAt: null,
+          }))
+        : [];
+    await route.fulfill({ headers: cors, json: { data } });
+    return;
+  }
   if (url.pathname.endsWith('/publishings')) {
     await route.fulfill({
       headers: cors,
@@ -336,6 +354,17 @@ async function openAddRelationshipDialog(page: Page, nodeName?: string) {
     .first()
     .click();
   await page.getByRole('button', { name: 'Other collection or custom relationship…' }).click();
+}
+
+// Reopens the current view as Published in a fresh page load, so no row arrives with saved
+// versions a latest view already recorded.
+async function reopenPublished(page: Page) {
+  await page.getByRole('button', { name: 'Published' }).click();
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  await page.goto('about:blank');
+  await page.goto(link);
+  await expect(page.getByRole('heading', { name: '6-rootmodel' })).toBeVisible();
 }
 
 async function addNativeChild(page: Page) {
@@ -742,23 +771,58 @@ test('exports the root table with its related collection as an Excel workbook', 
   expect(sheet).toContain('<t xml:space="preserve">Child 0; Child 1; Child 2;');
 });
 
-test('loads the publication status of an expanded row before the rest of the root page', async ({
+test('fills every badge of a latest view from one publishing request per model', async ({
+  page,
+}) => {
+  const itemRequest = /\/items\/[^/]+\/(versions|publishings)$/;
+  const perItem: string[] = [];
+  const bulk: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (itemRequest.test(url.pathname)) perItem.push(url.pathname);
+    if (url.pathname.endsWith('/items/publishings')) bulk.push(url.pathname);
+  });
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+  await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
+  const children = page.getByRole('region', { name: 'Children related items', exact: true });
+  await expect(
+    children.getByRole('img', { name: 'Currently published version v2' }).first(),
+  ).toBeVisible();
+  // Row 40 is far below the screen and has its badge from the same request.
+  await expect(
+    page.locator('tbody tr').nth(40).getByRole('img', { name: 'Currently published version v2' }),
+  ).toBeAttached();
+
+  expect(bulk.toSorted()).toEqual([
+    '/v1/content/models/6-childmodel/items/publishings',
+    '/v1/content/models/6-rootmodel/items/publishings',
+  ]);
+  expect(perItem).toEqual([]);
+});
+
+test('loads the saved versions of an expanded row before the rest of a published root page', async ({
   page,
 }) => {
   await installFakeApi(page);
   await openRoot(page);
   await addNativeChild(page);
-  // The root page's 100 badges take about 30 seconds of paced requests, so they are still loading.
+  await reopenPublished(page);
+  // The root page's 100 saved versions take about 15 seconds of paced requests, so they are still
+  // loading.
   await page.getByRole('button', { name: 'Expand relationships for 7-root-000000' }).click();
   const children = page.getByRole('region', { name: 'Children related items', exact: true });
-  // Only rows on or near the screen load their status, so the first child rows are enough.
+  // Only rows on or near the screen load their saved versions, so the first child rows are enough.
   await expect(
-    children.getByRole('img', { name: 'Currently published version v2' }).first(),
+    children
+      .getByRole('img', { name: 'Version v2 is the latest saved and currently published version' })
+      .first(),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('status', { name: 'Loading publication status' })).not.toHaveCount(0);
 });
 
-test('loads statuses below the screen in the background, and scrolling neither aborts nor repeats a request', async ({
+test('loads saved versions below the screen in the background, and scrolling neither aborts nor repeats a request', async ({
   page,
 }) => {
   const statusRequest = /\/items\/[^/]+\/(versions|publishings)$/;
@@ -772,6 +836,8 @@ test('loads statuses below the screen in the background, and scrolling neither a
   });
   await installFakeApi(page);
   await openRoot(page);
+  // A published view reads each row's saved versions; a latest view needs no per-row request.
+  await reopenPublished(page);
   for (let pass = 0; pass < 3; pass += 1) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(150);
@@ -782,7 +848,7 @@ test('loads statuses below the screen in the background, and scrolling neither a
   // Row 40 is far below the screen and loads while the user stays at the top.
   const offScreenRow = page.locator('tbody tr').nth(40);
   await expect(offScreenRow).not.toBeInViewport();
-  await expect(offScreenRow.getByRole('img', { name: /version v\d+$/ }).first()).toBeAttached({
+  await expect(offScreenRow.getByRole('img', { name: /version v\d+/i }).first()).toBeAttached({
     timeout: 15_000,
   });
   expect(failed).toEqual([]);

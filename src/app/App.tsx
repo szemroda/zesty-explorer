@@ -87,8 +87,8 @@ import {
   refreshActiveItemVersionPreviews,
 } from './hooks/useItemVersionPreview';
 import {
-  clearPublicationStatusCacheOutsideScope,
-  refreshActivePublicationStatuses,
+  clearSavedVersionsOutsideScope,
+  refreshActiveSavedVersions,
 } from './hooks/publication-status-query';
 import { flattenCollectionNodes } from './load-view';
 import { Checkbox } from './components/ui/checkbox';
@@ -485,7 +485,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
       deployment: reference?.deployment,
       instanceZuid: reference?.instanceZuid,
     };
-    clearPublicationStatusCacheOutsideScope(queryClient, scope);
+    clearSavedVersionsOutsideScope(queryClient, scope);
     clearModelPublicationsOutsideScope(queryClient, scope);
   }, [credentialRevision, queryClient, reference?.deployment, reference?.instanceZuid]);
 
@@ -502,7 +502,7 @@ function Explorer({ api, tokenStore }: ExplorerProps) {
           catalogQuery.refresh(),
           refreshCollections(),
           refreshActiveItemVersionPreviews(queryClient),
-          refreshActivePublicationStatuses(queryClient),
+          refreshActiveSavedVersions(queryClient),
           refreshActiveModelPublications(queryClient),
         ]);
         succeeded = results.every(Boolean);

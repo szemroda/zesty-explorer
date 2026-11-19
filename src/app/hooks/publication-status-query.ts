@@ -1,60 +1,48 @@
 import type { Query, QueryClient } from '@tanstack/react-query';
-import { Effect } from 'effect';
 import type {
-  ContentItem,
   ContentItemReference,
+  ContentItemVersion,
   ContentState,
   Deployment,
   InstanceZuid,
 } from '../../domain';
 import { withRequestPriority, type BackgroundStanding, type ItemVersionApi } from '../../zesty-api';
 import { runExplorerQuery } from './explorer-query';
-import { contentItemVersionNumber } from '../item-version-preview';
-import { publicationStatus, type PublicationStatus } from '../publication-status';
+import type { ModelPublicationsSource } from './model-publications-query';
 
-export const publicationStatusQueryPrefix = ['publication-status'] as const;
+/** Per-item saved versions, which a published view needs on top of its model's publications. */
+export const savedVersionsQueryPrefix = ['saved-versions'] as const;
 
-export interface PublicationStatusSource {
-  readonly api: ItemVersionApi;
-  readonly sessionToken: string;
-  readonly credentialRevision: string;
-  /** The view's content state. Latest saved items already carry the latest saved version. */
+export interface PublicationStatusSource extends ModelPublicationsSource {
+  readonly api: ModelPublicationsSource['api'] & Pick<ItemVersionApi, 'loadItemVersions'>;
+  /**
+   * The view's content state. Latest saved items carry their own latest version, so their status
+   * comes from the model's publications alone; published items also need their saved versions.
+   */
   readonly contentState: ContentState;
 }
 
 /**
- * Loads one item's publication status as background work, queued by `standing`. It takes no abort
- * signal: a request that was sent runs to the end, and work no one needs is dropped while queued.
+ * Loads the version numbers saved for one item as background work, queued by `standing`. It takes
+ * no abort signal: a request that was sent runs to the end, and work no one needs is dropped
+ * while queued.
  */
-export async function loadPublicationStatus(
+export async function loadSavedVersions(
   source: PublicationStatusSource,
   reference: ContentItemReference,
-  item: ContentItem,
   standing: () => BackgroundStanding,
-): Promise<PublicationStatus> {
-  // The version history only finds a newer save than the item's own version when the view reads
-  // published items; for latest saved items, publishings alone complete the status.
-  const versions =
-    source.contentState === 'latest'
-      ? Effect.succeed([])
-      : source.api.loadItemVersions(reference, source.sessionToken);
-  const result = await runExplorerQuery(
-    Effect.all(
-      [versions, source.api.loadItemPublishings(reference, source.sessionToken)] as const,
-      { concurrency: 2 },
-    ).pipe(withRequestPriority({ kind: 'background', standing })),
+): Promise<readonly Pick<ContentItemVersion, 'number'>[]> {
+  const versions = await runExplorerQuery(
+    source.api
+      .loadItemVersions(reference, source.sessionToken)
+      .pipe(withRequestPriority({ kind: 'background', standing })),
   );
-  const status = publicationStatus(
-    contentItemVersionNumber(item),
-    result[0],
-    result[1],
-    new Date(),
-  );
-  if (!status) throw new Error('No saved version is available.');
-  return status;
+  // Only the numbers stay cached, not every version's content.
+  return versions.map(({ number }) => ({ number }));
 }
 
-export function clearPublicationStatusCacheOutsideScope(
+/** Drops saved versions read with another session or for another instance. */
+export function clearSavedVersionsOutsideScope(
   queryClient: QueryClient,
   scope: {
     readonly credentialRevision: string;
@@ -63,7 +51,7 @@ export function clearPublicationStatusCacheOutsideScope(
   },
 ): void {
   queryClient.removeQueries({
-    queryKey: publicationStatusQueryPrefix,
+    queryKey: savedVersionsQueryPrefix,
     predicate: (query) =>
       query.queryKey[1] !== scope.credentialRevision ||
       query.queryKey[2] !== scope.deployment ||
@@ -71,11 +59,11 @@ export function clearPublicationStatusCacheOutsideScope(
   });
 }
 
-/** How many cells on or near the screen show each status query, by query hash. */
+/** How many cells on or near the screen show each saved-versions query, by query hash. */
 const cellsOnScreen = new Map<string, number>();
 
-/** Counts one cell that shows a status on or near the screen, until the returned function runs. */
-export function countStatusOnScreen(queryHash: string): () => void {
+/** Counts one cell that shows saved versions on or near the screen, until the returned function runs. */
+export function countSavedVersionsOnScreen(queryHash: string): () => void {
   cellsOnScreen.set(queryHash, (cellsOnScreen.get(queryHash) ?? 0) + 1);
   return () => {
     const count = (cellsOnScreen.get(queryHash) ?? 1) - 1;
@@ -84,28 +72,29 @@ export function countStatusOnScreen(queryHash: string): () => void {
   };
 }
 
-export function isStatusOnScreen(queryHash: string): boolean {
+export function isSavedVersionsOnScreen(queryHash: string): boolean {
   return cellsOnScreen.has(queryHash);
 }
 
 /**
- * Reloads the statuses on screen and reports whether they all loaded. Statuses below the screen
- * reload in the background, so Refresh does not wait for whole tables.
+ * Reloads the saved versions on screen and reports whether they all loaded. The ones below the
+ * screen reload in the background, so Refresh does not wait for whole tables. The model
+ * publications that every status also reads refresh with `refreshActiveModelPublications`.
  */
-export async function refreshActivePublicationStatuses(queryClient: QueryClient): Promise<boolean> {
-  const onScreen = (query: Query) => isStatusOnScreen(query.queryHash);
+export async function refreshActiveSavedVersions(queryClient: QueryClient): Promise<boolean> {
+  const onScreen = (query: Query) => isSavedVersionsOnScreen(query.queryHash);
   void queryClient.refetchQueries({
-    queryKey: publicationStatusQueryPrefix,
+    queryKey: savedVersionsQueryPrefix,
     type: 'active',
     predicate: (query) => !onScreen(query),
   });
   await queryClient.refetchQueries({
-    queryKey: publicationStatusQueryPrefix,
+    queryKey: savedVersionsQueryPrefix,
     type: 'active',
     predicate: onScreen,
   });
   return queryClient
     .getQueryCache()
-    .findAll({ queryKey: publicationStatusQueryPrefix, type: 'active', predicate: onScreen })
+    .findAll({ queryKey: savedVersionsQueryPrefix, type: 'active', predicate: onScreen })
     .every((query) => query.state.status !== 'error');
 }
