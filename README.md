@@ -57,10 +57,12 @@ The development server starts on port 5173 or the next available port without op
 3. On the Zesty page, open Developer Tools in Chrome or Edge. Go to Application → Cookies, select the Zesty site, filter by the deployment's cookie name, and copy the whole value under **Cookie Value**.
 4. Return to Zesty Explorer. If you opened Zesty with the link, the **Zesty session token** field has focus again.
 5. Paste the value and select **Continue**. Treat the token like a password. Do not put it in chat, an issue, a screenshot, or a shared link.
-6. Choose an **Instance**. The list shows the instances your session can access in that deployment. Search by name or instance ZUID.
-7. Choose the **Root collection** and select **Open root collection**.
+6. Choose an instance. The list shows the instances your session can access in that deployment. Search by name or instance ZUID.
+7. Choose a collection under **Open a collection**. Its fields show beside the list, with their Zesty Manager types. Select **Open** followed by its name, or press Enter.
 
-To open a specific collection or item, or an instance that the list does not show, paste its URL into **Or paste a Zesty URL**. A Zesty Manager Content or Blocks collection URL and a full Instances API collection URL both work. An item-editor URL opens the collection and that item's details.
+To open a specific collection or item, or an instance that the list does not show, paste its URL into either search field. A Zesty Manager Content or Blocks collection URL and a full Instances API collection URL both work. An item-editor URL opens the collection and that item's details.
+
+The open instance shows in the top bar on every tab. Select it to switch instance; an open view closes, and **Undo** in the notification reopens it. **Use another session token or deployment** there opens the token form; nothing changes until you select **Continue**, and **Back** returns to where you were. To change the root collection, select **Open a collection** above the collection tree, or **Change root collection** in the root's `…` menu.
 
 **Continue** sends the token to the deployment's Accounts API to list your instances. The token is stored only in that tab's `sessionStorage`, separated by deployment. A `401` removes the expired token but preserves the view and your selection. After you enter a replacement, the app returns to where you were.
 

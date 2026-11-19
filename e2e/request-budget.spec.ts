@@ -12,10 +12,8 @@ async function prepare(page: Page) {
   await page.getByLabel('Zesty session token').fill(syntheticToken);
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(codeInstanceUrl);
-  await page.getByLabel('Or paste a Zesty URL').blur();
-  await expect(
-    page.getByRole('heading', { name: 'Choose an instance and root collection' }),
-  ).toBeVisible();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await expect(page.getByRole('heading', { name: 'Open a collection' })).toBeVisible();
   await page.getByRole('tab', { name: 'Code' }).click();
 }
 
@@ -61,10 +59,8 @@ test('paces each tab while sharing four active slots and releases them after req
   }
   await Promise.all(
     [page, second].map(async (tab) => {
-      await tab.getByLabel('Or paste a Zesty URL').blur();
-      await expect(
-        tab.getByRole('heading', { name: 'Choose an instance and root collection' }),
-      ).toBeVisible();
+      await tab.getByLabel('Or paste a Zesty URL').press('Enter');
+      await expect(tab.getByRole('heading', { name: 'Open a collection' })).toBeVisible();
       await tab.getByRole('tab', { name: 'Code' }).click();
       await selectEndpoint(tab);
     }),
@@ -157,7 +153,7 @@ test('closing a tab releases its active slots and allows a queued tab to load', 
     await expect(tab.getByRole('status', { name: 'Loading instance list' })).toBeHidden();
     await tab.getByLabel('Or paste a Zesty URL').fill(codeInstanceUrl);
   }
-  await Promise.all(tabs.map((tab) => tab.getByLabel('Or paste a Zesty URL').blur()));
+  await Promise.all(tabs.map((tab) => tab.getByLabel('Or paste a Zesty URL').press('Enter')));
   await expect.poll(() => started.length).toBe(4);
   const first = started[0];
   if (!first) throw new Error('Expected an active tab');

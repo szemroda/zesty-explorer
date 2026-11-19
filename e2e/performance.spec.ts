@@ -174,8 +174,8 @@ test('reports loaded-data browser p50 and p95 budgets', async ({ page }) => {
   await page
     .getByLabel('Or paste a Zesty URL')
     .fill('https://8-performance.manager.zesty.io/content/6-performance-root');
-  await page.getByLabel('Or paste a Zesty URL').blur();
-  await page.getByRole('button', { name: 'Open root collection' }).click();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
+  await page.getByRole('button', { name: /^Open (?!a collection$|URL$)/ }).click();
   await expect(page.getByText('10000 items', { exact: true })).toBeVisible();
 
   const searches = ['8765', '765', '65', '5', '4321'];

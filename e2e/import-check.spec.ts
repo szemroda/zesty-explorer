@@ -12,7 +12,7 @@ async function checkStoresCsv(page: Page, csv = storesCsv()): Promise<readonly s
   await page.getByLabel('Zesty session token').fill(syntheticToken);
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Or paste a Zesty URL').fill(instanceUrl);
-  await page.getByLabel('Or paste a Zesty URL').blur();
+  await page.getByLabel('Or paste a Zesty URL').press('Enter');
   await page.getByRole('tab', { name: 'Import check' }).click();
   await expect(page.getByRole('combobox', { name: 'Collection to import into' })).toHaveValue(
     'Store locations',

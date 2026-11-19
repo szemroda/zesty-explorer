@@ -25,7 +25,7 @@ The instances that one session token can access in one Zesty deployment, as retu
 _Avoid_: Instance catalog, sites
 
 **Instance picker**:
-The searchable control for choosing an instance from an instance list by name or instance ZUID.
+The searchable control for choosing an instance from an instance list by name or instance ZUID. It is the first page after the session token, and the top bar opens it on every tab.
 _Avoid_: Instance dropdown, site selector
 
 **Unlisted instance**:
@@ -55,6 +55,10 @@ _Avoid_: Block, component collection
 **Unrecognized collection type**:
 A collection type returned by Zesty that Zesty Explorer does not understand. Its collection remains selectable, but the application has no trusted Manager navigation target for it.
 _Avoid_: Invalid collection, unsupported collection
+
+**Root picker**:
+The searchable list of a collection catalog for choosing the root collection of a view. It previews the highlighted collection's fields, and it is the page until a view is open and a dialog over the view afterwards.
+_Avoid_: Collection browser, root dropdown
 
 **Collection picker**:
 The searchable control for selecting a collection from a collection catalog. It displays collection labels while retaining technical names and model identifiers to distinguish similar collections.
