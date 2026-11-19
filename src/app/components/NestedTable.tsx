@@ -52,6 +52,7 @@ import { shownCount } from '../lib/utils';
 import { ErrorTechnicalDetails } from './ErrorTechnicalDetails';
 import { tableFilterControls } from './FilterControls';
 import { PublicationStatusCell } from './PublicationStatusCell';
+import { NestedTableExport } from './TableExport';
 import { TableSkeleton } from './TableSkeleton';
 import { Button } from './ui/button';
 
@@ -78,6 +79,8 @@ interface NestedTableProps {
   readonly onRetry: () => void;
   /** The view's root, which the filter editor names as unaffected by table filters. */
   readonly root: CollectionNode;
+  /** Root items that match the view's search and filters, in table order. */
+  readonly rootItems: readonly ContentItem[];
 }
 
 type ContentItemColumns = ReturnType<typeof contentItemColumns>;
@@ -242,6 +245,7 @@ export function NestedTable(props: NestedTableProps) {
     onOpenDetails,
     onRetry,
     root,
+    rootItems,
   } = props;
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [deriveSortedIds] = useState(createSortedIdsMemo);
@@ -432,6 +436,18 @@ export function NestedTable(props: NestedTableProps) {
             table={table}
             columns={columns}
             label={`Choose ${node.name} columns`}
+          />
+          <NestedTableExport
+            view={{ graph, loadedView, scope: contentScope }}
+            root={root}
+            node={node}
+            parentNode={parentNode}
+            parentItem={parentSnapshot?.itemsById.get(parentItemId)}
+            items={items}
+            rootItems={rootItems}
+            columns={columns}
+            columnVisibility={columnVisibility}
+            pinnedColumns={sharedState.pinnedColumns}
           />
         </div>
       </div>

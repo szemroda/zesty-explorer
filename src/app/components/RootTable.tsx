@@ -54,6 +54,7 @@ import {
 import { plural, shownCount } from '../lib/utils';
 import { tableFilterControls } from './FilterControls';
 import { NestedTable, type SharedNodeTableState } from './NestedTable';
+import { RootTableExport } from './TableExport';
 import { PublicationStatusCell } from './PublicationStatusCell';
 import { ScrollDockProvider } from './ScrollDock';
 import { TableSkeleton } from './TableSkeleton';
@@ -358,6 +359,18 @@ export function RootTable({
               columns={itemColumnDefinitions}
               label="Choose visible columns"
             />
+            {resultsPending ? null : (
+              <RootTableExport
+                title={title}
+                view={{ graph, loadedView, scope: contentScope }}
+                node={treeRoot}
+                filteredItems={filteredItems}
+                allItemIds={sortedIds}
+                columns={itemColumnDefinitions}
+                columnVisibility={columnVisibility}
+                pinnedColumns={pinnedColumns}
+              />
+            )}
           </div>
         </div>
         {filterControls.chipRow}
@@ -415,6 +428,7 @@ export function RootTable({
                         onOpenDetails={onOpenDetails}
                         onRetry={onRetry}
                         root={treeRoot}
+                        rootItems={filteredItems}
                       />
                     ))}
                   </div>

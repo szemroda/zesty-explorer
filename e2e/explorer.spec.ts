@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
+import { strFromU8, unzipSync } from 'fflate';
 
 const rootUrl = 'https://8-fixture.manager.zesty.io/content/6-rootmodel';
 const childUrl = 'https://8-fixture.manager.zesty.io/content/6-childmodel';
@@ -714,6 +716,30 @@ test('creates native and custom roles, expands related rows, and preserves detai
   await expect(
     page.getByRole('complementary', { name: 'Collection tree' }).getByText('Custom children'),
   ).toBeVisible();
+});
+
+test('exports the root table with its related collection as an Excel workbook', async ({
+  page,
+}) => {
+  await installFakeApi(page);
+  await openRoot(page);
+  await addNativeChild(page);
+
+  await page.getByRole('button', { name: 'Export 6-rootmodel' }).click();
+  await page.getByRole('checkbox', { name: 'Children' }).click();
+  await page.getByRole('button', { name: 'Excel', exact: true }).click();
+  await expect(page.getByText('105 rows, 9 columns')).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download Excel' }).click(),
+  ]);
+
+  expect(download.suggestedFilename()).toMatch(/^6-rootmodel_latest_en-us_[\d-]+\.xlsx$/);
+  const workbook = unzipSync(await readFile(await download.path()));
+  const sheet = strFromU8(workbook['xl/worksheets/sheet1.xml']);
+  expect(sheet.match(/<row /g)).toHaveLength(106);
+  expect(sheet).toContain('<t xml:space="preserve">Children</t>');
+  expect(sheet).toContain('<t xml:space="preserve">Child 0; Child 1; Child 2;');
 });
 
 test('loads the publication status of an expanded row before the rest of the root page', async ({

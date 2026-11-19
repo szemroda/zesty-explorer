@@ -648,4 +648,81 @@ describe('recursive collection tables', () => {
       }),
     );
   });
+
+  it('exports the root table with a related collection summed up in each row', async () => {
+    render(rootTable());
+
+    const collection = screen.getByRole('region', { name: 'Parents collection' });
+    fireEvent.click(within(collection).getByRole('button', { name: 'Export Parents' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Children' }));
+    const file = await savedFile(() =>
+      fireEvent.click(screen.getByRole('button', { name: 'Download CSV' })),
+    );
+
+    const [first, second, third, fourth, fifth] = [...generated.parents.items].reverse();
+    expect(file.name).toMatch(/^parents_latest_en-us_\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(file.text).toBe(
+      [
+        'ZUID,Title,Child key,Children',
+        `${first!.id},Parent 4,group-004,Child 4`,
+        `${second!.id},Parent 3,group-003,Child 3`,
+        `${third!.id},Parent 2,group-002,Child 2`,
+        `${fourth!.id},Parent 1,group-001,Child 1`,
+        `${fifth!.id},Parent 0,group-000,Child 0`,
+        '',
+      ].join('\r\n'),
+    );
+  });
+
+  it("exports a nested table across every root item, naming each row's parent", async () => {
+    render(rootTable({ viewFilters: [titleIs('Parent 1')] }));
+
+    const parent = generated.parents.items[1]!;
+    fireEvent.click(screen.getByRole('button', { name: `Expand relationships for ${parent.id}` }));
+    const nested = await screen.findByRole('region', { name: 'Children related items' });
+    fireEvent.click(within(nested).getByRole('button', { name: 'Export Children' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'All' }));
+    const file = await savedFile(() =>
+      fireEvent.click(screen.getByRole('button', { name: 'Download CSV' })),
+    );
+
+    const childItem = generated.children.items[1]!;
+    expect(file.text).toBe(
+      [
+        'Parents ZUID,Parents,ZUID,Title,Parent key',
+        `${parent.id},Parent 1,${childItem.id},Child 1,group-001`,
+        '',
+      ].join('\r\n'),
+    );
+  });
 });
+
+function titleIs(title: string): ViewFilter {
+  return { id: 'title', nodePath: [], fieldPath: ['title'], operator: 'equals', value: title };
+}
+
+// Runs `download` and returns the file it handed to the browser to save.
+async function savedFile(download: () => void): Promise<{ name: string; text: string }> {
+  let blob: Blob | undefined;
+  let name = '';
+  // jsdom has no object URLs, so the test lends them and takes them back.
+  URL.createObjectURL = (object: Blob | MediaSource) => {
+    if (object instanceof Blob) blob = object;
+    return 'blob:export';
+  };
+  URL.revokeObjectURL = () => undefined;
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    name = this.download;
+  });
+  try {
+    download();
+  } finally {
+    click.mockRestore();
+    Reflect.deleteProperty(URL, 'createObjectURL');
+    Reflect.deleteProperty(URL, 'revokeObjectURL');
+  }
+  if (!blob) throw new Error('Nothing was downloaded');
+  return { name, text: await blob.text() };
+}
